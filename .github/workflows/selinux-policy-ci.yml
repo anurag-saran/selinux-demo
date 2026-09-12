@@ -1,0 +1,98 @@
+name: SELinux Policy CI
+
+on:
+  pull_request:
+    paths:
+      - 'selinux/**'
+      - 'cli/**'
+      - 'scripts/compile_and_validate.sh'
+      - 'scripts/validate_forbidden_patterns.sh'
+      - 'scripts/smoke_test.py'
+      - 'scripts/assemble_pr_body.sh'
+      - '.github/workflows/selinux-policy-ci.yml'
+      - '.github/PULL_REQUEST_TEMPLATE/**'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'selinux/**'
+      - 'cli/**'
+      - 'scripts/compile_and_validate.sh'
+      - 'scripts/validate_forbidden_patterns.sh'
+      - 'scripts/smoke_test.py'
+      - 'scripts/assemble_pr_body.sh'
+
+jobs:
+  smoke:
+    name: smoke-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CLI dependencies
+        run: pip install -r cli/requirements.txt
+
+      - name: Run smoke tests
+        run: python3 scripts/smoke_test.py
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## smoke-tests"
+            echo "Validates prompts, AVC parsing, policy JSON, version bump, Flask routes, PR body assembly."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  forbidden-patterns:
+    name: forbidden-patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate forbidden SELinux patterns
+        run: bash scripts/validate_forbidden_patterns.sh selinux
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## forbidden-patterns"
+            echo "Blocks wildcards, shadow_t/unconfined_t/sysadm_t allows, broad var_t:file write."
+            echo "Maps to admin PR table row: **No Over-Permissive Grants**."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  compile:
+    name: compile-policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Compile selinux/ module
+        run: bash scripts/compile_and_validate.sh selinux
+
+      - name: Upload compiled policy package
+        uses: actions/upload-artifact@v4
+        with:
+          name: selinux-myapp-pp
+          path: selinux/myapp.pp
+          if-no-files-found: error
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## compile-policy"
+            echo "Built \`selinux/myapp.pp\` — download artifact **selinux-myapp-pp**."
+            echo "Maps to admin PR table row: **Compilation Test**."
+          } >> "${GITHUB_STEP_SUMMARY}"

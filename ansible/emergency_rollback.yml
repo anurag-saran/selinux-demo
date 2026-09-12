@@ -1,0 +1,68 @@
+---
+- name: Emergency rollback — permissive domain + AVC export + AI patch
+  hosts: all
+  become: true
+  environment:
+    PATH: "{{ ansible_env_path | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
+  vars:
+    emergency_log: /tmp/emergency_avc.log
+    gen_script: "{{ project_root }}/cli/selinux_gen.py"
+    stub_policy_dir: "{{ project_root }}/selinux/stub"
+
+  tasks:
+    - name: Detect semanage availability
+      ansible.builtin.stat:
+        path: /usr/sbin/semanage
+      register: semanage_bin
+
+    - name: Switch domain to permissive immediately (semanage)
+      ansible.builtin.command: "semanage permissive -a {{ domain }}"
+      register: semanage_add
+      failed_when: semanage_add.rc not in [0, 1]
+      changed_when: true
+      when: semanage_bin.stat.exists
+
+    - name: FCOS fallback — permissive stub for emergency relief
+      ansible.builtin.command: "bash {{ project_root }}/scripts/apply_policy.sh {{ stub_policy_dir }}"
+      when: not semanage_bin.stat.exists
+      changed_when: true
+
+    - name: Restart service to restore availability
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        state: restarted
+
+    - name: Export recent AVC logs
+      ansible.builtin.shell: |
+        set -o pipefail
+        (ausearch -m avc -ts boot --raw 2>/dev/null || grep '^type=AVC' /var/log/audit/audit.log) \
+          | grep -E '{{ domain }}|/opt/myapp|/var/myapp' > {{ emergency_log }}
+      changed_when: true
+
+    - name: Show emergency log path
+      ansible.builtin.debug:
+        msg: "Emergency AVC log: {{ emergency_log }}"
+
+    - name: Generate emergency policy patch (generate-only)
+      ansible.builtin.command: >
+        python3 {{ gen_script }}
+        --app-name {{ app_name }}
+        --domain {{ domain }}
+        --audit-log {{ emergency_log }}
+        --existing-te {{ project_root }}/selinux/{{ app_name }}.te
+        --existing-fc {{ project_root }}/selinux/{{ app_name }}.fc
+        --bump-version
+        --generate-only
+        --output-dir {{ project_root }}/policy_out
+      environment:
+        OPENAI_API_KEY: "{{ lookup('env', 'OPENAI_API_KEY') | default('', true) }}"
+        OPENAI_BASE_URL: "{{ lookup('env', 'OPENAI_BASE_URL') | default('', true) }}"
+        OPENAI_API_MODEL: "{{ lookup('env', 'OPENAI_API_MODEL') | default('gpt-4o-mini', true) }}"
+      register: gen_result
+      failed_when: gen_result.rc != 0 and lookup('env', 'OPENAI_API_KEY') | length > 0
+      changed_when: gen_result.rc == 0
+
+    - name: Note when OPENAI_API_KEY unset
+      ansible.builtin.debug:
+        msg: "Set OPENAI_API_KEY to auto-generate emergency patch via selinux_gen.py"
+      when: lookup('env', 'OPENAI_API_KEY') | default('', true) | length == 0

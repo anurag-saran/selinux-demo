@@ -1,0 +1,43 @@
+name: SELinux Staging Canary
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'selinux/**'
+
+jobs:
+  staging-canary:
+    name: staging-canary
+    runs-on: [self-hosted, selinux-staging]
+    environment: staging
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile policy from selinux/
+        run: bash scripts/compile_and_validate.sh selinux
+
+      - name: Deploy canary (permissive domain)
+        run: |
+          INV="ansible/inventory.staging.yml"
+          if [[ ! -f "${INV}" ]]; then
+            INV="ansible/inventory.example.yml"
+          fi
+          ansible-playbook -i "${INV}" ansible/deploy_canary.yml \
+            -e "policy_pp_path=${{ github.workspace }}/selinux/myapp.pp"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Staging canary deploy"
+            echo ""
+            echo "- Policy dir: \`selinux/\`"
+            echo "- Trigger: merge to \`${{ github.ref_name }}\`"
+            echo "- Next: admin runs **SELinux Policy Deploy** → \`enforce\` on \`production\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

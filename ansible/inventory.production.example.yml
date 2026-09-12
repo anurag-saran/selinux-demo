@@ -1,0 +1,36 @@
+# Copy to ansible/inventory.production.yml on your production SELinux hosts.
+# Register a self-hosted runner with labels: selinux-production
+# Protect the "production" GitHub Environment with required reviewers.
+#
+# Rollout: deploy_canary.yml --limit canary → soak → deploy_canary --limit production → enforce
+
+all:
+  children:
+    canary:
+      hosts:
+        prod-canary-1:
+          ansible_host: prod-canary1.example.com
+          ansible_user: ansible
+          ansible_become: true
+    production:
+      hosts:
+        prod-canary-1:
+          ansible_host: prod-canary1.example.com
+          ansible_user: ansible
+          ansible_become: true
+        prod-host-2:
+          ansible_host: prod2.example.com
+          ansible_user: ansible
+          ansible_become: true
+  vars:
+    app_name: myapp
+    domain: myapp_t
+    install_root: /opt/myapp
+    var_dir: /var/myapp
+    service_name: myapp.service
+    policy_pp_path: "{{ playbook_dir }}/../selinux/myapp.pp"
+    project_root: "{{ playbook_dir }}/.."
+    ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"
+    soak_min_days: 7
+    soak_max_avc: 0

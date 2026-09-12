@@ -1,0 +1,6 @@
+# Security/platform team owns policy and deployment playbooks.
+# Replace @your-org/security-team with your GitHub team or usernames.
+
+/selinux/                    @your-org/security-team
+/ansible/                    @your-org/security-team
+/.github/workflows/selinux-deploy.yml  @your-org/security-team

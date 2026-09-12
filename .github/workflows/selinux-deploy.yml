@@ -1,0 +1,94 @@
+name: SELinux Policy Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Deploy action
+        required: true
+        type: choice
+        options:
+          - canary
+          - enforce
+          - rollback
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      policy_dir:
+        description: Policy source directory (relative to repo root)
+        required: false
+        default: selinux
+
+# Requires a self-hosted runner on a SELinux host:
+#   staging:    runs-on: [self-hosted, selinux-staging]
+#   production: runs-on: [self-hosted, selinux-production]
+#
+# Configure GitHub Environments "staging" and "production" with required reviewers
+# for production enforce/rollback actions.
+
+jobs:
+  deploy:
+    name: "${{ inputs.action }} (${{ inputs.environment }})"
+    runs-on: ${{ inputs.environment == 'production' && fromJSON('["self-hosted", "selinux-production"]') || fromJSON('["self-hosted", "selinux-staging"]') }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate policy directory
+        run: |
+          test -f "${{ inputs.policy_dir }}/myapp.te"
+          test -f "${{ inputs.policy_dir }}/myapp.fc"
+
+      - name: Compile policy module
+        run: bash scripts/compile_and_validate.sh "${{ inputs.policy_dir }}"
+
+      - name: Select Ansible inventory
+        id: inv
+        run: |
+          if [[ -f "ansible/inventory.${{ inputs.environment }}.yml" ]]; then
+            echo "path=ansible/inventory.${{ inputs.environment }}.yml" >> "$GITHUB_OUTPUT"
+          elif [[ -f "ansible/inventory.example.yml" ]]; then
+            echo "path=ansible/inventory.example.yml" >> "$GITHUB_OUTPUT"
+          else
+            echo "No inventory file found for environment ${{ inputs.environment }}" >&2
+            exit 1
+          fi
+
+      - name: Run canary deploy
+        if: inputs.action == 'canary'
+        run: |
+          ansible-playbook -i "${{ steps.inv.outputs.path }}" ansible/deploy_canary.yml \
+            -e "policy_pp_path=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp"
+
+      - name: Run enforce production
+        if: inputs.action == 'enforce'
+        run: |
+          ansible-playbook -i "${{ steps.inv.outputs.path }}" ansible/enforce_production.yml \
+            -e "policy_pp_path=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp"
+
+      - name: Enforce job summary
+        if: inputs.action == 'enforce'
+        run: |
+          {
+            echo "## Production enforce"
+            echo ""
+            echo "- Soak gate: \`check_soak_ready.sh\` (7+ days, zero domain AVCs by default)"
+            echo "- Override: \`-e force_enforce=true\` break-glass only"
+            echo "- Runbook: [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md)"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Run emergency rollback
+        if: inputs.action == 'rollback'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_API_MODEL: ${{ secrets.OPENAI_API_MODEL }}
+        run: |
+          ansible-playbook -i "${{ steps.inv.outputs.path }}" ansible/emergency_rollback.yml

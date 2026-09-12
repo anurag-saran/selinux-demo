@@ -1,0 +1,20 @@
+[Unit]
+Description=Order Processor App (SELinux PoC)
+Documentation=file:///opt/myapp/app.py
+After=network.target auditd.service
+Wants=auditd.service
+
+[Service]
+Type=simple
+User=myapp
+Group=myapp
+WorkingDirectory=/opt/myapp
+ExecStart=/opt/myapp/venv/bin/python /opt/myapp/app.py
+Environment=FLASK_ENV=production
+Restart=on-failure
+RestartSec=5
+
+# Run under dedicated domain after stub/AI policy labels the entrypoint.
+
+[Install]
+WantedBy=multi-user.target

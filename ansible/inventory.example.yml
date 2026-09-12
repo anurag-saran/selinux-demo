@@ -1,0 +1,14 @@
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_become: true
+  vars:
+    app_name: myapp
+    domain: myapp_t
+    install_root: /opt/myapp
+    var_dir: /var/myapp
+    service_name: myapp.service
+    policy_pp_path: "{{ playbook_dir }}/../policy_out/myapp.pp"
+    project_root: "{{ playbook_dir }}/.."
+    ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

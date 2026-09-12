@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+#
+# dev_generate_policy.sh — One-command developer self-service policy generation
+#
+# Exports AVC logs, runs cli/selinux_gen.py, diffs against selinux/, optionally
+# promotes generated policy into selinux/ for PR commit.
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+GEN="${PROJECT_ROOT}/cli/selinux_gen.py"
+SELINUX_DIR="${PROJECT_ROOT}/selinux"
+POLICY_OUT="${PROJECT_ROOT}/policy_out"
+AVC_LOG="${POLICY_OUT}/avc.log"
+APP_NAME="${POLICY_APP:-myapp}"
+DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
+USE_VM=0
+APPLY=0
+SKIP_EXPORT=0
+OPEN_PR=0
+STAGING_HOST="${STAGING_HOST:-Podman VM / native staging host}"
+TEST_SUITE="${TEST_SUITE:-Integration tests (curl endpoints)}"
+ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options]
+
+Developer self-service: export AVCs → AI generate → diff → optional promote to selinux/
+
+Options:
+  --apply          Copy policy_out/{app}.te/.fc into selinux/ after generation
+  --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
+  --use-vm         Export AVCs via scripts/run_on_podman_vm.sh (macOS Podman VM)
+  --skip-export    Use existing policy_out/avc.log (must be non-empty)
+  --app-name NAME  Module name (default: myapp)
+  --staging-host   Staging environment label for PR body
+  --test-suite     Test suite description for PR body
+  -h, --help       Show this help
+
+Environment:
+  OPENAI_API_KEY   Required for AI generation
+  OPENAI_BASE_URL  Optional LiteLLM endpoint
+  OPENAI_API_MODEL Optional model override
+
+Example:
+  export OPENAI_API_KEY="your-key"
+  bash scripts/dev_generate_policy.sh --use-vm --apply
+  git checkout -b policy/update && git add selinux/ && gh pr create --body-file policy_out/pr_summary.md
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --apply) APPLY=1; shift ;;
+        --open-pr) OPEN_PR=1; APPLY=1; shift ;;
+        --use-vm) USE_VM=1; shift ;;
+        --skip-export) SKIP_EXPORT=1; shift ;;
+        --app-name) APP_NAME="$2"; DOMAIN="${APP_NAME}_t"; shift 2 ;;
+        --staging-host) STAGING_HOST="$2"; shift 2 ;;
+        --test-suite) TEST_SUITE="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) log_error "Unknown option: $1"; usage; exit 1 ;;
+    esac
+done
+
+require_api_key() {
+    [[ -n "${OPENAI_API_KEY:-}" ]] || {
+        log_error "Set OPENAI_API_KEY before running dev_generate_policy.sh"
+        exit 1
+    }
+}
+
+require_existing_policy() {
+    [[ -f "${SELINUX_DIR}/${APP_NAME}.te" ]] || {
+        log_error "Missing ${SELINUX_DIR}/${APP_NAME}.te"
+        exit 1
+    }
+    [[ -f "${SELINUX_DIR}/${APP_NAME}.fc" ]] || {
+        log_error "Missing ${SELINUX_DIR}/${APP_NAME}.fc"
+        exit 1
+    }
+}
+
+export_avcs() {
+    mkdir -p "${POLICY_OUT}"
+    if [[ "${USE_VM}" -eq 1 ]]; then
+        log_info "Exporting AVCs from Podman VM..."
+        bash "${SCRIPT_DIR}/run_on_podman_vm.sh" export-avcs "${AVC_LOG}"
+    elif command -v ausearch >/dev/null 2>&1; then
+        log_info "Exporting AVCs from local audit log..."
+        ausearch -m avc -ts boot --raw 2>/dev/null \
+            | grep -E "${APP_NAME}|/opt/${APP_NAME}|/var/${APP_NAME}|/var/opt/${APP_NAME}" \
+            > "${AVC_LOG}" || true
+    else
+        log_error "No ausearch on host; use --use-vm or run on a SELinux Linux host"
+        exit 1
+    fi
+    [[ -s "${AVC_LOG}" ]] || {
+        log_error "No AVC lines in ${AVC_LOG}. Run staging tests first:"
+        echo "  sudo bash scripts/setup_staging_env.sh"
+        echo "  curl http://127.0.0.1:8888/save-log"
+        exit 1
+    }
+    log_info "Exported $(wc -l < "${AVC_LOG}" | tr -d ' ') AVC lines to ${AVC_LOG}"
+}
+
+generate_policy() {
+    log_info "Running cli/selinux_gen.py..."
+    python3 "${GEN}" \
+        --app-name "${APP_NAME}" \
+        --domain "${DOMAIN}" \
+        --audit-log "${AVC_LOG}" \
+        --existing-te "${SELINUX_DIR}/${APP_NAME}.te" \
+        --existing-fc "${SELINUX_DIR}/${APP_NAME}.fc" \
+        --bump-version \
+        --validate-compile \
+        --generate-only \
+        --output-dir "${POLICY_OUT}"
+}
+
+show_diff() {
+    log_info "Diff: selinux/ vs policy_out/"
+    if command -v git >/dev/null 2>&1 && git -C "${PROJECT_ROOT}" rev-parse --git-dir >/dev/null 2>&1; then
+        git -C "${PROJECT_ROOT}" diff --no-index \
+            "${SELINUX_DIR}/${APP_NAME}.te" "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
+        git -C "${PROJECT_ROOT}" diff --no-index \
+            "${SELINUX_DIR}/${APP_NAME}.fc" "${POLICY_OUT}/${APP_NAME}.fc" 2>/dev/null || true
+    else
+        diff -u "${SELINUX_DIR}/${APP_NAME}.te" "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
+        diff -u "${SELINUX_DIR}/${APP_NAME}.fc" "${POLICY_OUT}/${APP_NAME}.fc" 2>/dev/null || true
+    fi
+}
+
+promote_to_selinux() {
+    log_info "Promoting policy_out → selinux/"
+    cp "${POLICY_OUT}/${APP_NAME}.te" "${SELINUX_DIR}/${APP_NAME}.te"
+    cp "${POLICY_OUT}/${APP_NAME}.fc" "${SELINUX_DIR}/${APP_NAME}.fc"
+    if [[ -f "${SELINUX_DIR}/policy_version.txt" ]]; then
+        match="$(grep -oE 'policy_module\([^,]+,\s*[\d.]+\)' "${SELINUX_DIR}/${APP_NAME}.te" \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        [[ -n "${match}" ]] && echo "${match}" > "${SELINUX_DIR}/policy_version.txt"
+    fi
+    log_info "Updated ${SELINUX_DIR}/${APP_NAME}.{te,fc} and policy_version.txt"
+}
+
+assemble_pr_body() {
+    log_info "Assembling PR body..."
+    bash "${ASSEMBLE}" \
+        --app-name "${APP_NAME}" \
+        --staging-host "${STAGING_HOST}" \
+        --test-suite "${TEST_SUITE}" \
+        --output "${POLICY_OUT}/pr_body.md"
+}
+
+open_pr() {
+    if ! command -v gh >/dev/null 2>&1; then
+        log_error "gh CLI not found; install GitHub CLI or open PR manually"
+        return 1
+    fi
+    local branch="policy/${APP_NAME}-update"
+    log_info "Creating branch ${branch} and opening PR..."
+    git -C "${PROJECT_ROOT}" checkout -b "${branch}" 2>/dev/null || \
+        git -C "${PROJECT_ROOT}" checkout "${branch}"
+    git -C "${PROJECT_ROOT}" add \
+        "selinux/${APP_NAME}.te" \
+        "selinux/${APP_NAME}.fc" \
+        "selinux/policy_version.txt" \
+        "policy_out/pr_body.md" 2>/dev/null || true
+    gh pr create \
+        --title "security(selinux): Update policy module for ${APP_NAME}" \
+        --body-file "${POLICY_OUT}/pr_body.md" \
+        --label security \
+        --label selinux \
+        --label pending-admin-review
+}
+
+print_pr_steps() {
+    cat <<EOF
+
+--- Next steps (Git PR handoff) ---
+
+1. Review assembled PR body:
+   cat policy_out/pr_body.md
+
+2. Validate locally (matches CI):
+   bash scripts/compile_and_validate.sh selinux
+   bash scripts/validate_forbidden_patterns.sh selinux
+   python3 scripts/smoke_test.py
+
+3. Commit and open PR:
+   git checkout -b policy/${APP_NAME}-update
+   git add selinux/${APP_NAME}.te selinux/${APP_NAME}.fc selinux/policy_version.txt
+   gh pr create \\
+     --title "security(selinux): Update policy module for ${APP_NAME}" \\
+     --body-file policy_out/pr_body.md \\
+     --label security --label selinux --label pending-admin-review
+
+Admin team: review PR table + summary; merge triggers staging canary; enforce via deploy workflow.
+
+EOF
+}
+
+main() {
+    require_api_key
+    require_existing_policy
+
+    if [[ "${SKIP_EXPORT}" -eq 0 ]]; then
+        export_avcs
+    else
+        [[ -s "${AVC_LOG}" ]] || { log_error "--skip-export but ${AVC_LOG} is empty"; exit 1; }
+    fi
+
+    generate_policy
+    show_diff
+
+    if [[ "${APPLY}" -eq 1 ]]; then
+        promote_to_selinux
+    else
+        log_warn "Generated files in policy_out/ only. Re-run with --apply to copy into selinux/"
+    fi
+
+    assemble_pr_body
+
+    if [[ "${OPEN_PR}" -eq 1 ]]; then
+        open_pr
+    else
+        print_pr_steps
+    fi
+}
+
+main "$@"

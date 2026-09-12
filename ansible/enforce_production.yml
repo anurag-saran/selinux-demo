@@ -1,0 +1,113 @@
+---
+- name: Enforce production — remove permissive domain
+  hosts: all
+  become: true
+  environment:
+    PATH: "{{ ansible_env_path | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
+
+  vars:
+    bin_dir: "{{ install_root }}/bin"
+
+  tasks:
+    - name: Check soak period and AVC gate before enforce
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/check_soak_ready.sh
+        --domain {{ domain }}
+        --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
+        --min-days {{ soak_min_days | default(7) }}
+        --max-avc {{ soak_max_avc | default(0) }}
+      when: not (force_enforce | default(false) | bool)
+      changed_when: false
+
+    - name: Break-glass enforce override active
+      ansible.builtin.debug:
+        msg: "force_enforce=true — skipping soak gate (document approval in change ticket)"
+      when: force_enforce | default(false) | bool
+
+    - name: Detect semanage availability
+      ansible.builtin.stat:
+        path: /usr/sbin/semanage
+      register: semanage_bin
+
+    - name: Remove permissive flag from domain (semanage)
+      ansible.builtin.command: "semanage permissive -d {{ domain }}"
+      register: semanage_del
+      failed_when: semanage_del.rc not in [0, 1]
+      changed_when: semanage_del.rc == 0
+      when: semanage_bin.stat.exists
+
+    - name: FCOS fallback — remove existing module
+      ansible.builtin.command: "semodule -r {{ app_name }}"
+      register: semodule_remove
+      failed_when: semodule_remove.rc not in [0, 1]
+      changed_when: semodule_remove.rc == 0
+      when: not semanage_bin.stat.exists
+
+    - name: FCOS fallback — install enforcing policy module
+      ansible.builtin.command: "semodule -i {{ policy_pp_path }}"
+      when: not semanage_bin.stat.exists
+      changed_when: true
+
+    - name: Verify SELinux enforcing mode
+      ansible.builtin.command: getenforce
+      register: selinux_mode
+      changed_when: false
+      failed_when: selinux_mode.stdout != "Enforcing"
+
+    - name: Verify domain not permissive
+      ansible.builtin.shell: |
+        semanage permissive -l 2>/dev/null | grep -w {{ domain }} && exit 1 || exit 0
+      changed_when: false
+      when: semanage_bin.stat.exists
+
+    - name: restorecon on data directory
+      ansible.builtin.command: "restorecon -Rv {{ var_dir }}"
+      changed_when: true
+
+    - name: Explicit chcon fallback (FCOS /opt symlink paths)
+      ansible.builtin.shell: |
+        chcon -t {{ app_name }}_exec_t {{ install_root }}/app.py 2>/dev/null || true
+        chcon -R -t {{ app_name }}_exec_t {{ install_root }}/venv 2>/dev/null || true
+        chcon -t {{ app_name }}_script_exec_t {{ bin_dir }}/backup.sh 2>/dev/null || true
+        chcon -R -t {{ app_name }}_var_lib_t {{ var_dir }} 2>/dev/null || true
+      changed_when: true
+
+    - name: Verify file contexts before service restart
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/verify_file_contexts.sh
+        --install-root {{ install_root }}
+        --var-dir {{ var_dir }}
+        --app-name {{ app_name }}
+      changed_when: false
+
+    - name: Restart service under enforcing policy via systemd
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        state: restarted
+
+    - name: Wait for systemd active state
+      ansible.builtin.command: systemctl is-active {{ service_name }}
+      register: service_active
+      retries: 15
+      delay: 2
+      until: service_active.stdout == "active"
+      changed_when: false
+
+    - name: Wait for health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8888/"
+        status_code: 200
+      register: health
+      retries: 15
+      delay: 2
+      until: health.status == 200
+
+    - name: Production smoke tests
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8888{{ item }}"
+        status_code: 200
+      loop:
+        - /
+        - /save-log
+        - /run-script
+        - /rotate-log

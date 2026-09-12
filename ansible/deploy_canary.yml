@@ -1,0 +1,123 @@
+---
+- name: Canary deploy — permissive domain + policy install
+  hosts: all
+  become: true
+  environment:
+    PATH: "{{ ansible_env_path | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
+  vars:
+    bin_dir: "{{ install_root }}/bin"
+    stub_policy_dir: "{{ project_root }}/selinux/stub"
+
+  tasks:
+    - name: Detect semanage availability
+      ansible.builtin.stat:
+        path: /usr/sbin/semanage
+      register: semanage_bin
+
+    - name: Ensure policy package exists
+      ansible.builtin.stat:
+        path: "{{ policy_pp_path }}"
+      register: pp_stat
+
+    - name: Fail if policy package missing
+      ansible.builtin.fail:
+        msg: "Build policy first: bash scripts/compile_and_validate.sh policy_out"
+      when: not pp_stat.stat.exists
+
+    - name: Remove existing module before upgrade
+      ansible.builtin.command: "semodule -r {{ app_name }}"
+      register: semodule_remove
+      failed_when: semodule_remove.rc not in [0, 1]
+      changed_when: semodule_remove.rc == 0
+
+    - name: Install enforcing policy module (RHEL with semanage)
+      ansible.builtin.command: "semodule -i {{ policy_pp_path }}"
+      changed_when: true
+      when: semanage_bin.stat.exists
+
+    - name: FCOS fallback — permissive stub module for canary
+      ansible.builtin.command: "bash {{ project_root }}/scripts/apply_policy.sh {{ stub_policy_dir }}"
+      when: not semanage_bin.stat.exists
+      changed_when: true
+
+    - name: Note FCOS canary fallback
+      ansible.builtin.debug:
+        msg: "semanage unavailable; using permissive stub from {{ stub_policy_dir }} (install policycoreutils-python-utils on RHEL for full canary)"
+      when: not semanage_bin.stat.exists
+
+    - name: Enable permissive domain for canary (semanage)
+      ansible.builtin.command: "semanage permissive -a {{ domain }}"
+      register: semanage_add
+      failed_when: semanage_add.rc not in [0, 1]
+      changed_when: semanage_add.rc == 0
+      when: semanage_bin.stat.exists
+
+    - name: Restore file contexts (skip destructive relabel on venv — use chcon)
+      ansible.builtin.command: "restorecon -Rv {{ var_dir }}"
+      changed_when: true
+
+    - name: Explicit chcon fallback (FCOS /opt symlink paths)
+      ansible.builtin.shell: |
+        chcon -t {{ app_name }}_exec_t {{ install_root }}/app.py 2>/dev/null || true
+        chcon -R -t {{ app_name }}_exec_t {{ install_root }}/venv 2>/dev/null || true
+        chcon -t {{ app_name }}_script_exec_t {{ bin_dir }}/backup.sh 2>/dev/null || true
+        chcon -R -t {{ app_name }}_var_lib_t {{ var_dir }} 2>/dev/null || true
+      changed_when: true
+
+    - name: Verify file contexts before service restart
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/verify_file_contexts.sh
+        --install-root {{ install_root }}
+        --var-dir {{ var_dir }}
+        --app-name {{ app_name }}
+      changed_when: false
+
+    - name: Record canary deploy timestamp for soak gate
+      ansible.builtin.shell: "date +%s > {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}"
+      changed_when: true
+
+    - name: Restart application service via systemd
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        state: restarted
+        enabled: true
+
+    - name: Verify systemd active after restart
+      ansible.builtin.command: systemctl is-active {{ service_name }}
+      register: service_active
+      retries: 10
+      delay: 2
+      until: service_active.stdout == "active"
+      changed_when: false
+
+    - name: Wait for health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8888/"
+        status_code: 200
+      register: health
+      retries: 10
+      delay: 2
+      until: health.status == 200
+
+    - name: Exercise canary endpoints
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8888{{ item }}"
+        status_code: 200
+      loop:
+        - /save-log
+        - /run-script
+        - /rotate-log
+
+    - name: Check for new AVC denials
+      ansible.builtin.shell: |
+        set -o pipefail
+        ausearch -m avc -ts recent 2>/dev/null | grep -c {{ domain }} || echo 0
+      register: avc_count
+      changed_when: false
+
+    - name: Report canary AVC count
+      ansible.builtin.debug:
+        msg: >-
+          Recent {{ domain }} AVC lines: {{ avc_count.stdout }} (review before enforce).
+          Soak marker: {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}.
+          Daily monitor: bash scripts/monitor_avc.sh --domain {{ domain }} --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}

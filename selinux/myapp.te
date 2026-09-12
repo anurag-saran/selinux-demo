@@ -1,0 +1,43 @@
+policy_module(myapp, 1.0.2)
+
+require {
+    type init_t;
+    type shell_exec_t;
+    type bin_t;
+    type syslogd_t;
+    type node_t;
+    type unreserved_port_t;
+    class process transition;
+    class file entrypoint;
+}
+
+type myapp_t;
+type myapp_exec_t;
+type myapp_var_lib_t;
+type myapp_script_exec_t;
+
+files_type(myapp_exec_t)
+files_type(myapp_var_lib_t)
+files_type(myapp_script_exec_t)
+
+init_daemon_domain(myapp_t, myapp_exec_t)
+
+allow myapp_t myapp_exec_t:dir { search getattr read open };
+allow myapp_t myapp_exec_t:file { read open getattr execute execute_no_trans map };
+allow myapp_t myapp_exec_t:lnk_file read;
+
+allow myapp_t myapp_var_lib_t:dir { create write add_name remove_name search getattr open rmdir rename unlink };
+allow myapp_t myapp_var_lib_t:file { create write append open getattr lock ioctl rename unlink };
+
+allow myapp_t myapp_script_exec_t:file { read open getattr execute execute_no_trans ioctl };
+allow myapp_t shell_exec_t:file { read open getattr execute map };
+allow myapp_t bin_t:file { read open getattr execute execute_no_trans map };
+
+domain_auto_trans(myapp_t, myapp_script_exec_t, myapp_t)
+
+allow myapp_t self:tcp_socket { create bind listen accept read write shutdown setopt name_bind node_bind getattr ioctl };
+allow myapp_t self:udp_socket { create connect getattr };
+allow myapp_t node_t:tcp_socket node_bind;
+allow myapp_t unreserved_port_t:tcp_socket name_bind;
+
+allow myapp_t syslogd_t:unix_stream_socket connectto;
