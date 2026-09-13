@@ -22,6 +22,9 @@ selinux-demo/
 │   ├── backend_stub.py     Backend on :8889 + /run/myapp/notify.sock (myapp_backend_t)
 │   └── bin/backup.sh       Executed by /run-script (bash builtins only)
 ├── cli/                    selinux_gen.py — AI policy CLI
+├── config/                 App manifests (paths, probes, deploy artifacts)
+│   ├── myapp.manifest.yml  Demo app manifest (drives readiness scripts)
+│   └── README.md           Schema + onboarding for new apps
 ├── selinux/                Version-controlled policy (source of truth)
 │   ├── myapp.te / myapp.fc
 │   ├── policy_version.txt
@@ -70,6 +73,7 @@ selinux-demo/
 Require these status checks on PRs touching `selinux/**`:
 
 - `smoke-tests`
+- `app-manifest`
 - `forbidden-patterns`
 - `compile-policy`
 
@@ -185,6 +189,8 @@ bash scripts/compile_and_validate.sh policy_out   # after AI generation
 ```
 
 PR CI also runs **`policy-semantics`** (`sesearch` via `validate_policy_semantics.sh`). Packaged installs: [`packaging/myapp-selinux.spec`](packaging/myapp-selinux.spec) builds an RPM from `selinux/`.
+
+Full test matrix: [`docs/TESTING.md`](docs/TESTING.md). Ansible playbook reference: [`ansible/README.md`](ansible/README.md).
 
 ---
 
@@ -359,6 +365,8 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 | Guide | For |
 |-------|-----|
 | [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
+| [docs/TESTING.md](docs/TESTING.md) | **All test cases** — six HTTP endpoints, `smoke_test.py`, CI jobs, soak/enforce gates |
+| [ansible/README.md](ansible/README.md) | **Ansible playbooks** — canary, enforce, rollback task order and variables |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Workshop demo for newbies — 10 acts, example output, observer vs presenter paths |
 | [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Post-demo admin runbook — soak, canary hosts, enforce gates, deploy report JSON, incident card §12.5, pass/fail examples |
 | [docs/SELINUX_BEST_PRACTICES.md](docs/SELINUX_BEST_PRACTICES.md) | **Policy-as-Code principles** — refpolicy interfaces, labeling, CI gates, soak/enforce anti-patterns (admin + reviewer checklist) |

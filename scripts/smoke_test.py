@@ -417,6 +417,41 @@ def test_demo_present_help() -> None:
     assert "ACT 1" in result.stdout or "Acts:" in result.stdout
 
 
+def test_app_manifest() -> None:
+    loader = PROJECT_ROOT / "scripts" / "lib" / "app_manifest.py"
+    demo_manifest = PROJECT_ROOT / "config" / "myapp.manifest.yml"
+    example_manifest = PROJECT_ROOT / "config" / "payments.manifest.example.yml"
+
+    for path in (demo_manifest, example_manifest):
+        result = subprocess.run(
+            ["python3", str(loader), "validate", str(path)],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+
+    wrapper = PROJECT_ROOT / "scripts" / "validate_app_manifest.sh"
+    result = subprocess.run(
+        ["bash", str(wrapper), str(demo_manifest)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "OK" in result.stdout
+
+    export = subprocess.run(
+        ["python3", str(loader), "shell-export", str(demo_manifest)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert export.returncode == 0, export.stderr
+    assert "HTTP_PORT=8888" in export.stdout
+    assert "PRIMARY_SERVICE=\"myapp.service\"" in export.stdout
+
+
 def main() -> int:
     import argparse
 
@@ -453,6 +488,7 @@ def main() -> int:
         ("check_soak_ready_gate", test_check_soak_ready_gate),
         ("monitor_avc_skip", test_monitor_avc_skip),
         ("demo_present_help", test_demo_present_help),
+        ("app_manifest", test_app_manifest),
     ]
     for name, fn in tests:
         fn()

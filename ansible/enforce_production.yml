@@ -20,6 +20,7 @@
       ansible.builtin.command: >
         bash {{ project_root }}/scripts/check_soak_ready.sh
         --domain {{ domain }}
+        --manifest {{ app_manifest_path }}
         --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
         --report-file {{ var_dir }}/selinux_deploy_report.json
         --min-days {{ soak_min_days | default(7) }}
@@ -95,6 +96,7 @@
         - name: Production smoke tests (unified endpoint wait)
           ansible.builtin.command: >
             bash {{ project_root }}/scripts/wait_for_endpoints.sh
+            --manifest {{ app_manifest_path }}
             --host 127.0.0.1 --retries 15 --delay 2
           changed_when: false
 
@@ -104,6 +106,7 @@
             --phase enforce
             --domain {{ domain }}
             --var-dir {{ var_dir }}
+            --manifest {{ app_manifest_path }}
             --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
             --project-root {{ project_root }}
           register: deploy_report
@@ -128,6 +131,7 @@
         - name: Auto-rescue — verify endpoints after rollback to permissive
           ansible.builtin.command: >
             bash {{ project_root }}/scripts/wait_for_endpoints.sh
+            --manifest {{ app_manifest_path }}
             --host 127.0.0.1 --retries 10 --delay 2
           changed_when: false
 

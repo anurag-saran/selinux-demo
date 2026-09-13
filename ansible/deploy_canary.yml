@@ -121,6 +121,7 @@
         - name: Wait for all endpoints (unified canary smoke)
           ansible.builtin.command: >
             bash {{ project_root }}/scripts/wait_for_endpoints.sh
+            --manifest {{ app_manifest_path }}
             --host 127.0.0.1 --retries 15 --delay 2
           changed_when: false
 
@@ -153,6 +154,7 @@
             --phase canary
             --domain {{ domain }}
             --var-dir {{ var_dir }}
+            --manifest {{ app_manifest_path }}
             --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
             --project-root {{ project_root }}
           register: deploy_report

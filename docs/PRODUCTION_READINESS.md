@@ -126,6 +126,8 @@ Manual Ansible (AWX/Tower compatible) uses the same playbooks — see phases bel
 
 ## 5. Pre-production testing matrix
 
+See also: [`TESTING.md`](TESTING.md) (full endpoint → policy mapping and `smoke_test.py` cases), [`ansible/README.md`](../ansible/README.md) (playbook task order).
+
 | Phase | Goal | Command / playbook | **Pass looks like** |
 | --- | --- | --- | --- |
 | **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` (refpolicy Makefile) | `myapp.pp` built, no errors |

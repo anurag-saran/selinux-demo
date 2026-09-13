@@ -17,6 +17,7 @@ SKIP_SELINUX="${SKIP_SELINUX:-0}"
 AUTO_TIER="${SOAK_AUTO_TIER:-0}"
 APP_DOMAIN="${SELINUX_APP_DOMAIN:-myapp_t}"
 BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}"
+MANIFEST=""
 POLICY_HISTORY_DIR="${POLICY_HISTORY_DIR:-/var/lib/myapp/policy-history}"
 
 RED='\033[0;31m'
@@ -40,6 +41,7 @@ Options:
   --min-days N          Minimum soak days (default: 7, or auto-tier when SOAK_AUTO_TIER=1)
   --max-avc N           Maximum allowed AVC events since canary (default: 0)
   --auto-tier           Compute min-days from sediff blast radius vs policy-history
+  --manifest PATH       App manifest for deploy report domain verification
   --skip-if-unavailable Exit 0 when marker or audit tools missing (CI smoke)
   -h, --help            Show help
 EOF
@@ -55,6 +57,7 @@ while [[ $# -gt 0 ]]; do
         --min-days) MIN_DAYS="$2"; shift 2 ;;
         --max-avc) MAX_AVC="$2"; shift 2 ;;
         --auto-tier) AUTO_TIER=1; shift ;;
+        --manifest) MANIFEST="$2"; shift 2 ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
@@ -75,7 +78,7 @@ if [[ ! -f "${MARKER_FILE}" ]]; then
     exit 1
 fi
 
-if [[ "${AUTO_TIER}" == "1" || "${SOAK_AUTO_TIER}" == "1" ]]; then
+if [[ "${AUTO_TIER}" == "1" || "${SOAK_AUTO_TIER:-0}" == "1" ]]; then
     mapfile -t history_pps < <(ls -1t "${POLICY_HISTORY_DIR}"/*.pp 2>/dev/null || true)
     candidate_pp="${history_pps[0]:-}"
     base_pp="${history_pps[1]:-}"
@@ -123,24 +126,36 @@ if [[ "${avc_count}" -gt "${MAX_AVC}" ]]; then
 fi
 
 if [[ -f "${REPORT_FILE}" ]]; then
-    report_ok="$(python3 - "${REPORT_FILE}" "${APP_DOMAIN}" "${BACKEND_DOMAIN}" <<'PY'
+    if [[ -z "${MANIFEST}" ]]; then
+        MANIFEST="$(python3 "${SCRIPT_DIR}/lib/app_manifest.py" resolve 2>/dev/null || true)"
+    fi
+    report_ok="$(python3 - "${REPORT_FILE}" "${MANIFEST:-}" <<PY
 import json, sys
+from pathlib import Path
+
 report = json.loads(open(sys.argv[1], encoding="utf-8").read())
-app_domain, backend_domain = sys.argv[2], sys.argv[3]
+manifest_path = sys.argv[2]
+
 if report.get("status") != "pass":
     print("no")
     raise SystemExit
 if not report.get("endpoints_exercised"):
     print("no")
     raise SystemExit
-ctx = report.get("domain_context", {})
-if ctx.get("myapp.service") != app_domain:
-    print("no")
+if report.get("domain_context_verified") is True:
+    print("yes")
     raise SystemExit
-if ctx.get("myapp-backend.service") != backend_domain:
-    print("no")
-    raise SystemExit
-print("yes")
+if manifest_path and Path(manifest_path).is_file():
+    sys.path.insert(0, "${SCRIPT_DIR}/lib")
+    from app_manifest import load_manifest, domain_context_matches
+    manifest = load_manifest(Path(manifest_path))
+    ctx = report.get("domain_context", {})
+    fake = {"domain_context": ctx}
+    print("yes" if domain_context_matches(fake, manifest) else "no")
+else:
+    ctx = report.get("domain_context", {})
+    ok = ctx.get("myapp.service") == "${APP_DOMAIN}" and ctx.get("myapp-backend.service") == "${BACKEND_DOMAIN}"
+    print("yes" if ok else "no")
 PY
 )"
     if [[ "${report_ok}" != "yes" ]]; then

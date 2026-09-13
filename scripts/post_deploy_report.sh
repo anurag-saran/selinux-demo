@@ -15,6 +15,8 @@ BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}"
 VAR_DIR="${VAR_DIR:-/var/lib/myapp}"
 MARKER_FILE="${SOAK_MARKER_FILE:-${VAR_DIR}/selinux_canary_deployed_at}"
 REPORT_FILE="${DEPLOY_REPORT_FILE:-${VAR_DIR}/selinux_deploy_report.json}"
+MANIFEST=""
+APP_NAME="myapp"
 POLICY_VERSION_FILE="${PROJECT_ROOT}/selinux/policy_version.txt"
 
 RED='\033[0;31m'
@@ -38,6 +40,7 @@ Options:
   --marker-file PATH    Soak marker for AVC/day calculations
   --report-file PATH    Output JSON path
   --project-root PATH   Repo root for policy version lookup
+  --manifest PATH       App manifest YAML (default: config/\${POLICY_APP:-myapp}.manifest.yml)
   -h, --help            Show help
 EOF
 }
@@ -51,12 +54,30 @@ while [[ $# -gt 0 ]]; do
         --marker-file) MARKER_FILE="$2"; shift 2 ;;
         --report-file) REPORT_FILE="$2"; shift 2 ;;
         --project-root) PROJECT_ROOT="$2"; shift 2 ;;
+        --manifest) MANIFEST="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
     esac
 done
 
 [[ "${PHASE}" != "unknown" ]] || { log_error "--phase is required"; usage; exit 1; }
+
+if [[ -z "${MANIFEST}" ]]; then
+    MANIFEST="$(python3 "${SCRIPT_DIR}/lib/app_manifest.py" resolve 2>/dev/null || true)"
+fi
+
+if [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]]; then
+    MANIFEST_JSON="$(python3 "${SCRIPT_DIR}/lib/app_manifest.py" json "${MANIFEST}")"
+    APP_NAME="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["app_name"])' <<< "${MANIFEST_JSON}")"
+    VAR_DIR="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["paths"]["var_dir"])' <<< "${MANIFEST_JSON}")"
+    MARKER_FILE="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["deploy"]["soak_marker_file"])' <<< "${MANIFEST_JSON}")"
+    REPORT_FILE="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["deploy"]["deploy_report_file"])' <<< "${MANIFEST_JSON}")"
+    APP_DOMAIN="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["services"]["primary"]["domain"])' <<< "${MANIFEST_JSON}")"
+    BACKEND_BLOCK="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["services"].get("backend")))' <<< "${MANIFEST_JSON}")"
+    if [[ "${BACKEND_BLOCK}" != "null" ]]; then
+        BACKEND_DOMAIN="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["domain"])' <<< "${BACKEND_BLOCK}")"
+    fi
+fi
 
 policy_version="unknown"
 if [[ -f "${POLICY_VERSION_FILE}" ]]; then
@@ -73,13 +94,10 @@ if command -v semanage >/dev/null 2>&1; then
     fi
 fi
 
-myapp_state="$(systemctl is-active myapp.service 2>/dev/null || echo unknown)"
-backend_state="$(systemctl is-active myapp-backend.service 2>/dev/null || echo unknown)"
-
 endpoint_tmp="$(mktemp)"
-if bash "${SCRIPT_DIR}/wait_for_endpoints.sh" \
-    --host 127.0.0.1 --retries 5 --delay 1 --json \
-    --app-domain "${APP_DOMAIN}" --backend-domain "${BACKEND_DOMAIN}" \
+WAIT_ARGS=(--retries 5 --delay 1 --json)
+[[ -n "${MANIFEST}" ]] && WAIT_ARGS+=(--manifest "${MANIFEST}")
+if bash "${SCRIPT_DIR}/wait_for_endpoints.sh" "${WAIT_ARGS[@]}" \
     > "${endpoint_tmp}" 2>/dev/null; then
     endpoint_status="pass"
 else
@@ -108,7 +126,14 @@ if [[ -f "${MARKER_FILE}" ]]; then
 fi
 
 overall_status="pass"
-domain_ctx_ok="$(python3 - "${endpoint_tmp}" "${APP_DOMAIN}" "${BACKEND_DOMAIN}" <<'PY'
+if [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]]; then
+    if python3 "${SCRIPT_DIR}/lib/app_manifest.py" check-domain-context "${MANIFEST}" "${endpoint_tmp}" >/dev/null 2>&1; then
+        domain_ctx_ok=yes
+    else
+        domain_ctx_ok=no
+    fi
+else
+    domain_ctx_ok="$(python3 - "${endpoint_tmp}" "${APP_DOMAIN}" "${BACKEND_DOMAIN}" <<'PY'
 import json, sys
 data = json.loads(open(sys.argv[1], encoding="utf-8").read())
 app_domain, backend_domain = sys.argv[2], sys.argv[3]
@@ -117,38 +142,76 @@ ok = ctx.get("myapp.service") == app_domain and ctx.get("myapp-backend.service")
 print("yes" if ok else "no")
 PY
 )"
-if [[ "${myapp_state}" != "active" || "${backend_state}" != "active" || "${endpoint_status}" != "pass" || "${domain_ctx_ok}" != "yes" ]]; then
+fi
+
+services_ok="$(python3 - "${endpoint_tmp}" "${MANIFEST:-}" <<PY
+import json, sys, subprocess
+from pathlib import Path
+
+sys.path.insert(0, "${SCRIPT_DIR}/lib")
+endpoint = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+manifest_path = sys.argv[2]
+services = {}
+if manifest_path and Path(manifest_path).is_file():
+    from app_manifest import load_manifest, service_roles
+    manifest = load_manifest(Path(manifest_path))
+    for role, unit in service_roles(manifest):
+        try:
+            state = subprocess.check_output(
+                ["systemctl", "is-active", unit], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except subprocess.CalledProcessError:
+            state = "unknown"
+        services[role] = {"unit": unit, "state": state}
+else:
+    for role, unit in (("primary", "myapp.service"), ("backend", "myapp-backend.service")):
+        try:
+            state = subprocess.check_output(
+                ["systemctl", "is-active", unit], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except subprocess.CalledProcessError:
+            state = "unknown"
+        services[role] = {"unit": unit, "state": state}
+
+all_active = all(v["state"] == "active" for v in services.values())
+print(json.dumps({"services": services, "all_active": all_active}))
+PY
+)"
+services_all_active="$(python3 -c 'import json,sys; print("yes" if json.loads(sys.stdin.read())["all_active"] else "no")' <<< "${services_ok}")"
+
+if [[ "${services_all_active}" != "yes" || "${endpoint_status}" != "pass" || "${domain_ctx_ok}" != "yes" ]]; then
     overall_status="fail"
 fi
 
 mkdir -p "$(dirname "${REPORT_FILE}")"
 
-python3 - "${endpoint_tmp}" <<PY
+python3 - "${endpoint_tmp}" "${MANIFEST:-}" "${services_ok}" <<PY
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 endpoint_path = Path("${endpoint_tmp}")
 endpoint_data = json.loads(endpoint_path.read_text(encoding="utf-8"))
+services_payload = json.loads("""${services_ok}""")
 domain_permissive = ${domain_permissive}
+manifest_path = """${MANIFEST:-}"""
+
+domain_context_verified = """${domain_ctx_ok}""" == "yes"
 
 report = {
     "phase": "${PHASE}",
+    "app_name": endpoint_data.get("app_name", "${APP_NAME}"),
     "policy_version": "${policy_version}",
     "host": "${HOST}",
     "timestamp": datetime.now(timezone.utc).isoformat(),
     "selinux_mode": "${selinux_mode}",
     "domain": "${DOMAIN}",
     "domain_permissive": domain_permissive,
+    "manifest": manifest_path or None,
     "domain_context": endpoint_data.get("domain_context", {}),
-    "domain_context_verified": (
-        endpoint_data.get("domain_context", {}).get("myapp.service") == "${APP_DOMAIN}"
-        and endpoint_data.get("domain_context", {}).get("myapp-backend.service") == "${BACKEND_DOMAIN}"
-    ),
-    "services": {
-        "myapp": "${myapp_state}",
-        "myapp-backend": "${backend_state}",
-    },
+    "domain_context_verified": domain_context_verified,
+    "services": services_payload.get("services", {}),
     "endpoints": endpoint_data.get("endpoints", {}),
     "endpoints_exercised": endpoint_data.get("status") == "pass",
     "endpoints_all_passed": endpoint_data.get("status") == "pass",

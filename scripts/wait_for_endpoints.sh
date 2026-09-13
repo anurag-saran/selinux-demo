@@ -4,14 +4,25 @@
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 HOST="127.0.0.1"
+HTTP_PORT=8888
 RETRIES=15
 DELAY=2
 JSON=0
 CHECK_SYSTEMD=1
 CHECK_DOMAIN=1
+MANIFEST=""
+APP_NAME="myapp"
 APP_DOMAIN="${SELINUX_APP_DOMAIN:-myapp_t}"
 BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}"
+PRIMARY_SERVICE="myapp.service"
+BACKEND_SERVICE="myapp-backend.service"
+HAS_BACKEND=1
+BACKEND_HTTP_PORT=8889
+BACKEND_HEALTH_PATH="/health"
 ENDPOINTS=(
     /
     /save-log
@@ -32,19 +43,24 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [options]
 
-Wait for myapp + myapp-backend systemd units and HTTP endpoints.
+Wait for application systemd units and HTTP endpoints from app manifest or defaults.
 Verifies each service MainPID runs in the expected SELinux domain.
 
 Options:
-  --host HOST         HTTP host (default: 127.0.0.1)
+  --manifest PATH     App manifest YAML (default: config/\${POLICY_APP:-myapp}.manifest.yml)
+  --host HOST         HTTP host (overrides manifest)
   --retries N         Attempts per check (default: 15)
   --delay SEC         Seconds between attempts (default: 2)
   --json              Print JSON result on stdout
   --skip-systemd      Skip systemctl active checks
   --skip-domain-check Skip SELinux domain verification
-  --app-domain TYPE   Expected app domain (default: myapp_t)
-  --backend-domain TYPE Expected backend domain (default: myapp_backend_t)
+  --app-domain TYPE   Override expected primary domain
+  --backend-domain TYPE Override expected backend domain
   -h, --help          Show help
+
+Environment:
+  APP_MANIFEST        Default manifest path when --manifest omitted
+  POLICY_APP          App name for default manifest lookup (default: myapp)
 
 Exit codes:
   0  all checks passed
@@ -55,8 +71,34 @@ Exit codes:
 EOF
 }
 
+load_manifest_config() {
+    local manifest_path="$1"
+    if [[ ! -f "${manifest_path}" ]]; then
+        log_info "Manifest not found (${manifest_path}) — using built-in myapp defaults"
+        return 0
+    fi
+    log_info "Loading app manifest: ${manifest_path}"
+    # shellcheck disable=SC1090
+    eval "$(python3 "${SCRIPT_DIR}/lib/app_manifest.py" shell-export "${manifest_path}")"
+    APP_NAME="${APP_NAME}"
+    HOST="${HTTP_HOST}"
+    HTTP_PORT="${HTTP_PORT}"
+    APP_DOMAIN="${APP_DOMAIN}"
+    PRIMARY_SERVICE="${PRIMARY_SERVICE}"
+    mapfile -t ENDPOINTS < <(python3 -c 'import json,sys; [print(p) for p in json.loads(sys.argv[1])]' "${ENDPOINT_PATHS}")
+    if [[ "${HAS_BACKEND}" == "1" ]]; then
+        BACKEND_DOMAIN="${BACKEND_DOMAIN}"
+        BACKEND_SERVICE="${BACKEND_SERVICE}"
+        BACKEND_HTTP_PORT="${BACKEND_HTTP_PORT}"
+        BACKEND_HEALTH_PATH="${BACKEND_HEALTH_PATH}"
+    else
+        HAS_BACKEND=0
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --manifest) MANIFEST="$2"; shift 2 ;;
         --host) HOST="$2"; shift 2 ;;
         --retries) RETRIES="$2"; shift 2 ;;
         --delay) DELAY="$2"; shift 2 ;;
@@ -69,6 +111,13 @@ while [[ $# -gt 0 ]]; do
         *) log_error "Unknown option: $1"; usage; exit 3 ;;
     esac
 done
+
+if [[ -z "${MANIFEST}" ]]; then
+    MANIFEST="$(python3 "${SCRIPT_DIR}/lib/app_manifest.py" resolve 2>/dev/null || true)"
+fi
+if [[ -n "${MANIFEST}" ]]; then
+    load_manifest_config "${MANIFEST}"
+fi
 
 wait_systemd() {
     local unit="$1"
@@ -122,7 +171,7 @@ verify_service_domain() {
 
 wait_http() {
     local path="$1"
-    local url="http://${HOST}:8888${path}"
+    local url="http://${HOST}:${HTTP_PORT}${path}"
     local attempt code
     for ((attempt = 1; attempt <= RETRIES; attempt++)); do
         code="$(curl -sf -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null || echo "000")"
@@ -139,30 +188,38 @@ wait_http() {
 
 wait_backend_health() {
     local attempt code
+    local url="http://${HOST}:${BACKEND_HTTP_PORT}${BACKEND_HEALTH_PATH}"
     for ((attempt = 1; attempt <= RETRIES; attempt++)); do
-        code="$(curl -sf -o /dev/null -w '%{http_code}' "http://${HOST}:8889/health" 2>/dev/null || echo "000")"
+        code="$(curl -sf -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null || echo "000")"
         if [[ "${code}" == "200" ]]; then
             return 0
         fi
         sleep "${DELAY}"
     done
-    log_error "backend health not ready on :8889 (last HTTP ${code})"
+    log_error "backend health not ready at ${url} (last HTTP ${code})"
     return 2
 }
 
 declare -A ENDPOINT_CODES=()
 declare -A SERVICE_STATUS=()
+declare -A DOMAIN_CONTEXT=()
 APP_DOMAIN_OBSERVED="unknown"
 BACKEND_DOMAIN_OBSERVED="unknown"
 
+SYSTEMD_UNITS=()
+if [[ "${HAS_BACKEND}" == "1" ]]; then
+    SYSTEMD_UNITS=("${BACKEND_SERVICE}" "${PRIMARY_SERVICE}")
+else
+    SYSTEMD_UNITS=("${PRIMARY_SERVICE}")
+fi
+
 if [[ "${CHECK_SYSTEMD}" -eq 1 ]]; then
-    for unit in myapp-backend.service myapp.service; do
+    for unit in "${SYSTEMD_UNITS[@]}"; do
         if ! wait_systemd "${unit}"; then
             SERVICE_STATUS["${unit}"]="inactive"
-            [[ "${JSON}" -eq 1 ]] && python3 - <<PY
-import json
-print(json.dumps({"status": "fail", "reason": "systemd", "services": {"${unit}": "inactive"}}, indent=2))
-PY
+            if [[ "${JSON}" -eq 1 ]]; then
+                python3 -c "import json; print(json.dumps({'status':'fail','reason':'systemd','services':{'${unit}':'inactive'}}, indent=2))"
+            fi
             exit 1
         fi
         SERVICE_STATUS["${unit}"]="active"
@@ -170,57 +227,65 @@ PY
 fi
 
 if [[ "${CHECK_DOMAIN}" -eq 1 ]]; then
-    if ! BACKEND_DOMAIN_OBSERVED="$(verify_service_domain myapp-backend.service "${BACKEND_DOMAIN}")"; then
+    if [[ "${HAS_BACKEND}" == "1" ]]; then
+        if ! BACKEND_DOMAIN_OBSERVED="$(verify_service_domain "${BACKEND_SERVICE}" "${BACKEND_DOMAIN}")"; then
+            exit 4
+        fi
+        DOMAIN_CONTEXT["${BACKEND_SERVICE}"]="${BACKEND_DOMAIN_OBSERVED}"
+    fi
+    if ! APP_DOMAIN_OBSERVED="$(verify_service_domain "${PRIMARY_SERVICE}" "${APP_DOMAIN}")"; then
         exit 4
     fi
-    if ! APP_DOMAIN_OBSERVED="$(verify_service_domain myapp.service "${APP_DOMAIN}")"; then
-        exit 4
-    fi
+    DOMAIN_CONTEXT["${PRIMARY_SERVICE}"]="${APP_DOMAIN_OBSERVED}"
 fi
 
-if ! wait_backend_health; then
-    [[ "${JSON}" -eq 1 ]] && python3 - <<'PY'
-import json
-print(json.dumps({"status": "fail", "reason": "backend_health"}, indent=2))
-PY
-    exit 2
+if [[ "${HAS_BACKEND}" == "1" ]]; then
+    if ! wait_backend_health; then
+        [[ "${JSON}" -eq 1 ]] && python3 -c 'import json; print(json.dumps({"status":"fail","reason":"backend_health"}, indent=2))'
+        exit 2
+    fi
 fi
 
 for path in "${ENDPOINTS[@]}"; do
     if ! wait_http "${path}"; then
         if [[ "${JSON}" -eq 1 ]]; then
-            python3 - "${ENDPOINT_CODES[@]}" <<'PY'
+            ENDPOINTS_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${ENDPOINTS[@]}")"
+            python3 - "${ENDPOINTS_JSON}" <<'PY'
 import json, sys
-paths = ["/", "/save-log", "/run-script", "/rotate-log", "/probe-backend", "/notify-socket"]
-codes = sys.argv[1:]
-print(json.dumps({"status": "fail", "reason": "endpoint", "endpoints": dict(zip(paths, codes))}, indent=2))
+paths = json.loads(sys.argv[1])
+print(json.dumps({"status": "fail", "reason": "endpoint", "endpoints": {p: "000" for p in paths}}, indent=2))
 PY
         fi
         exit 2
     fi
 done
 
-log_info "All endpoints ready on ${HOST}:8888 (${#ENDPOINTS[@]} checks)"
+log_info "All endpoints ready on ${HOST}:${HTTP_PORT} (${#ENDPOINTS[@]} checks)"
 
 if [[ "${JSON}" -eq 1 ]]; then
-    python3 - "${APP_DOMAIN_OBSERVED}" "${BACKEND_DOMAIN_OBSERVED}" <<'PY'
+    ENDPOINTS_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${ENDPOINTS[@]}")"
+    python3 - "${ENDPOINTS_JSON}" "${PRIMARY_SERVICE}" "${APP_DOMAIN_OBSERVED}" \
+        "${BACKEND_SERVICE}" "${BACKEND_DOMAIN_OBSERVED}" "${HAS_BACKEND}" "${APP_NAME}" <<'PY'
 import json, sys
-app_ctx, backend_ctx = sys.argv[1], sys.argv[2]
-endpoints = {
-    "/": 200,
-    "/save-log": 200,
-    "/run-script": 200,
-    "/rotate-log": 200,
-    "/probe-backend": 200,
-    "/notify-socket": 200,
-}
+
+paths = json.loads(sys.argv[1])
+primary_svc = sys.argv[2]
+primary_ctx = sys.argv[3]
+backend_svc = sys.argv[4]
+backend_ctx = sys.argv[5]
+has_backend = sys.argv[6] == "1"
+app_name = sys.argv[7]
+
+endpoints = {p: 200 for p in paths}
+domain_context = {primary_svc: primary_ctx}
+if has_backend:
+    domain_context[backend_svc] = backend_ctx
+
 print(json.dumps({
     "status": "pass",
+    "app_name": app_name,
     "endpoints": endpoints,
-    "domain_context": {
-        "myapp.service": app_ctx,
-        "myapp-backend.service": backend_ctx,
-    },
+    "domain_context": domain_context,
 }, indent=2))
 PY
 fi

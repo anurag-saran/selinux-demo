@@ -53,6 +53,8 @@ The presenter script [`scripts/demo_present.sh`](../scripts/demo_present.sh) wal
 
 Confused about labels, `.te`/`.fc`, `restorecon`, or the two-layer model? See [SELINUX_BASICS.md §7–7.5](SELINUX_BASICS.md).
 
+Endpoint and CI test reference: [TESTING.md](TESTING.md). Ansible playbook details: [../ansible/README.md](../ansible/README.md).
+
 ---
 
 ## 3. The demo app and HTTP endpoints
@@ -530,10 +532,11 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `policy_out/avc_summary.txt` | Merged net-new access needs (LLM input) |
 | `policy_out/pr_summary.md` | Plain-English summary for admins |
 | `policy_out/pr_body.md` | Assembled GitHub PR body |
-| `ansible/deploy_canary.yml` | Permissive canary deploy |
-| `ansible/enforce_production.yml` | Remove permissive + enforce |
-| `ansible/emergency_rollback.yml` | Outage response |
+| `ansible/deploy_canary.yml` | Permissive canary deploy — see [ansible/README.md](../ansible/README.md) |
+| `ansible/enforce_production.yml` | Remove permissive + enforce — see [ansible/README.md](../ansible/README.md) |
+| `ansible/emergency_rollback.yml` | Outage response — see [ansible/README.md](../ansible/README.md) |
 | `scripts/wait_for_endpoints.sh` | Unified systemd + six HTTP endpoint readiness |
+| `docs/TESTING.md` | Full test matrix (endpoints, smoke_test.py, CI, gates) |
 | `scripts/post_deploy_report.sh` | JSON deploy feedback → `/var/lib/myapp/selinux_deploy_report.json` |
 | `scripts/lib/vm_ready.sh` | Podman VM SSH readiness + recovery hints |
 | `.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md` | Admin review template |

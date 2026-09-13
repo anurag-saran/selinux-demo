@@ -1,0 +1,42 @@
+# Example: minimal single-service app (no backend stub)
+#
+# Copy to config/payments.manifest.yml and customize for onboarding.
+# Set APP_MANIFEST=config/payments.manifest.yml or pass --manifest to scripts.
+
+app_name: payments
+domain: payments_t
+
+paths:
+  install_root: /opt/payments
+  var_dir: /var/lib/payments
+  log_dir: /var/log/payments
+  runtime_dir: /run/payments
+
+services:
+  primary:
+    unit: payments.service
+    domain: payments_t
+
+http:
+  host: 127.0.0.1
+  port: 8443
+  endpoints:
+    - /health
+    - /api/v1/status
+
+selinux_ports:
+  - port: 8443
+    proto: tcp
+    type: payments_port_t
+
+integration_tests:
+  description: Payments service integration suite
+  command: pytest /opt/payments/tests/integration -q
+
+policy:
+  module_dir: selinux/payments
+  service_name: payments.service
+
+deploy:
+  soak_marker_file: /var/lib/payments/selinux_canary_deployed_at
+  deploy_report_file: /var/lib/payments/selinux_deploy_report.json

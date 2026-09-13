@@ -31,6 +31,7 @@ all:
     service_name: myapp.service
     policy_pp_path: "{{ playbook_dir }}/../selinux/myapp.pp"
     project_root: "{{ playbook_dir }}/.."
+    app_manifest_path: "{{ project_root }}/config/{{ app_name }}.manifest.yml"
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"
     soak_min_days: 7

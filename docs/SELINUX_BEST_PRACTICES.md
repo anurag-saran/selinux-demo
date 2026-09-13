@@ -6,7 +6,8 @@ This guide captures **design principles and anti-patterns** enforced in this rep
 |----------|----------------|-----------|
 | **Policy author / app developer** | How to write `.te`/`.fc` and pass CI | [README.md](../README.md), [cli/prompt_templates.py](../cli/prompt_templates.py) |
 | **Security / admin reviewer** | PR review checklist and gates | [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md), §Review checklist below |
-| **RHEL admin running deploy** | Step-by-step rollout | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) |
+| **RHEL admin running deploy** | Step-by-step rollout | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md), [ansible/README.md](../ansible/README.md) |
+| **Testing / CI author** | Endpoint matrix, smoke tests, gates | [TESTING.md](TESTING.md) |
 | **New to SELinux concepts** | Labels, soak, permissive domains | [SELINUX_BASICS.md](SELINUX_BASICS.md) |
 
 Current module version: **`selinux/policy_version.txt`** (1.1.1+).
@@ -226,6 +227,8 @@ Use with the [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_revie
 
 | Guide | Role |
 |-------|------|
+| [TESTING.md](TESTING.md) | Endpoint probes, smoke_test.py, CI and deploy gates |
+| [../ansible/README.md](../ansible/README.md) | Ansible playbook task order and variables |
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | Concepts and beginner mistakes |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Workshop acts 1–10 |
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
