@@ -1,36 +1,104 @@
 # Production Readiness Runbook (RHEL Admin)
 
-High-blast-radius SELinux policy changes require **per-domain permissive soak**, **path labeling verification**, and **phased rollout** before removing the permissive flag. This runbook maps production guardrails to repo commands.
+This guide is for **RHEL/Fedora admins** who reviewed the workshop demo and are ready to roll out SELinux policy changes safely in production.
 
-**New to SELinux?** Read [SELINUX_BASICS.md](SELINUX_BASICS.md) first.
+**How to read this guide:**
 
-## Pre-production testing matrix
+| You are… | Read first | Then |
+|----------|------------|------|
+| **New to SELinux** | [SELINUX_BASICS.md](SELINUX_BASICS.md) sections 1–7 | This guide sections 1–4 |
+| **Saw the demo** | [DEMO_GUIDE.md](DEMO_GUIDE.md) acts 6–10 | This guide from section 4 onward |
+| **Running day-to-day deploys** | Section 5 (deploy paths) | Phases 1–6 as your checklist |
 
-| Phase | Goal | Command / playbook |
-| --- | --- | --- |
-| **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` |
-| **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` |
-| **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh` |
-| **Staging canary** | Permissive domain + integration smoke | Merge to `main` → staging canary workflow, or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.staging.yml` |
-| **Permissive soak** | Capture weekly cron, logrotate, restarts (7–14 days) | `semanage permissive -a myapp_t` + daily `bash scripts/monitor_avc.sh` |
-| **Production canary host** | Deploy to one node before fleet | `ansible-playbook ... deploy_canary.yml -i ansible/inventory.production.yml --limit canary` |
-| **Enforce gate** | Soak elapsed and zero domain AVCs | `bash scripts/check_soak_ready.sh` (called by `enforce_production.yml`) |
-| **Production enforce** | Remove permissive domain | `ansible-playbook ansible/enforce_production.yml` |
-| **Outage response** | Instant relief + AVC capture | `ansible-playbook ansible/emergency_rollback.yml` |
+**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → [DEMO_GUIDE.md](DEMO_GUIDE.md) (workshop) → **this guide** (admin rollout).
 
-## Recommended rollout sequence
+---
+
+## 1. Why production is different from the workshop
+
+High-blast-radius SELinux changes need **per-domain permissive soak**, **path labeling verification**, and **phased rollout** before you remove the permissive flag.
+
+| Topic | Workshop (`--demo-mode`) | Production |
+|-------|--------------------------|------------|
+| Soak wait | Skipped (pre-seeded 8-day marker) | **7–14 real calendar days** |
+| Enforce | `force_enforce=true` (break-glass) | `check_soak_ready.sh` **must pass** |
+| Goal | Teach the pipeline | **No surprise outages** |
+| Rollback | Commands shown only | Run `emergency_rollback.yml` if needed |
+
+**Never** use `force_enforce=true` in production without documented break-glass approval and on-call awareness.
+
+---
+
+## 2. Plain-English glossary
+
+| Term | Plain English |
+|------|---------------|
+| **Canary host** | One production node that gets new policy first — still permissive while you watch |
+| **Soak** | Run permissive canary for 7–14 days so weekly cron, logrotate, and restarts surface missing rules |
+| **Fleet** | All production hosts after canary proves stable |
+| **Enforce gate** | Automated check (`check_soak_ready.sh`) — soak time elapsed + AVC count within limit |
+| **Break-glass** | `force_enforce=true` — bypass soak gate; use only in emergencies with approval |
+| **Path labeling** | Files on disk must match `.fc` rules (`restorecon` + verify before restart) |
+| **Per-domain permissive** | Only `myapp_t` is permissive; the OS stays **Enforcing** globally |
+
+SELinux theory (labels, `.te`/`.fc`, `semanage`): [SELINUX_BASICS.md](SELINUX_BASICS.md).
+
+---
+
+## 3. The rollout journey
+
+Production is **never** auto-enforced on merge. You move through staging → prod canary → fleet enforce deliberately.
+
+```mermaid
+flowchart LR
+  PR[PR merged] --> StagingSoak[Staging canary + 7-14d soak]
+  StagingSoak --> ProdCanary[Prod canary host]
+  ProdCanary --> ProdSoak[Prod canary soak]
+  ProdSoak --> Enforce[Fleet enforce]
+  Enforce -->|outage| Rollback["semanage permissive -a"]
+```
+
+**Recommended sequence:**
 
 ```text
-PR merge → staging canary (auto)
+PR merge → staging canary (auto on main)
          → staging soak 7–14 days (monitor_avc daily)
          → prod canary host (--limit canary)
          → prod canary soak + monitor_avc
          → enforce fleet (soak gate must pass)
 ```
 
-Production is **never** auto-enforced on merge.
+---
 
-## Phase 1 — Per-domain permissive soak
+## 4. Three deploy paths
+
+| When | Who | How |
+|------|-----|-----|
+| **PR open** | CI (automatic) | `smoke-tests`, `forbidden-patterns`, `compile-policy` |
+| **Merge to `main`** | Pipeline (automatic) | [`.github/workflows/selinux-staging-canary.yml`](../.github/workflows/selinux-staging-canary.yml) → staging canary |
+| **Production cutover** | Admin (manual) | **SELinux Policy Deploy** workflow → `enforce` + GitHub `production` Environment approval |
+
+Manual Ansible (AWX/Tower compatible) uses the same playbooks — see phases below and [README.md § Admins](../README.md).
+
+---
+
+## 5. Pre-production testing matrix
+
+| Phase | Goal | Command / playbook | **Pass looks like** |
+| --- | --- | --- | --- |
+| **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` | `myapp.pp` built, no errors |
+| **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` | `Forbidden-pattern checks passed` |
+| **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh` | `File context verification passed` |
+| **Staging canary** | Permissive domain + integration smoke | Merge to `main` or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.staging.yml` | App responds on `:8888`, `myapp_t` in `semanage permissive -l` |
+| **Permissive soak** | Capture weekly cron, logrotate, restarts (7–14 days) | `semanage permissive -a myapp_t` + daily `monitor_avc.sh` | `count=0`, exit 0 |
+| **Production canary host** | Deploy to one node before fleet | `deploy_canary.yml --limit canary` | Marker file written, app healthy |
+| **Enforce gate** | Soak elapsed and zero domain AVCs | `check_soak_ready.sh` (in `enforce_production.yml`) | `Soak gate passed — safe to enforce myapp_t` |
+| **Production enforce** | Remove permissive domain | `ansible/enforce_production.yml` | `semanage permissive -l` empty for `myapp_t` |
+| **Outage response** | Instant relief + AVC capture | `ansible/emergency_rollback.yml` | Domain back in permissive list |
+
+---
+
+## 6. Phase 1 — Per-domain permissive soak
 
 Enable permissive mode **only** for the application domain (OS stays enforcing):
 
@@ -38,13 +106,24 @@ Enable permissive mode **only** for the application domain (OS stays enforcing):
 sudo semanage permissive -a myapp_t
 ```
 
-**Duration:** 7 to 14 days to capture edge workloads (weekly backups, log rotation, certificate renewals, systemd restarts).
+**Verify it is active:**
 
-The canary playbook records a deploy timestamp at `{{ var_dir }}/selinux_canary_deployed_at`. Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
+```bash
+$ sudo semanage permissive -l
+myapp_t
+```
 
-## Phase 2 — Path labeling verification
+**Duration:** 7 to 14 days to capture edge workloads — weekly backups, log rotation, certificate renewals, systemd restarts.
 
-After `semodule -i`, existing files may retain old contexts. Verify before restarting the service:
+The canary playbook records a deploy timestamp at `/var/myapp/selinux_canary_deployed_at` (epoch seconds). Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
+
+**List vs add:** `semanage permissive -l` lists domains; `-a` adds, `-d` removes. See [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
+
+---
+
+## 7. Phase 2 — Path labeling verification
+
+After `semodule -i`, existing files may retain old contexts. Verify **before** restarting the service:
 
 ```bash
 sudo bash scripts/verify_file_contexts.sh \
@@ -53,11 +132,27 @@ sudo bash scripts/verify_file_contexts.sh \
   --app-name myapp
 ```
 
-This runs `matchpathcon` on key paths and fails if `restorecon -Rv -n` would relabel anything under the data directory (venv checks are narrowed for FCOS).
+**Pass looks like:**
+
+```text
+[INFO] File context verification passed for myapp
+```
+
+**Fail looks like** (would relabel on restorecon):
+
+```text
+[ERROR] restorecon dry-run would change: /var/myapp/data.log
+```
+
+This runs `matchpathcon` on key paths and fails if `restorecon -Rv -n` would relabel anything under the data directory.
 
 Always run verification immediately after policy install and before `systemctl restart`.
 
-## Phase 3 — Systemd and cron attestation
+Full `restorecon` walkthrough: [SELINUX_BASICS.md §6](SELINUX_BASICS.md).
+
+---
+
+## 8. Phase 3 — Systemd and cron attestation
 
 Staging tests must use **systemd**, not manual `python app.py`:
 
@@ -74,28 +169,69 @@ curl -sf http://127.0.0.1:8888/rotate-log
 echo '0 2 * * * root /opt/myapp/bin/backup.sh' | sudo tee /etc/cron.d/myapp-backup-smoke
 ```
 
-PoC validates log rotation via HTTP `/rotate-log`. Real `logrotate` cron requires capturing AVCs from `logrotate_t` and extending policy — not included in the PoC module.
+The PoC validates log rotation via HTTP `/rotate-log`. Real `logrotate` cron requires capturing AVCs from `logrotate_t` and extending policy — not included in the PoC module.
 
 **Monitoring agents (Datadog, Promtail, Prometheus):** org-specific domains — verify manually during soak if agents read `/var/myapp`.
 
-## Phase 4 — Daily AVC monitoring
+---
 
-During soak, run daily (cron example):
+## 9. Phase 4 — Daily AVC monitoring
+
+During soak, run daily. Scripts live in the **repo**, not under `/opt/myapp` in this PoC.
+
+**Cron example** (adjust `REPO_ROOT` to where you cloned this repository on the host):
 
 ```bash
 # /etc/cron.d/myapp-selinux-monitor
-0 8 * * * root /opt/myapp/scripts/monitor_avc.sh --domain myapp_t --max-avc 0 >> /var/log/myapp_avc_monitor.log 2>&1
+REPO_ROOT=/opt/selinux-demo
+0 8 * * * root bash ${REPO_ROOT}/scripts/monitor_avc.sh --domain myapp_t --marker-file /var/myapp/selinux_canary_deployed_at --max-avc 0 >> /var/log/myapp_avc_monitor.log 2>&1
 ```
 
-Or from the repo on the host:
+**Manual run from repo:**
 
 ```bash
-bash scripts/monitor_avc.sh --domain myapp_t --paths /opt/myapp,/var/myapp --max-avc 0
+bash scripts/monitor_avc.sh \
+  --domain myapp_t \
+  --marker-file /var/myapp/selinux_canary_deployed_at \
+  --paths /opt/myapp,/var/myapp \
+  --max-avc 0
 ```
 
-## Phase 5 — Production canary host groups
+**Pass looks like:**
+
+```text
+[INFO] AVC report: domain=myapp_t since=03/05/2026 14:22:01 count=0
+[INFO] AVC monitoring check complete
+```
+
+**Fail looks like** (new denials during soak):
+
+```text
+[INFO] AVC report: domain=myapp_t since=... count=3
+[ERROR] AVC count 3 exceeds threshold 0
+--- recent matching AVC lines ---
+type=AVC ... scontext=...:myapp_t:s0 ...
+```
+
+Investigate new AVCs before enforce — extend policy and redeploy canary if needed.
+
+---
+
+## 10. Phase 5 — Production canary host groups
 
 Copy [`ansible/inventory.production.example.yml`](../ansible/inventory.production.example.yml) to `ansible/inventory.production.yml`.
+
+**Inventory layout:**
+
+```text
+inventory.production.yml
+├── canary group     → prod-canary-1 only (first)
+└── production group → all prod hosts (canary + fleet)
+```
+
+The `canary` group is **one node** for the first production deploy. The `production` group includes canary plus the rest of the fleet for later rollout.
+
+**Step-by-step:**
 
 ```bash
 # 1. Canary node only (permissive + policy install)
@@ -104,7 +240,10 @@ ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
   -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
 
 # 2. Daily monitoring on canary during soak
-bash scripts/monitor_avc.sh --domain myapp_t --marker-file /var/myapp/selinux_canary_deployed_at
+bash scripts/monitor_avc.sh \
+  --domain myapp_t \
+  --marker-file /var/myapp/selinux_canary_deployed_at \
+  --max-avc 0
 
 # 3. Optional: permissive rollout to full fleet before enforce
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
@@ -119,28 +258,133 @@ ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.
 ansible-playbook ... enforce_production.yml -e "force_enforce=true"
 ```
 
-## Phase 6 — Emergency rollback
+**`--limit canary`** targets only hosts in the `canary` group — not the full fleet. Use `--limit production` when rolling policy to all nodes while still permissive.
+
+---
+
+## 11. Phase 6 — Emergency rollback
 
 If enforce causes an outage:
 
-1. `semanage permissive -a myapp_t` (via `emergency_rollback.yml`) — no reboot
-2. Export AVCs: `ausearch -m avc -ts recent > /tmp/prod_outage_denials.log`
-3. Feed log to AI generator: `ansible-playbook ansible/emergency_rollback.yml`
+1. **`semanage permissive -a myapp_t`** (via `emergency_rollback.yml`) — instant relief, no reboot
+2. **Export AVCs:** `ausearch -m avc -ts recent > /tmp/prod_outage_denials.log`
+3. **Feed log to AI generator:** `ansible-playbook ansible/emergency_rollback.yml`
+
+**Expected relief:**
+
+```bash
+$ sudo semanage permissive -l
+myapp_t
+
+$ curl -sf http://127.0.0.1:8888/save-log
+{"status":"ok",...}
+```
 
 See [`ansible/emergency_rollback.yml`](../ansible/emergency_rollback.yml).
 
-## Enforce pre-checks (automated)
+Workshop demo shows these commands in [DEMO_GUIDE.md § Act 10](DEMO_GUIDE.md).
+
+---
+
+## 12. Enforce pre-checks (automated)
 
 `enforce_production.yml` runs before removing permissive:
 
-1. `check_soak_ready.sh` — minimum soak days + AVC count threshold
-2. `verify_file_contexts.sh` — labeling dry-run
-3. `systemctl restart` + endpoint smoke tests
+1. **`check_soak_ready.sh`** — minimum soak days + AVC count threshold
+2. **`verify_file_contexts.sh`** — labeling dry-run
+3. **`systemctl restart`** + endpoint smoke tests
 
-## CI mapping (developer PR)
+### `check_soak_ready.sh` — pass vs fail examples
+
+**FAIL — canary deployed today:**
+
+```bash
+$ bash scripts/check_soak_ready.sh \
+    --domain myapp_t \
+    --marker-file /var/myapp/selinux_canary_deployed_at
+
+[INFO] Soak: 1 day(s) elapsed (minimum 7)
+[INFO] AVCs since canary deploy for myapp_t: 0 (maximum 0)
+[ERROR] Soak period not met — wait 6 more day(s) or use force_enforce=true (break-glass only)
+```
+
+**FAIL — AVCs still appearing:**
+
+```bash
+[INFO] Soak: 10 day(s) elapsed (minimum 7)
+[INFO] AVCs since canary deploy for myapp_t: 2 (maximum 0)
+[ERROR] Too many AVC denials since canary deploy (2 > 0)
+```
+
+**PASS — after 8 days, zero AVCs:**
+
+```bash
+$ bash scripts/check_soak_ready.sh \
+    --domain myapp_t \
+    --marker-file /var/myapp/selinux_canary_deployed_at
+
+[INFO] Soak: 8 day(s) elapsed (minimum 7)
+[INFO] AVCs since canary deploy for myapp_t: 0 (maximum 0)
+[INFO] Soak gate passed — safe to enforce myapp_t
+```
+
+Manual pre-check before enforce:
+
+```bash
+bash scripts/check_soak_ready.sh \
+  --domain myapp_t \
+  --marker-file /var/myapp/selinux_canary_deployed_at
+```
+
+---
+
+## 13. Admin sign-off checklist
+
+Before you enforce on production, confirm:
+
+- [ ] Staging soak **7+ days** complete
+- [ ] `monitor_avc.sh --max-avc 0` clean for a full business cycle (including weekends)
+- [ ] Prod canary host deployed and soaked separately
+- [ ] `verify_file_contexts.sh` passed after last canary deploy
+- [ ] PR admin review table signed off ([PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md))
+- [ ] Change ticket documents enforce window and rollback owner
+- [ ] Rollback playbook tested on staging **or** on-call briefed on `emergency_rollback.yml`
+- [ ] `semanage permissive -l` shows `myapp_t` on target hosts (still permissive pre-enforce)
+
+---
+
+## 14. Troubleshooting
+
+| Problem | What it looks like | What to do |
+|---------|-------------------|------------|
+| **Enforce fails soak gate** | `Soak period not met` or `Too many AVC denials` | Wait remaining days; fix policy from AVCs; redeploy canary — do **not** use `force_enforce` without approval |
+| **Mislabeled files after deploy** | `verify_file_contexts.sh` fails | Run `restorecon -Rv /opt/myapp /var/myapp`; re-verify; see [Basics §6](SELINUX_BASICS.md) |
+| **AVCs spike during soak** | `monitor_avc.sh` exits non-zero | Export AVCs, extend `.te`, PR + CI, redeploy canary, **reset soak clock** |
+| **Ansible inventory missing** | `Could not match supplied host pattern` | Copy `inventory.production.example.yml` → `inventory.production.yml`; set real hostnames |
+| **Canary marker missing** | `Canary marker not found` | Run `deploy_canary.yml` first — marker is written on canary deploy |
+| **Audit tools unavailable** | `Could not determine AVC count` | Install `audit` package; ensure `auditd` is running |
+| **App fails after enforce** | curl errors; AVCs in enforcing mode | `semanage permissive -a myapp_t` immediately; run emergency rollback playbook |
+| **Wrong cron path** | cron job fails silently | Use repo path: `bash /path/to/selinux-demo/scripts/monitor_avc.sh` — scripts are **not** installed under `/opt/myapp` in this PoC |
+
+---
+
+## 15. CI mapping (developer PR)
 
 | Admin PR table row | CI job |
 | --- | --- |
 | No over-permissive grants | `forbidden-patterns` |
 | Compilation test | `compile-policy` |
 | Canary readiness | staging canary on merge |
+
+Developer workflow and PR assembly: [README.md](../README.md) and [DEMO_GUIDE.md acts 3–5](DEMO_GUIDE.md).
+
+---
+
+## Document map
+
+| Guide | Sections to read | Audience |
+|-------|------------------|----------|
+| [SELINUX_BASICS.md](SELINUX_BASICS.md) | §1–7 concepts; §6 restorecon; §7 semanage | New to SELinux |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | §9 acts 6–10 (admin story) | Workshop observers |
+| **This file** | §3 rollout; §5–14 phases and checklist | RHEL admins |
+| [README.md](../README.md) | Deploy paths + GitHub Actions | Day-to-day commands |

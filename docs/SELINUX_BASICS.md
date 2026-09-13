@@ -1,122 +1,305 @@
 # SELinux Basics — A Beginner's Guide
 
-This guide explains **SELinux from zero** using examples from this repository's `myapp` demo. No prior MAC (Mandatory Access Control) experience required.
+This guide explains **SELinux from zero** using the `myapp` demo in this repository. No prior experience required.
 
-**Next steps after reading:**
-- Run the workshop: [DEMO_GUIDE.md](DEMO_GUIDE.md)
-- Deploy safely in production: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)
+**How to read this guide (about 15–20 minutes):**
+
+1. Sections 1–4 — what SELinux is and how **labels** work (start here)
+2. Sections 5–7 — **commands** to view labels, **policy files** (`.te`/`.fc`), and **`restorecon`**
+3. Sections 8–10 — permissive mode, **AVC denials**, and a **worked example** tied to the demo
+4. Sections 11+ — reference tables, cheat sheet, and links to the live workshop
+
+**Before the live demo:** read sections 3–7, then follow [DEMO_GUIDE.md](DEMO_GUIDE.md).
+
+**After the demo (production rollout):** [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
 
 ---
 
-## What is SELinux?
+## 1. What is SELinux?
 
-**SELinux** (Security-Enhanced Linux) is a Linux kernel security module that adds **mandatory access control** on top of normal Unix permissions (owner/group/mode).
+**SELinux** (Security-Enhanced Linux) is a kernel security layer that adds **mandatory access control** on top of normal Unix file permissions (`chmod`, owner, group).
 
-| Unix permissions | SELinux |
-|------------------|---------|
-| "Can user `myapp` read this file?" | "Can process running as **`myapp_t`** read a file labeled **`myapp_var_lib_t`**?" |
-| User decides (within bounds) | **Policy** decides — admins define allowed interactions |
-| `chmod`, `chown` | Policy modules (`.te`), file contexts (`.fc`), `restorecon` |
+| Unix permissions ask… | SELinux asks… |
+|----------------------|---------------|
+| "Can user `myapp` read this file?" | "Can a process labeled **`myapp_t`** write to a file labeled **`myapp_var_lib_t`**?" |
+| The file owner decides (within limits) | **Policy** decides — rules are defined by admins and shipped as modules |
+| Tools: `chmod`, `chown` | Tools: `.te` rules, `.fc` path labels, `restorecon`, `semodule` |
 
-**Why it exists:** even if an app is compromised, SELinux limits what that process can touch (which files, ports, other processes) according to policy — not just whoever owns the file.
+**Why it exists:** if an attacker compromises the app, SELinux still limits which files, ports, and processes that code can touch — independent of Unix ownership.
 
 On RHEL, Fedora, and CentOS Stream, SELinux is **on by default**.
 
 ---
 
-## The mental model in one sentence
+## 2. Labels — the core idea
 
-Every process and file has a **label** (context). Policy contains **allow rules** that say which **source type** may do what to which **target type** for a given **object class**.
+Think of SELinux labels like **badges and room signs**:
 
-If no rule allows the operation → **denied** (in Enforcing mode).
+| Real-world idea | SELinux equivalent | Example in this repo |
+|-----------------|-------------------|----------------------|
+| Employee badge color | **Process type** (domain) | `myapp_t` — the running Flask app |
+| Sign on a door | **File/directory type** | `myapp_var_lib_t` — files under `/var/myapp` |
+| Company access policy | **`allow` rules** in `.te` | "Processes with badge `myapp_t` may write to rooms labeled `myapp_var_lib_t`" |
 
----
+**Key facts for beginners:**
 
-## Contexts — how labels look
+- **Every running process** has a label — see it with `ps -eZ`.
+- **Every file and directory** has a label — see it with `ls -Z`.
+- On each operation, the kernel checks: *"Does policy allow this **source type** to do **permission** on this **target type**?"*
+- If no rule allows it → **denied** (in Enforcing mode), or **logged only** (if that process domain is permissive).
 
-A SELinux context has four parts:
-
-```text
-user:role:type:level
-system_u:system_r:myapp_t:s0
-│        │        │       └── sensitivity/category (MLS/MCS; often s0)
-│        │        └── type (the part you work with most)
-│        └── role
-└── SELinux user
+```mermaid
+flowchart LR
+  Process["Process myapp_t"] -->|"allow rule?"| Policy["Policy in myapp.te"]
+  File["File myapp_var_lib_t"] --> Policy
+  Policy -->|yes| Allow["Operation allowed"]
+  Policy -->|no| Deny["AVC logged or blocked"]
 ```
 
-For this PoC, focus on **type** — especially **`myapp_t`** (the app process domain).
-
-### View labels on disk
-
-```bash
-ls -Z /opt/myapp/app.py
-# system_u:object_r:myapp_exec_t:s0
-
-ls -Z /var/myapp/
-# files should be myapp_var_lib_t after policy + restorecon
-```
-
-### View labels on processes
-
-```bash
-ps -eZ | grep myapp
-# system_u:system_r:myapp_t:s0  ... python ... app.py
-```
-
-If the process type and file type don't match what policy allows, you get an **AVC denial**.
-
----
-
-## Core vocabulary
+### Vocabulary (used everywhere)
 
 | Term | Plain English | In this repo |
 |------|---------------|--------------|
-| **Domain** | SELinux type of a *running process* | `myapp_t` — the Flask app |
-| **Type** | Label on objects or processes | `myapp_exec_t`, `myapp_var_lib_t`, … |
-| **Object class** | Kind of kernel object | `file`, `dir`, `tcp_socket`, `process` |
-| **Allow rule** | Permission grant in policy | `allow myapp_t myapp_var_lib_t:file write;` |
-| **Transition** | Process starts with a new type | systemd → `init_t` → **`myapp_t`** via `init_daemon_domain` |
-| **File context** | Default label for a path | Defined in `selinux/myapp.fc` |
-| **Module** | Packaged policy unit | `myapp.pp` (compiled from `.te` + `.fc`) |
-| **AVC** | Logged access denial | Lines in `/var/log/audit/audit.log` |
+| **Label / context** | The SELinux tag on a process or object | e.g. `system_u:system_r:myapp_t:s0` |
+| **Type** | The most important part of a label; names a category | `myapp_t`, `myapp_exec_t`, `myapp_var_lib_t` |
+| **Domain** | Word for a **process** type | `myapp_t` when the app is running |
+| **Object class** | Kind of thing being accessed | `file`, `dir`, `tcp_socket`, `process` |
+| **Allow rule** | Explicit permission in policy | `allow myapp_t myapp_var_lib_t:file write;` |
+| **AVC** | Log line when access is denied (or would be) | Lines in `/var/log/audit/audit.log` |
 
-**Domain vs type:** in conversation people say "domain" for process types like `myapp_t`. Technically it's still a *type* — domain is the role it plays.
+**Domain vs type:** people say "domain" for process types like `myapp_t`. Technically a domain is still a *type* — it is the type of a running process.
 
 ---
 
-## Enforcing vs Permissive
+## 3. The context string — four parts (focus on `type`)
 
-Check system mode:
+A full SELinux context looks like this:
 
-```bash
-getenforce
-# Enforcing | Permissive | Disabled
+```text
+user : role : type : level
+system_u : system_r : myapp_t : s0
+│          │          │        └── level (see below)
+│          │          └── TYPE — the part you care about most
+│          └── role (processes use system_r; files use object_r)
+└── SELinux user (almost always system_u)
 ```
 
-| Mode | Behavior |
-|------|----------|
-| **Enforcing** | Denials are **blocked** and logged |
-| **Permissive** | Denials are **logged only** — operation still succeeds |
-| **Disabled** | SELinux off (avoid in production) |
+### What you can ignore in this PoC
 
-### Per-domain permissive (what this repo uses)
+| Part | Typical value | Do beginners need it? |
+|------|---------------|------------------------|
+| user | `system_u` | No — same on almost everything |
+| role | `system_r` (process) / `object_r` (file) | No — notice files vs processes differ |
+| **type** | `myapp_t`, `myapp_var_lib_t`, … | **Yes — this is what policy rules use** |
+| level | `s0` | Mostly no — see below |
 
-You can keep the **OS enforcing** but mark **one domain** permissive:
+### What is `s0`? (MLS/MCS in plain English)
 
-```bash
-sudo semanage permissive -a myapp_t   # canary / soak
-sudo semanage permissive -l           # list permissive domains
-sudo semanage permissive -d myapp_t   # enforce after soak
-```
+The last field (`s0`) is the **sensitivity/category level**.
 
-This is the RHEL-recommended rollout: collect AVCs without an outage, then enforce when policy is complete.
+- **`s0`** means "default" — no special clearance or compartment. **This demo uses only `s0`.**
+- **MLS/MCS** (Multi-Level / Multi-Category Security) is an advanced RHEL feature for classified or multi-tenant environments. **We do not use it in this project.**
+
+**Beginner rule:** when reading labels, look at the **third field** (`myapp_t`, `myapp_exec_t`, …). Treat `:s0` as normal and ignore it unless your org uses MLS.
 
 ---
 
-## What is an AVC denial?
+## 4. Two commands that show labels
 
-**AVC** = Access Vector Cache. When SELinux denies (or would deny) an action, the kernel logs a line like:
+The `-Z` flag (capital **Z**) asks tools to print SELinux contexts. **Files and processes are labeled separately.**
+
+| Command | Shows labels on | Use when |
+|---------|-----------------|----------|
+| `ls -Z PATH` | **Files and directories** | "What type is this log file / binary?" |
+| `ps -eZ \| grep myapp` | **Running processes** | "What domain is my app running in?" |
+
+These answer **different questions**. Do not confuse the process label with the file label.
+
+### Example output (annotated)
+
+```bash
+$ ls -Z /opt/myapp/app.py
+system_u:object_r:myapp_exec_t:s0    /opt/myapp/app.py
+#                      ^^^^^^^^^^^^
+#                      FILE type — entrypoint the kernel executes
+
+$ ls -Z /var/myapp/data.log
+system_u:object_r:myapp_var_lib_t:s0    /var/myapp/data.log
+#                      ^^^^^^^^^^^^^^^
+#                      FILE type — application data
+
+$ ps -eZ | grep -E 'app.py|myapp'
+system_u:system_r:myapp_t:s0    1234 ?  ... python /opt/myapp/app.py
+#                  ^^^^^^^
+#                  PROCESS domain — the running app
+```
+
+**Takeaway:** the same application uses **`myapp_t`** when running and **`myapp_var_lib_t`** on its data files. Policy must **explicitly allow** `myapp_t` to write to `myapp_var_lib_t`. Having Unix write permission (`chmod`) is not enough.
+
+**Tip:** `-Z` is SELinux (capital Z). Lowercase `-z` on `ls`/`ps` means something else — do not mix them up.
+
+---
+
+## 5. Policy module pipeline — `.te`, `.fc`, and `.pp`
+
+Policy is shipped as a **module**. In Git you edit source files; on the server you install a compiled package.
+
+| File | Analogy | Answers the question… |
+|------|---------|----------------------|
+| **`myapp.te`** | Rule book | *Can `myapp_t` do X to `myapp_var_lib_t`?* |
+| **`myapp.fc`** | Address book | *What label should `/var/myapp/data.log` get?* |
+| **`myapp.pp`** | Installed package | Binary loaded into the kernel with `semodule -i` |
+
+```text
+selinux/myapp.te  ──┐
+                    ├── compile ──► myapp.pp ── semodule -i ──► active kernel policy
+selinux/myapp.fc  ──┘
+```
+
+- You **commit** `.te` and `.fc` to Git (source of truth).
+- CI/playbooks **compile** them to `.pp`.
+- Admins **install** `.pp` on staging/production hosts.
+
+### Type Enforcement (`.te`) — permission rules
+
+From [`selinux/myapp.te`](../selinux/myapp.te):
+
+```text
+type myapp_t;              # declare process domain
+type myapp_var_lib_t;      # declare data file type
+
+# Can myapp_t write to myapp_var_lib_t files?
+allow myapp_t myapp_var_lib_t:file { create write append ... };
+
+# Can myapp_t bind port 8888? (uses unreserved_port_t, not http_port_t)
+allow myapp_t unreserved_port_t:tcp_socket name_bind;
+
+# systemd starts app → process transitions into myapp_t
+init_daemon_domain(myapp_t, myapp_exec_t);
+```
+
+- **`allow SOURCE TARGET:CLASS { permissions }`** — basic building block.
+- **`init_daemon_domain`** — standard pattern for systemd services.
+- **`require { type ... }`** — types defined in the **base** RHEL policy that you reference but do not create.
+
+Early staging uses a minimal [`selinux/stub/myapp.te`](../selinux/stub/myapp.te) with `permissive myapp_t;` to collect AVCs before the full module is ready.
+
+### File contexts (`.fc`) — path → label mapping
+
+From [`selinux/myapp.fc`](../selinux/myapp.fc):
+
+```text
+/opt/myapp/app\.py     -- gen_context(system_u:object_r:myapp_exec_t,s0)
+/var/myapp(/.*)?       -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
+/opt/myapp/bin/.*      -- gen_context(system_u:object_r:myapp_script_exec_t,s0)
+```
+
+- Each line says: *files matching this path pattern get this default label*.
+- **FCOS note:** `/var/opt/myapp/*` entries exist because on Fedora CoreOS `/opt` is a symlink; paths must match where files actually live. See README safety notes for `chcon` after `restorecon` on venv.
+
+**`.te` vs `.fc` in one sentence:** `.fc` assigns labels to paths; `.te` defines what processes with those labels may do to each other.
+
+---
+
+## 6. What `restorecon` does (and why it matters)
+
+Installing policy updates **rules for new files**, but **existing files on disk** may still have **old labels** from before the module was installed.
+
+### The problem (mislabeled file)
+
+```bash
+# What policy SAYS the label should be:
+$ matchpathcon /var/myapp/data.log
+/var/myapp/data.log    system_u:object_r:myapp_var_lib_t:s0
+
+# What is ACTUALLY on disk (wrong — e.g. still generic var_t):
+$ ls -Z /var/myapp/data.log
+system_u:object_r:var_t:s0    /var/myapp/data.log
+```
+
+The app runs as `myapp_t` and tries to write the file. Policy allows `myapp_t` → `myapp_var_lib_t`, **not** `myapp_t` → `var_t`. Result: **denial** even though `chmod` looks fine.
+
+### The fix
+
+```bash
+$ sudo restorecon -Rv /var/myapp
+
+$ ls -Z /var/myapp/data.log
+system_u:object_r:myapp_var_lib_t:s0    /var/myapp/data.log
+```
+
+**`restorecon`** = "**restore** security **con**texts" — re-apply labels from policy to files on disk.
+
+| Flag | Meaning |
+|------|---------|
+| `-R` | Recursive (directories) |
+| `-v` | Verbose — print each path changed |
+| `-n` | **Dry run** — show what *would* change, change nothing |
+
+This repo runs `restorecon` in Ansible canary/enforce playbooks and checks with [`scripts/verify_file_contexts.sh`](../scripts/verify_file_contexts.sh) (`restorecon -Rv -n` must show no changes before restart).
+
+**When to run it:** immediately after `semodule -i myapp.pp`, before `systemctl restart myapp`.
+
+---
+
+## 7. Enforcing vs permissive — and `semanage` commands
+
+### Whole-system mode
+
+```bash
+$ getenforce
+Enforcing
+```
+
+| Mode | What happens on denial |
+|------|------------------------|
+| **Enforcing** | Operation **blocked** + logged |
+| **Permissive** | Operation **allowed** + logged (whole OS — avoid in prod) |
+| **Disabled** | SELinux off — do not use in production |
+
+### Per-domain permissive (what this demo uses)
+
+You can keep the **OS Enforcing** but mark **one app domain** as permissive:
+
+| Command | What it does | When |
+|---------|--------------|------|
+| `sudo semanage permissive -a myapp_t` | **Add** `myapp_t` to permissive list | Start canary / soak |
+| `sudo semanage permissive -l` | **List** all permissive domains | Check current state |
+| `sudo semanage permissive -d myapp_t` | **Remove** `myapp_t` from list | Production enforce |
+
+**This is not `setenforce 0`.** The rest of the system stays protected; only processes in `myapp_t` get log-only denials.
+
+#### Example: `-a` vs `-l`
+
+```bash
+$ getenforce
+Enforcing
+
+$ sudo semanage permissive -a myapp_t
+# (no output on success — that is normal)
+
+$ sudo semanage permissive -l
+myapp_t
+
+# ... after soak, admin enforces:
+
+$ sudo semanage permissive -d myapp_t
+
+$ sudo semanage permissive -l
+# (empty output — no domains listed)
+```
+
+**Summary:**
+
+- **`-a`** = turn on log-only mode **for one domain** (action / change)
+- **`-l`** = show who is currently in that log-only list (read / inspect)
+- **`-d`** = turn log-only mode off for that domain (enforce)
+
+---
+
+## 8. AVC denials — evidence for policy updates
+
+When SELinux blocks (or would block) access, the kernel logs an **AVC** (Access Vector Cache) line:
 
 ```text
 type=AVC msg=audit(1234567890.123:456): avc: denied { write } for pid=1234 comm="python3"
@@ -125,15 +308,13 @@ type=AVC msg=audit(1234567890.123:456): avc: denied { write } for pid=1234 comm=
   tclass=file permissive=1
 ```
 
-How to read it:
-
 | Field | Meaning |
 |-------|---------|
-| `denied { write }` | Operation blocked (or logged in permissive) |
-| `scontext` | **Source** — who tried (process type `myapp_t`) |
-| `tcontext` | **Target** — what was accessed (file type `myapp_var_lib_t`) |
+| `denied { write }` | Operation that was blocked (or logged) |
+| `scontext` | **Source** — process type (`myapp_t`) |
+| `tcontext` | **Target** — object type (`myapp_var_lib_t`) |
 | `tclass=file` | Object class |
-| `permissive=1` | Domain was permissive — request succeeded but was logged |
+| `permissive=1` | Domain was permissive — app kept running; denial was logged |
 
 Search recent denials:
 
@@ -142,146 +323,91 @@ sudo ausearch -m avc -ts recent
 sudo ausearch -m avc -ts recent | grep myapp_t
 ```
 
-This repository **exports** those lines to `policy_out/avc.log` and feeds them to the AI policy CLI — instead of blindly running `audit2allow`.
+This repo exports matching lines to `policy_out/avc.log` and feeds them to the AI CLI — instead of blindly running `audit2allow`, which often creates over-broad rules.
 
 ---
 
-## Policy files in this project
+## 9. Worked example — `/save-log` end to end
 
-```text
-selinux/
-├── myapp.te          # Type Enforcement — rules (allow, types, transitions)
-├── myapp.fc          # File Contexts — path → default label mappings
-├── policy_version.txt
-└── stub/             # Minimal permissive module for early staging
-```
+This ties labels, `.te`, `.fc`, AVCs, and the demo together.
 
-Compiled output (not committed):
+The Flask app ([`app/app.py`](../app/app.py)) exposes `GET /save-log`, which appends a line to `/var/myapp/data.log`.
 
-```text
-policy_out/myapp.pp   # Binary module installed with semodule -i
-```
-
-### Type Enforcement (`.te`) — rules
-
-Example from [`selinux/myapp.te`](../selinux/myapp.te):
-
-```text
-type myapp_t;                    # process domain
-type myapp_var_lib_t;           # data files under /var/myapp
-
-allow myapp_t myapp_var_lib_t:file { create write append ... };
-allow myapp_t unreserved_port_t:tcp_socket name_bind;   # port 8888
-init_daemon_domain(myapp_t, myapp_exec_t);              # systemd start transition
-```
-
-- **`allow SOURCE TARGET:CLASS { permissions }`** — the basic building block
-- **`init_daemon_domain`** — standard pattern for systemd-managed daemons
-- **`require { type ... }`** — types defined in the base policy that you reference but don't declare
-
-### File Contexts (`.fc`) — path labels
-
-Example from [`selinux/myapp.fc`](../selinux/myapp.fc):
-
-```text
-/opt/myapp/app\.py    -- gen_context(system_u:object_r:myapp_exec_t,s0)
-/var/myapp(/.*)?      -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
-```
-
-After installing policy, existing files need relabeling:
+### Step 1 — Process and file labels
 
 ```bash
-sudo restorecon -Rv /var/myapp /opt/myapp
-matchpathcon /opt/myapp/app.py    # what label policy expects
+$ ps -eZ | grep app.py
+system_u:system_r:myapp_t:s0    ... python /opt/myapp/app.py
+
+$ ls -Z /var/myapp/data.log
+system_u:object_r:myapp_var_lib_t:s0    /var/myapp/data.log
 ```
 
-Wrong labels are a top cause of "app worked in staging, broke in prod."
+Process is `myapp_t`. File is `myapp_var_lib_t`. Good — labels match what policy expects **if** `.fc` and `restorecon` were applied.
+
+### Step 2 — Policy must allow the write
+
+In [`selinux/myapp.te`](../selinux/myapp.te):
+
+```text
+allow myapp_t myapp_var_lib_t:file { create write append open ... };
+```
+
+Without this line, SELinux denies the write even when Unix permissions allow it.
+
+### Step 3 — If rule is missing → AVC
+
+```text
+avc: denied { write } ...
+  scontext=...:myapp_t:s0
+  tcontext=...:myapp_var_lib_t:s0
+  tclass=file permissive=1
+```
+
+Read it as: **`myapp_t` tried to `write` a `file` labeled `myapp_var_lib_t` — not allowed.**
+
+During soak (`semanage permissive -a myapp_t`), the write **still succeeds**; the line is **evidence** for policy authors.
+
+### Step 4 — Demo pipeline picks it up
+
+```text
+curl /save-log  →  AVC in audit.log  →  export to policy_out/avc.log
+    →  AI merges fix into selinux/myapp.te  →  PR + CI  →  canary  →  soak  →  enforce
+```
+
+Same pattern applies to `/run-script` (execute `myapp_script_exec_t`) and `/rotate-log` (rename files under `myapp_var_lib_t`).
 
 ---
 
-## How a process gets its type
+## 10. How the app process gets type `myapp_t`
+
+Processes do not choose their own label. The kernel assigns a type based on **how the process starts** and **policy transition rules**.
 
 ```text
-systemd (init_t)
+systemd (runs as init_t)
     → starts /opt/myapp/venv/bin/python /opt/myapp/app.py
-    → entrypoint labeled myapp_exec_t
-    → transition rule in policy
-    → process runs as myapp_t
+    → binary path labeled myapp_exec_t (.fc + restorecon)
+    → init_daemon_domain() transition in .te
+    → running process labeled myapp_t
 ```
 
-If the transition rule is missing, the service may stay in `init_t` or fail — common when testing only with manual `python app.py` instead of **`systemctl restart myapp`**.
+If you start the app manually as root (`python app.py`) instead of **`systemctl restart myapp`**, you may get a **different domain** and **different AVCs** than production. The demo playbooks always restart via systemd for this reason.
 
 ---
 
-## Install and manage policy modules
+## 11. Types in the myapp module (quick reference)
 
-```bash
-# Compile (this repo)
-bash scripts/compile_and_validate.sh selinux
-
-# Install / upgrade
-sudo semodule -i selinux/myapp.pp
-
-# Remove before upgrade (handled in our scripts)
-sudo semodule -r myapp
-
-# List loaded modules
-sudo semodule -l | grep myapp
-```
+| Type | Used for |
+|------|----------|
+| `myapp_t` | Running Flask app (process domain) |
+| `myapp_exec_t` | App binary, Python venv (entrypoint) |
+| `myapp_var_lib_t` | Data under `/var/myapp` (logs, state) |
+| `myapp_script_exec_t` | `backup.sh` and scripts in `/opt/myapp/bin/` |
+| `unreserved_port_t` | Binding TCP port **8888** (not `http_port_t`) |
 
 ---
 
-## Common beginner mistakes
-
-| Mistake | Why it hurts | What this repo does |
-|---------|--------------|---------------------|
-| Setting entire OS permissive | Removes protection for everything | Only `myapp_t` permissive during soak |
-| Using `audit2allow` blindly | Creates over-broad rules (`allow myapp_t *:*`) | AI + **forbidden-pattern CI** + human review |
-| Skipping `restorecon` after deploy | Old files keep wrong types | `verify_file_contexts.sh`, Ansible playbooks |
-| Testing only manual start | Missing systemd transition AVCs | Playbooks restart via **systemd** |
-| Wrong port type for 8888 | `http_port_t` is wrong for 8888 on RHEL | Uses **`unreserved_port_t`** |
-| Enforcing immediately | Misses weekly cron / logrotate edge cases | **7–14 day soak** before enforce |
-
----
-
-## Useful commands (cheat sheet)
-
-```bash
-# Status
-getenforce
-sestatus
-
-# Contexts
-ls -Z PATH
-ps -eZ | grep PROCESS
-matchpathcon PATH
-
-# Relabel
-restorecon -Rv PATH
-restorecon -Rv -n PATH          # dry-run: show what would change
-
-# Audit / denials
-sudo ausearch -m avc -ts recent
-sudo tail -f /var/log/audit/audit.log
-
-# Permissive domain
-sudo semanage permissive -a myapp_t
-sudo semanage permissive -d myapp_t
-sudo semanage permissive -l
-
-# Policy modules
-sudo semodule -l
-sudo semodule -i myapp.pp
-sudo semodule -r myapp
-
-# Booleans (not used in this PoC, but common on RHEL)
-getsebool -a | grep httpd
-sudo setsebool -P httpd_can_network_connect on
-```
-
----
-
-## How this maps to the demo workflow
+## 12. How this maps to the demo workflow
 
 ```text
 1. Run app as myapp_t (permissive)     →  AVCs logged, app still works
@@ -294,37 +420,113 @@ sudo setsebool -P httpd_can_network_connect on
 8. Outage?                             →  semanage permissive -a (rollback playbook)
 ```
 
-See [DEMO_GUIDE.md](DEMO_GUIDE.md) for presenter steps and [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for admin gates.
+Presenter steps: [DEMO_GUIDE.md](DEMO_GUIDE.md). Admin gates: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
 
 ---
 
-## Types in the myapp module (quick reference)
+## 13. Common beginner mistakes
 
-| Type | Used for |
-|------|----------|
-| `myapp_t` | Running Flask app process (domain) |
-| `myapp_exec_t` | App binary, venv (entrypoint / interpreters) |
-| `myapp_var_lib_t` | Data under `/var/myapp` (logs, state) |
-| `myapp_script_exec_t` | `backup.sh` and scripts in `bin/` |
-| `unreserved_port_t` | Binding TCP port **8888** |
+| Mistake | Why it hurts | What this repo does |
+|---------|--------------|---------------------|
+| Confusing process and file labels | Wrong mental model for AVCs | Use `ps -eZ` vs `ls -Z` (section 4) |
+| Setting entire OS permissive (`setenforce 0`) | Removes protection for everything | Only `myapp_t` permissive during soak |
+| Using `audit2allow` blindly | Over-broad rules (`allow myapp_t *:*`) | AI + forbidden-pattern CI + human review |
+| Skipping `restorecon` after deploy | Old files keep wrong types | `verify_file_contexts.sh`, Ansible playbooks |
+| Testing only manual `python app.py` | Missing systemd transition AVCs | Playbooks restart via **systemd** |
+| Wrong port type for 8888 | `http_port_t` is wrong on RHEL | Uses **`unreserved_port_t`** |
+| Enforcing immediately | Misses weekly cron / logrotate edge cases | **7–14 day soak** before enforce |
 
 ---
 
-## Further reading (external)
+## 14. Install and manage policy modules
+
+```bash
+# Compile (this repo)
+bash scripts/compile_and_validate.sh selinux
+
+# Install / upgrade on host
+sudo semodule -i selinux/myapp.pp
+
+# Remove before upgrade (scripts/Ansible do this automatically)
+sudo semodule -r myapp
+
+# List loaded modules
+sudo semodule -l | grep myapp
+```
+
+---
+
+## 15. Command cheat sheet (by task)
+
+**Check SELinux status**
+
+```bash
+getenforce
+sestatus
+```
+
+**View labels**
+
+```bash
+ls -Z /path/to/file          # file label
+ps -eZ | grep myapp          # process label
+matchpathcon /path/to/file   # label policy expects
+```
+
+**Fix labels on disk**
+
+```bash
+sudo restorecon -Rv /var/myapp /opt/myapp
+sudo restorecon -Rv -n /var/myapp    # dry run only
+```
+
+**Permissive domain (one app)**
+
+```bash
+sudo semanage permissive -a myapp_t   # add — start soak
+sudo semanage permissive -l           # list — inspect
+sudo semanage permissive -d myapp_t   # delete — enforce
+```
+
+**Audit / denials**
+
+```bash
+sudo ausearch -m avc -ts recent
+sudo ausearch -m avc -ts recent | grep myapp_t
+```
+
+**Policy modules**
+
+```bash
+sudo semodule -l
+sudo semodule -i selinux/myapp.pp
+sudo semodule -r myapp
+```
+
+---
+
+## 16. Glossary
+
+| Term | One-line definition |
+|------|---------------------|
+| **MAC** | Mandatory Access Control — system policy, not user choice |
+| **Label / context** | SELinux tag on a process or object (`user:role:type:level`) |
+| **Type** | Third field of a context; used in `allow` rules |
+| **Domain** | Process type (e.g. `myapp_t`) |
+| **TE** | Type Enforcement — rule language in `.te` files |
+| **FC** | File Contexts — path-to-label mappings in `.fc` files |
+| **AVC** | Access Vector Cache denial log entry |
+| **restorecon** | Re-apply policy-defined labels to files on disk |
+| **semanage** | Manage SELinux settings (including per-domain permissive list) |
+| **DAC** | Discretionary Access Control — classic Unix `rwx` permissions |
+| **MLS/MCS** | Advanced classification; not used in this PoC (always `s0`) |
+
+---
+
+## 17. Further reading
 
 - [Red Hat SELinux User's and Administrator's Guide](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/using_selinux/index)
-- `man selinux` — overview on RHEL systems
-- `man semodule`, `man restorecon`, `man ausearch` — tool reference
-
----
-
-## Glossary (one line each)
-
-- **MAC** — Mandatory Access Control; policy enforced by the system, not chosen by the user
-- **TE** — Type Enforcement; the allow/rule language in `.te` files
-- **FC** — File Contexts; path-to-label mappings in `.fc` files
-- **DAC** — Discretionary Access Control; classic Unix rwx permissions
-- **MLS/MCS** — Multi-Level / Multi-Category Security; advanced; this PoC stays at `s0`
+- On RHEL hosts: `man selinux`, `man semodule`, `man restorecon`, `man ausearch`
 
 ---
 
@@ -332,7 +534,7 @@ See [DEMO_GUIDE.md](DEMO_GUIDE.md) for presenter steps and [PRODUCTION_READINESS
 
 | Guide | Audience |
 |-------|----------|
-| **This file** | New to SELinux — concepts and vocabulary |
+| **This file** | New to SELinux — labels, `.te`/`.fc`, commands with examples |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Running the live workshop demo |
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | RHEL admins — soak, canary, enforce gates |
 | [README.md](../README.md) | Project overview and command index |

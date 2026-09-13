@@ -176,7 +176,7 @@ bash scripts/compile_and_validate.sh policy_out   # after AI generation
 
 Production is **never** auto-enforced on merge.
 
-Full admin runbook: [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) (soak gate, path labeling, prod canary host rollout, daily AVC monitoring).
+Full admin runbook: [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) — soak, canary hosts, enforce gates, pass/fail examples, and admin sign-off checklist.
 
 ### GitHub Actions deploy (recommended)
 
@@ -246,7 +246,7 @@ bash scripts/run_on_podman_vm.sh apply-policy
 
 ## Workshop demo (presenter)
 
-**New to the demo?** Read the step-by-step guide: [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) (talking points, prerequisites, act-by-act walkthrough, troubleshooting).
+**New to the demo?** Follow the learning path: [`docs/SELINUX_BASICS.md`](docs/SELINUX_BASICS.md) → [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) (10 acts, example output, presenter vs observer paths).
 
 Paced narration with pauses between acts (dev → PR → canary → guardrails → enforce):
 
@@ -313,6 +313,6 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 
 | Guide | For |
 |-------|-----|
-| [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — contexts, AVCs, enforcing vs permissive, policy files |
-| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Running the workshop demo (acts, talking points, troubleshooting) |
-| [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | RHEL admins — soak, canary hosts, enforce gates, rollback |
+| [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
+| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Workshop demo for newbies — 10 acts, example output, observer vs presenter paths |
+| [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Post-demo admin runbook — soak, canary hosts, enforce gates, with pass/fail examples |
