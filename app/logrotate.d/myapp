@@ -1,4 +1,4 @@
-/var/myapp/*.log {
+/var/lib/myapp/*.log {
     daily
     rotate 3
     missingok

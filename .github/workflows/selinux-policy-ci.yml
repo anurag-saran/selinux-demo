@@ -5,12 +5,11 @@ on:
     paths:
       - 'selinux/**'
       - 'cli/**'
-      - 'scripts/compile_and_validate.sh'
-      - 'scripts/validate_forbidden_patterns.sh'
-      - 'scripts/smoke_test.py'
-      - 'scripts/assemble_pr_body.sh'
+      - 'scripts/**'
+      - 'ansible/**'
       - '.github/workflows/selinux-policy-ci.yml'
       - '.github/PULL_REQUEST_TEMPLATE/**'
+      - 'packaging/**'
   push:
     branches:
       - main
@@ -18,10 +17,8 @@ on:
     paths:
       - 'selinux/**'
       - 'cli/**'
-      - 'scripts/compile_and_validate.sh'
-      - 'scripts/validate_forbidden_patterns.sh'
-      - 'scripts/smoke_test.py'
-      - 'scripts/assemble_pr_body.sh'
+      - 'scripts/**'
+      - 'ansible/**'
 
 jobs:
   smoke:
@@ -41,14 +38,6 @@ jobs:
       - name: Run smoke tests
         run: python3 scripts/smoke_test.py
 
-      - name: Job summary
-        if: always()
-        run: |
-          {
-            echo "## smoke-tests"
-            echo "Validates prompts, AVC parsing, policy JSON, version bump, Flask routes, PR body assembly."
-          } >> "${GITHUB_STEP_SUMMARY}"
-
   forbidden-patterns:
     name: forbidden-patterns
     runs-on: ubuntu-latest
@@ -58,18 +47,36 @@ jobs:
       - name: Validate forbidden SELinux patterns
         run: bash scripts/validate_forbidden_patterns.sh selinux
 
-      - name: Job summary
-        if: always()
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck
         run: |
-          {
-            echo "## forbidden-patterns"
-            echo "Blocks wildcards, shadow_t/unconfined_t/sysadm_t allows, broad var_t:file write."
-            echo "Maps to admin PR table row: **No Over-Permissive Grants**."
-          } >> "${GITHUB_STEP_SUMMARY}"
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh scripts/lib/*.sh
+
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run yamllint
+        run: |
+          pip install yamllint
+          yamllint -d relaxed ansible/ .github/workflows/
 
   compile:
     name: compile-policy
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v4
 
@@ -79,20 +86,40 @@ jobs:
           sudo apt-get install -y podman
 
       - name: Compile selinux/ module
+        env:
+          SELINUX_COMPILE_IMAGE: ${{ matrix.image }}
         run: bash scripts/compile_and_validate.sh selinux
+
+      - name: Verify committed .pp matches sources
+        env:
+          SELINUX_COMPILE_IMAGE: ${{ matrix.image }}
+        run: bash scripts/verify_pp_drift.sh selinux
 
       - name: Upload compiled policy package
         uses: actions/upload-artifact@v4
         with:
-          name: selinux-myapp-pp
+          name: selinux-myapp-pp-${{ matrix.image }}
           path: selinux/myapp.pp
           if-no-files-found: error
 
-      - name: Job summary
-        if: always()
+  policy-semantics:
+    name: policy-semantics
+    needs: compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
         run: |
-          {
-            echo "## compile-policy"
-            echo "Built \`selinux/myapp.pp\` — download artifact **selinux-myapp-pp**."
-            echo "Maps to admin PR table row: **Compilation Test**."
-          } >> "${GITHUB_STEP_SUMMARY}"
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Compile policy for semantic checks
+        env:
+          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+        run: bash scripts/compile_and_validate.sh selinux
+
+      - name: Run sesearch semantic assertions
+        env:
+          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+        run: bash scripts/validate_policy_semantics.sh selinux

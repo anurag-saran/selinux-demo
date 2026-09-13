@@ -7,12 +7,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/compile_policy.sh
+source "${SCRIPT_DIR}/lib/compile_policy.sh"
 APP_SRC="${PROJECT_ROOT}/app"
 STUB_DIR="${PROJECT_ROOT}/selinux/stub"
 
 INSTALL_ROOT="/opt/myapp"
 BIN_DIR="${INSTALL_ROOT}/bin"
-VAR_DIR="/var/myapp"
+VAR_DIR="/var/lib/myapp"
+RUNTIME_DIR="/run/myapp"
 SERVICE_NAME="myapp.service"
 SERVICE_USER="myapp"
 DOMAIN="myapp_t"
@@ -89,8 +92,6 @@ check_prerequisites() {
     fi
     require_command restorecon "policycoreutils"
     require_command ausearch "audit"
-    require_command checkmodule "checkpolicy"
-    require_command semodule_package "checkpolicy"
     require_command semodule "policycoreutils"
     require_command systemctl "systemd"
     check_selinux
@@ -127,10 +128,6 @@ install_application() {
     # Flask runs from a venv under /opt/myapp (FCOS-friendly install path)
 }
 
-has_selinux_devel() {
-    [[ -f /usr/share/selinux/devel/include/common.inc.sh ]]
-}
-
 compile_stub_policy() {
     local work_dir pp_path
     work_dir="$(mktemp -d)"
@@ -140,28 +137,7 @@ compile_stub_policy() {
     cp "${STUB_DIR}/myapp.te" "${work_dir}/myapp.te"
     cp "${STUB_DIR}/myapp.fc" "${work_dir}/myapp.fc"
 
-    if has_selinux_devel; then
-        checkmodule -M -m -o "${work_dir}/myapp.mod" "${work_dir}/myapp.te"
-        semodule_package -o "${pp_path}" -m "${work_dir}/myapp.mod" -f "${work_dir}/myapp.fc"
-    elif command -v podman >/dev/null 2>&1; then
-        log_info "selinux-policy-devel not on host; compiling stub in Fedora container..."
-        podman run --rm \
-            -v "${STUB_DIR}:/stub:Z" \
-            -v "${work_dir}:/out:Z" \
-            docker.io/library/fedora:41 \
-            bash -lc '
-                set -euo pipefail
-                dnf install -y -q selinux-policy-devel checkpolicy policycoreutils
-                mkdir -p /build
-                cp /stub/myapp.te /stub/myapp.fc /build/
-                make -C /build -f /usr/share/selinux/devel/Makefile myapp.pp
-                cp /build/myapp.pp /out/myapp.pp
-            '
-    else
-        log_error "Cannot compile SELinux policy: install selinux-policy-devel or podman."
-        rm -rf "${work_dir}"
-        exit 1
-    fi
+    compile_policy_module "${work_dir}" "myapp" "${pp_path}"
 
     semodule -i "${pp_path}"
     rm -rf "${work_dir}"
@@ -225,7 +201,7 @@ install_systemd_service() {
     systemctl enable "${SERVICE_NAME}"
     systemctl stop myapp-backend.service "${SERVICE_NAME}" 2>/dev/null || true
     pkill -f 'backend_stub.py' 2>/dev/null || true
-    rm -f "${VAR_DIR}/notify.sock"
+    rm -f "${RUNTIME_DIR}/notify.sock"
     systemctl restart myapp-backend.service
     systemctl restart "${SERVICE_NAME}"
 }
@@ -244,17 +220,8 @@ set_permissive_domain() {
 }
 
 restore_contexts() {
-    log_info "Restoring SELinux contexts on ${INSTALL_ROOT} and ${VAR_DIR}"
-    restorecon -Rv "${VAR_DIR}" 2>/dev/null || true
-    # FCOS may leave default var_t on /opt paths; enforce PoC labels explicitly.
-    if command -v chcon >/dev/null 2>&1; then
-        chcon -t myapp_exec_t "${INSTALL_ROOT}/app.py" 2>/dev/null || true
-        chcon -t myapp_backend_exec_t "${INSTALL_ROOT}/backend_stub.py" 2>/dev/null \
-            || chcon -t myapp_exec_t "${INSTALL_ROOT}/backend_stub.py" 2>/dev/null || true
-        chcon -R -t myapp_exec_t "${INSTALL_ROOT}/venv" 2>/dev/null || true
-        chcon -t myapp_script_exec_t "${BIN_DIR}/backup.sh" 2>/dev/null || true
-        chcon -R -t myapp_var_lib_t "${VAR_DIR}" 2>/dev/null || true
-    fi
+    log_info "Restoring SELinux contexts on ${INSTALL_ROOT}, ${VAR_DIR}, and ${RUNTIME_DIR}"
+    restorecon -Rv "${INSTALL_ROOT}" "${VAR_DIR}" "${RUNTIME_DIR}" 2>/dev/null || true
 }
 
 wait_for_service() {
@@ -301,6 +268,7 @@ main() {
         bash "${PROJECT_ROOT}/scripts/verify_file_contexts.sh" \
             --install-root "${INSTALL_ROOT}" \
             --var-dir "${VAR_DIR}" \
+            --runtime-dir "${RUNTIME_DIR}" \
             --app-name myapp \
             --skip-if-unavailable || true
     fi

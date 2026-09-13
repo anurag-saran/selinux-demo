@@ -26,7 +26,8 @@ all:
     app_name: myapp
     domain: myapp_t
     install_root: /opt/myapp
-    var_dir: /var/myapp
+    var_dir: /var/lib/myapp
+    runtime_dir: /run/myapp
     service_name: myapp.service
     policy_pp_path: "{{ playbook_dir }}/../selinux/myapp.pp"
     project_root: "{{ playbook_dir }}/.."

@@ -16,7 +16,7 @@ AVC_LOG="${POLICY_OUT}/avc.log"
 APP_NAME="${POLICY_APP:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/myapp}"
-VAR_DIR="${VAR_DIR:-/var/myapp}"
+VAR_DIR="${VAR_DIR:-/var/lib/myapp}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -47,10 +47,10 @@ export_avcs() {
     mkdir -p "${POLICY_OUT}"
     if command -v ausearch >/dev/null 2>&1; then
         ausearch -m avc -ts boot --raw 2>/dev/null \
-            | grep -E "myapp|/opt/myapp|/var/myapp|/var/opt/myapp" > "${AVC_LOG}" || true
+            | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp|/var/opt/myapp" > "${AVC_LOG}" || true
     else
         grep '^type=AVC' /var/log/audit/audit.log 2>/dev/null \
-            | grep -E "myapp|/opt/myapp|/var/myapp" > "${AVC_LOG}" || true
+            | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp" > "${AVC_LOG}" || true
     fi
     if [[ ! -s "${AVC_LOG}" ]]; then
         log_warn "No AVC lines exported to ${AVC_LOG}"

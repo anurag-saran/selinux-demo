@@ -139,7 +139,7 @@ jobs:
         run: |
           [[ -n "${INCIDENT_WEBHOOK_URL}" ]] || exit 0
           curl -sf -X POST -H "Content-Type: application/json" \
-            -d "{\"text\":\"SELinux deploy PASSED: action=${{ inputs.action }} env=${{ inputs.environment }} report=/var/myapp/selinux_deploy_report.json\"}" \
+            -d "{\"text\":\"SELinux deploy PASSED: action=${{ inputs.action }} env=${{ inputs.environment }} report=/var/lib/myapp/selinux_deploy_report.json\"}" \
             "${INCIDENT_WEBHOOK_URL}" || true
 
       - name: Enforce job summary
@@ -151,7 +151,7 @@ jobs:
             echo "- Host limit: \`${{ steps.limit.outputs.value || 'all inventory hosts' }}\`"
             echo "- Soak gate: \`check_soak_ready.sh\` (7+ days, zero domain AVCs by default)"
             echo "- Override: \`-e force_enforce=true\` break-glass only"
-            echo "- Deploy report: \`/var/myapp/selinux_deploy_report.json\`"
+            echo "- Deploy report: \`/var/lib/myapp/selinux_deploy_report.json\`"
             echo "- Runbook: [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md)"
           } >> "${GITHUB_STEP_SUMMARY}"
 

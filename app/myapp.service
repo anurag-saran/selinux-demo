@@ -14,6 +14,13 @@ Environment=FLASK_ENV=production
 Restart=on-failure
 RestartSec=5
 
+StateDirectory=myapp
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/myapp
+
 # Run under dedicated domain after stub/AI policy labels the entrypoint.
 
 [Install]

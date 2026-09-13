@@ -4,8 +4,12 @@
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/avc_query.sh
+source "${SCRIPT_DIR}/lib/avc_query.sh"
+
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
-PATHS="${MONITOR_PATHS:-/opt/myapp,/var/myapp}"
+PATHS="${MONITOR_PATHS:-/opt/myapp,/var/lib/myapp,/run/myapp}"
 SINCE="${MONITOR_SINCE:-recent}"
 MAX_AVC="${MONITOR_MAX_AVC:--1}"
 SHOW_LINES="${MONITOR_SHOW_LINES:-10}"
@@ -22,12 +26,12 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [options]
 
-Report AVC denials for a domain during permissive soak. Exit non-zero if count exceeds --max-avc.
+Report SELinux events for a domain during permissive soak. Exit non-zero if count exceeds --max-avc.
 
 Options:
   --domain NAME         SELinux domain (default: myapp_t)
-  --paths CSV           Path filter substring list (default: /opt/myapp,/var/myapp)
-  --since TS            ausearch -ts value or 'recent' (default: recent)
+  --paths CSV           Path filter substring list (default: /opt/myapp,/var/lib/myapp,/run/myapp)
+  --since TS            ausearch -ts value or 'recent' (default: recent; ~10 min window)
   --marker-file PATH    Use canary deploy epoch as ausearch start (overrides --since)
   --max-avc N           Fail if count > N (-1 = report only, default)
   --show-lines N        Print last N matching lines (default: 10)
@@ -61,19 +65,19 @@ done
 if [[ -n "${MARKER_FILE}" && -f "${MARKER_FILE}" ]]; then
     deploy_epoch="$(tr -d '[:space:]' < "${MARKER_FILE}")"
     if [[ "${deploy_epoch}" =~ ^[0-9]+$ ]]; then
-        SINCE="$(python3 - "${deploy_epoch}" <<'PY'
-import datetime, sys
-deploy = datetime.datetime.fromtimestamp(int(sys.argv[1]), tz=datetime.timezone.utc).astimezone()
-print(deploy.strftime("%m/%d/%Y %H:%M:%S"))
-PY
-)"
+        SINCE="$(avc_epoch_to_ts "${deploy_epoch}")"
     fi
 fi
 
 if command -v ausearch >/dev/null 2>&1; then
-    raw="$(ausearch -m avc -i -ts "${SINCE}" 2>/dev/null || true)"
+    raw="$(ausearch --input-logs \
+        -m AVC,USER_AVC,SELINUX_ERR,USER_SELINUX_ERR \
+        -ts "${SINCE}" \
+        --subject "${DOMAIN}" \
+        --format raw 2>/dev/null || true)"
 elif [[ -f /var/log/audit/audit.log ]]; then
-    raw="$(grep '^type=AVC' /var/log/audit/audit.log || true)"
+    raw="$(grep -E '^(type=AVC|type=SELINUX_ERR|type=USER_AVC|type=USER_SELINUX_ERR)' /var/log/audit/audit.log \
+        | grep "${DOMAIN}" || true)"
 else
     if [[ "${SKIP_IF_UNAVAILABLE}" -eq 1 ]]; then
         log_info "No audit sources available — skipping AVC monitor"
@@ -87,7 +91,6 @@ IFS=',' read -r -a path_filters <<< "${PATHS}"
 matches=()
 while IFS= read -r line; do
     [[ -z "${line}" ]] && continue
-    [[ "${line}" != *"${DOMAIN}"* ]] && continue
     ok=0
     if [[ ${#path_filters[@]} -eq 0 ]]; then
         ok=1
@@ -118,7 +121,7 @@ else
 fi
 
 if [[ "${OUTPUT_FORMAT}" != "json" && "${SHOW_LINES}" -gt 0 && "${count}" -gt 0 ]]; then
-    echo "--- recent matching AVC lines ---"
+    echo "--- recent matching event lines ---"
     start=$(( count > SHOW_LINES ? count - SHOW_LINES : 0 ))
     for ((i=start; i<count; i++)); do
         echo "${matches[$i]}"
@@ -126,7 +129,7 @@ if [[ "${OUTPUT_FORMAT}" != "json" && "${SHOW_LINES}" -gt 0 && "${count}" -gt 0 
 fi
 
 if [[ "${MAX_AVC}" -ge 0 && "${count}" -gt "${MAX_AVC}" ]]; then
-    log_error "AVC count ${count} exceeds threshold ${MAX_AVC}"
+    log_error "Event count ${count} exceeds threshold ${MAX_AVC}"
     if [[ -n "${NOTIFY_WEBHOOK}" ]]; then
         curl -sf -X POST -H "Content-Type: application/json" \
             -d "{\"text\":\"SELinux AVC alert: domain=${DOMAIN} count=${count} max=${MAX_AVC}\"}" \

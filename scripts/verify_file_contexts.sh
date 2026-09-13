@@ -6,7 +6,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/myapp}"
-VAR_DIR="${VAR_DIR:-/var/myapp}"
+VAR_DIR="${VAR_DIR:-/var/lib/myapp}"
+RUNTIME_DIR="${RUNTIME_DIR:-/run/myapp}"
 APP_NAME="${POLICY_APP:-myapp}"
 BIN_DIR="${BIN_DIR:-${INSTALL_ROOT}/bin}"
 SKIP_SELINUX="${SKIP_SELINUX:-0}"
@@ -27,7 +28,8 @@ Exits non-zero if paths would be relabeled or tools are missing (unless --skip-i
 
 Options:
   --install-root PATH   Application root (default: /opt/myapp)
-  --var-dir PATH        Data directory (default: /var/myapp)
+  --var-dir PATH        Data directory (default: /var/lib/myapp)
+  --runtime-dir PATH    Runtime directory (default: /run/myapp)
   --app-name NAME       Module name (default: myapp)
   --skip-if-unavailable Exit 0 when SELinux tools or paths absent (for CI smoke)
   -h, --help            Show help
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --install-root) INSTALL_ROOT="$2"; shift 2 ;;
         --var-dir) VAR_DIR="$2"; shift 2 ;;
+        --runtime-dir) RUNTIME_DIR="$2"; shift 2 ;;
         --app-name) APP_NAME="$2"; shift 2 ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -81,9 +84,9 @@ check_path() {
         log_info "Skipping missing path: ${path}"
         return 0
     fi
-    log_info "matchpathcon ${path}"
-    if ! matchpathcon "${path}"; then
-        log_error "matchpathcon failed for ${path}"
+    log_info "matchpathcon -V ${path}"
+    if ! matchpathcon -V "${path}"; then
+        log_error "matchpathcon -V failed for ${path}"
         fail=1
     fi
 }
@@ -91,8 +94,14 @@ check_path() {
 check_path "${INSTALL_ROOT}/app.py"
 check_path "${INSTALL_ROOT}/backend_stub.py"
 check_path "${BIN_DIR}/backup.sh"
+if [[ -x "${INSTALL_ROOT}/venv/bin/python" ]]; then
+    check_path "${INSTALL_ROOT}/venv/bin/python"
+fi
 if [[ -d "${VAR_DIR}" ]]; then
     check_path "${VAR_DIR}"
+fi
+if [[ -d "${RUNTIME_DIR}" ]]; then
+    check_path "${RUNTIME_DIR}"
 fi
 
 restorecon_dry() {
@@ -141,7 +150,7 @@ if [[ -d "${BIN_DIR}" ]]; then
 fi
 
 if [[ "${fail}" -ne 0 ]]; then
-    log_error "File context verification failed — run restorecon/chcon before restarting the service"
+    log_error "File context verification failed — run restorecon before restarting the service"
     exit 1
 fi
 

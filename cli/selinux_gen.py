@@ -209,7 +209,7 @@ def filter_avc_entries(entries: list[AvcEntry], domain: str) -> list[AvcEntry]:
         if domain in entry.scontext or domain in entry.raw_line:
             filtered.append(entry)
             continue
-        if "/opt/myapp" in entry.raw_line or "/var/myapp" in entry.raw_line:
+        if "/opt/myapp" in entry.raw_line or "/var/lib/myapp" in entry.raw_line or "/run/myapp" in entry.raw_line:
             filtered.append(entry)
             continue
         if 'comm="python' in entry.raw_line and "myapp" in entry.raw_line:
@@ -471,9 +471,9 @@ def validate_policy_content(te_content: str, fc_content: str, domain: str, app_n
     if re.search(r"allow\s+\S+\s+var_t:file\s+\{[^}]*\bwrite\b", te_content):
         raise RuntimeError("Forbidden broad var_t:file write — use dedicated application types.")
 
-    for token in (f"/opt/{app_name}", "/var/myapp", f"{app_name}_exec_t", f"{app_name}_var_lib_t"):
+    for token in (f"/opt/{app_name}", "/var/lib/myapp", f"{app_name}_exec_t", f"{app_name}_var_lib_t"):
         if token not in fc_content and token.replace(f"/opt/{app_name}", "/opt/myapp") not in fc_content:
-            if "/opt/myapp" not in fc_content or "/var/myapp" not in fc_content:
+            if "/opt/myapp" not in fc_content or "/var/lib/myapp" not in fc_content:
                 raise RuntimeError(f"fc_content missing expected path/type near: {token}")
 
 
@@ -507,7 +507,7 @@ def write_policy_outputs(
 
 
 def has_selinux_devel() -> bool:
-    return Path("/usr/share/selinux/devel/include/common.inc.sh").is_file()
+    return Path("/usr/share/selinux/devel/Makefile").is_file()
 
 
 def compile_policy_in_container(te_path: Path, fc_path: Path, output_dir: Path, module_name: str) -> Path:
@@ -520,29 +520,42 @@ def compile_policy_in_container(te_path: Path, fc_path: Path, output_dir: Path, 
     shutil.copy2(te_path, work_dir / te_path.name)
     shutil.copy2(fc_path, work_dir / fc_path.name)
 
+    image = os.environ.get("SELINUX_COMPILE_IMAGE", "quay.io/centos/centos:stream9")
     run_command(
         [
             "podman", "run", "--rm", f"-v{work_dir}:/build:Z",
-            "docker.io/library/fedora:41", "bash", "-lc",
+            image, "bash", "-lc",
             "set -euo pipefail; dnf install -y -q selinux-policy-devel checkpolicy policycoreutils; "
             f"make -C /build -f /usr/share/selinux/devel/Makefile {module_name}.pp",
         ]
     )
-    if not pp_path.is_file():
-        raise RuntimeError(f"Container compile did not produce {pp_path}")
+    built = work_dir / f"{module_name}.pp"
+    if not built.is_file():
+        raise RuntimeError(f"Container compile did not produce {built}")
+    shutil.copy2(built, pp_path)
     return pp_path
 
 
 def compile_policy(te_path: Path, fc_path: Path, output_dir: Path, module_name: str) -> Path:
-    mod_path = output_dir / f"{module_name}.mod"
     pp_path = output_dir / f"{module_name}.pp"
-    rm = output_dir / f"{module_name}.mod"
-    if rm.is_file():
-        rm.unlink()
+    mod_path = output_dir / f"{module_name}.mod"
+    for artifact in (pp_path, mod_path):
+        if artifact.is_file():
+            artifact.unlink()
 
     if has_selinux_devel():
-        run_command(["checkmodule", "-M", "-m", "-o", str(mod_path), str(te_path)])
-        run_command(["semodule_package", "-o", str(pp_path), "-m", str(mod_path), "-f", str(fc_path)])
+        work_dir = output_dir / "native_build"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(te_path, work_dir / te_path.name)
+        shutil.copy2(fc_path, work_dir / fc_path.name)
+        run_command(
+            [
+                "make", "-C", str(work_dir),
+                "-f", "/usr/share/selinux/devel/Makefile",
+                f"{module_name}.pp",
+            ]
+        )
+        shutil.copy2(work_dir / f"{module_name}.pp", pp_path)
         return pp_path
     return compile_policy_in_container(te_path, fc_path, output_dir, module_name)
 
@@ -615,7 +628,7 @@ def install_policy(pp_path: Path, domain: str, module_name: str) -> None:
         if domain in (result.stdout or ""):
             run_command(["semanage", "permissive", "-d", domain], check=False)
 
-    run_command(["restorecon", "-Rv", "/opt/myapp", "/var/myapp", "/var/opt/myapp"], check=False)
+    run_command(["restorecon", "-Rv", "/opt/myapp", "/var/lib/myapp", "/run/myapp", "/var/opt/myapp"], check=False)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

@@ -1,67 +1,87 @@
-policy_module(myapp, 1.0.9)
+policy_module(myapp, 1.1.0)
 
-require {
-    type init_t;
-    type shell_exec_t;
-    type syslogd_t;
-    type node_t;
-    type unreserved_port_t;
-    type cert_t;
-    class process transition;
-    class file entrypoint;
-    class dir search;
-}
+########################################
+#
+# Declarations
+#
 
 type myapp_t;
 type myapp_exec_t;
+type myapp_lib_t;
 type myapp_var_lib_t;
+type myapp_var_run_t;
+type myapp_log_t;
 type myapp_script_exec_t;
 type myapp_backend_t;
 type myapp_backend_exec_t;
+type myapp_port_t;
+type myapp_backend_port_t;
 
 files_type(myapp_exec_t)
+files_type(myapp_lib_t)
 files_type(myapp_var_lib_t)
+files_type(myapp_var_run_t)
+files_type(myapp_log_t)
 files_type(myapp_script_exec_t)
 files_type(myapp_backend_exec_t)
+
+corenet_port(myapp_port_t)
+corenet_port(myapp_backend_port_t)
 
 init_daemon_domain(myapp_t, myapp_exec_t)
 init_daemon_domain(myapp_backend_t, myapp_backend_exec_t)
 
-allow myapp_backend_t myapp_backend_exec_t:file { read open getattr execute execute_no_trans map ioctl };
-allow myapp_backend_t myapp_exec_t:dir { search getattr read open };
-allow myapp_backend_t myapp_exec_t:file { read open getattr execute execute_no_trans map ioctl };
+logging_log_file(myapp_log_t)
 
-allow myapp_t myapp_exec_t:dir { search getattr read open };
-allow myapp_t myapp_exec_t:file { read open getattr execute execute_no_trans map };
+########################################
+#
+# myapp_t — Flask application domain
+#
+
+allow myapp_t myapp_lib_t:dir { getattr open read search };
+allow myapp_t myapp_lib_t:file { read open getattr execute map ioctl };
+
+allow myapp_t myapp_exec_t:dir { getattr open read search };
+allow myapp_t myapp_exec_t:file { read open getattr execute execute_no_trans map ioctl };
 allow myapp_t myapp_exec_t:lnk_file read;
 
 allow myapp_t myapp_var_lib_t:dir { create write add_name remove_name search getattr open rmdir rename unlink };
 allow myapp_t myapp_var_lib_t:file { create write append open getattr lock ioctl rename unlink };
-allow myapp_t myapp_var_lib_t:sock_file { write getattr read open };
+
+allow myapp_t myapp_log_t:dir { search getattr open read write add_name remove_name };
+allow myapp_t myapp_log_t:file { create write append open getattr lock rename unlink ioctl };
 
 allow myapp_t myapp_script_exec_t:file { read open getattr execute execute_no_trans ioctl map };
-# bash interpreter for backup.sh shebang only
-allow myapp_t shell_exec_t:file { read open getattr execute map };
 
-domain_auto_trans(myapp_t, myapp_script_exec_t, myapp_t)
-
-allow myapp_t self:tcp_socket { create bind listen accept read write shutdown getopt setopt name_bind node_bind getattr ioctl connect };
+corenet_tcp_bind_generic_node(myapp_t)
+allow myapp_t myapp_port_t:tcp_socket name_bind;
+allow myapp_t self:tcp_socket { create bind listen accept read write shutdown getopt setopt getattr ioctl connect };
 allow myapp_t self:udp_socket { create getattr };
-allow myapp_t node_t:tcp_socket { node_bind name_connect };
-allow myapp_t unreserved_port_t:tcp_socket { name_bind name_connect };
-allow myapp_t myapp_backend_t:tcp_socket connectto;
+allow myapp_t myapp_backend_port_t:tcp_socket name_connect;
 
-allow myapp_t self:unix_stream_socket { create connect read write getattr setopt shutdown };
+allow myapp_t myapp_var_run_t:dir { search getattr open read write add_name remove_name };
+allow myapp_t myapp_var_run_t:sock_file { write getattr read open };
 allow myapp_t myapp_backend_t:unix_stream_socket connectto;
 
-allow myapp_t cert_t:dir search;
-allow myapp_t cert_t:lnk_file read;
+logging_send_syslog_msg(myapp_t)
+corecmd_exec_shell(myapp_t)
+miscfiles_read_generic_certs(myapp_t)
 
+########################################
+#
+# myapp_backend_t — backend stub domain
+#
+
+allow myapp_backend_t myapp_backend_exec_t:file { read open getattr execute execute_no_trans map ioctl };
+allow myapp_backend_t myapp_exec_t:dir { search getattr read open };
+allow myapp_backend_t myapp_exec_t:file { read open getattr execute execute_no_trans map ioctl };
+allow myapp_backend_t myapp_lib_t:dir { search getattr read open };
+allow myapp_backend_t myapp_lib_t:file { read open getattr execute map ioctl };
+
+corenet_tcp_bind_generic_node(myapp_backend_t)
+allow myapp_backend_t myapp_backend_port_t:tcp_socket name_bind;
 allow myapp_backend_t self:tcp_socket { create bind listen accept read write getattr setopt shutdown };
-allow myapp_backend_t node_t:tcp_socket node_bind;
-allow myapp_backend_t unreserved_port_t:tcp_socket name_bind;
-allow myapp_backend_t myapp_var_lib_t:dir { add_name remove_name write search getattr open read };
-allow myapp_backend_t myapp_var_lib_t:sock_file { create write unlink setattr getattr open };
-allow myapp_backend_t self:unix_stream_socket { create bind listen accept read write getattr setopt shutdown };
 
-allow myapp_t syslogd_t:unix_stream_socket connectto;
+allow myapp_backend_t myapp_var_run_t:dir { add_name remove_name write search getattr open read };
+allow myapp_backend_t myapp_var_run_t:sock_file { create write unlink setattr getattr open };
+allow myapp_backend_t self:unix_stream_socket { create bind listen accept read write getattr setopt shutdown };

@@ -7,6 +7,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/compile_policy.sh
+source "${SCRIPT_DIR}/lib/compile_policy.sh"
+
 CANARY_MODE=0
 POSITIONAL=()
 
@@ -37,8 +40,8 @@ POLICY_DIR="${POSITIONAL[0]:-${PROJECT_ROOT}/policy_out}"
 MODULE_NAME="${POLICY_MODULE:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 INSTALL_ROOT="/opt/myapp"
-BIN_DIR="${INSTALL_ROOT}/bin"
-VAR_DIR="/var/myapp"
+VAR_DIR="/var/lib/myapp"
+RUNTIME_DIR="/run/myapp"
 SOAK_MARKER="${VAR_DIR}/selinux_canary_deployed_at"
 
 RED='\033[0;31m'
@@ -57,60 +60,9 @@ require_root() {
     fi
 }
 
-has_selinux_devel() {
-    [[ -f /usr/share/selinux/devel/include/common.inc.sh ]]
-}
-
-compile_policy() {
-    local te="${POLICY_DIR}/${MODULE_NAME}.te"
-    local fc="${POLICY_DIR}/${MODULE_NAME}.fc"
-    local pp="${POLICY_DIR}/${MODULE_NAME}.pp"
-
-    if [[ ! -f "${te}" ]] || [[ ! -f "${fc}" ]]; then
-        log_error "Missing ${te} or ${fc} in ${POLICY_DIR}"
-        exit 1
-    fi
-
-    rm -f "${pp}" "${POLICY_DIR}/${MODULE_NAME}.mod"
-    log_info "Compiling policy in ${POLICY_DIR}..."
-    if has_selinux_devel; then
-        checkmodule -M -m -o "${POLICY_DIR}/${MODULE_NAME}.mod" "${te}"
-        semodule_package -o "${pp}" -m "${POLICY_DIR}/${MODULE_NAME}.mod" -f "${fc}"
-    elif command -v podman >/dev/null 2>&1; then
-        local work_dir
-        work_dir="$(mktemp -d)"
-        cp "${te}" "${fc}" "${work_dir}/"
-        podman run --rm \
-            -v "${work_dir}:/build:Z" \
-            docker.io/library/fedora:41 \
-            bash -lc "
-                set -euo pipefail
-                dnf install -y -q selinux-policy-devel checkpolicy policycoreutils
-                make -C /build -f /usr/share/selinux/devel/Makefile ${MODULE_NAME}.pp
-            "
-        cp "${work_dir}/${MODULE_NAME}.pp" "${pp}"
-        rm -rf "${work_dir}"
-    else
-        log_error "Cannot compile policy: install selinux-policy-devel or podman"
-        exit 1
-    fi
-
-    log_info "Built ${pp}"
-}
-
 restore_contexts() {
-    log_info "Restoring contexts on ${INSTALL_ROOT}, ${VAR_DIR}, and /var/opt/myapp"
-    restorecon -Rv "${VAR_DIR}" /var/opt/myapp 2>/dev/null || true
-    if command -v chcon >/dev/null 2>&1; then
-        chcon -t myapp_exec_t "${INSTALL_ROOT}/app.py" 2>/dev/null || true
-        chcon -t myapp_backend_exec_t "${INSTALL_ROOT}/backend_stub.py" 2>/dev/null || true
-        chcon -R -t myapp_exec_t "${INSTALL_ROOT}/venv" 2>/dev/null || true
-        chcon -t myapp_script_exec_t "${BIN_DIR}/backup.sh" 2>/dev/null || true
-        chcon -R -t myapp_var_lib_t "${VAR_DIR}" 2>/dev/null || true
-        if [[ -S "${VAR_DIR}/notify.sock" ]]; then
-            chcon -t myapp_var_lib_t "${VAR_DIR}/notify.sock" 2>/dev/null || true
-        fi
-    fi
+    log_info "Restoring contexts on ${INSTALL_ROOT}, ${VAR_DIR}, and ${RUNTIME_DIR}"
+    restorecon -Rv "${INSTALL_ROOT}" "${VAR_DIR}" "${RUNTIME_DIR}" 2>/dev/null || true
 }
 
 write_soak_marker() {
@@ -137,10 +89,6 @@ install_policy() {
     require_command semodule policycoreutils
 
     log_info "Installing ${pp}"
-    if semodule -l 2>/dev/null | grep -qw "${MODULE_NAME}"; then
-        log_info "Removing existing ${MODULE_NAME} module before upgrade"
-        semodule -r "${MODULE_NAME}" 2>/dev/null || true
-    fi
     semodule -i "${pp}"
 
     if [[ "${CANARY_MODE}" -eq 1 ]]; then
@@ -177,7 +125,7 @@ main() {
         exit 1
     fi
 
-    compile_policy
+    compile_policy_module "${POLICY_DIR}" "${MODULE_NAME}"
     install_policy
     restore_contexts
 

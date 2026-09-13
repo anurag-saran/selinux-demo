@@ -184,7 +184,8 @@ def test_policy_json_validation() -> None:
         "te_content": "policy_module(myapp, 1.0.0)\ntype myapp_t;\n",
         "fc_content": (
             "/opt/myapp/app\\.py -- gen_context(system_u:object_r:myapp_exec_t,s0)\n"
-            "/var/myapp(/.*)? -- gen_context(system_u:object_r:myapp_var_lib_t,s0)\n"
+            "/var/lib/myapp(/.*)? gen_context(system_u:object_r:myapp_var_lib_t,s0)\n"
+            "/run/myapp(/.*)? gen_context(system_u:object_r:myapp_var_run_t,s0)\n"
         ),
         "rationale": "test",
         "pr_summary": (
@@ -211,10 +212,12 @@ def test_version_bump() -> None:
 def test_flask_endpoints(require_backend: bool = True) -> None:
     tmp = Path(tempfile.mkdtemp(prefix="myapp-smoke-"))
     bin_dir = tmp / "bin"
-    var_dir = tmp / "var"
+    var_dir = tmp / "var" / "lib" / "myapp"
+    run_dir = tmp / "run" / "myapp"
     bin_dir.mkdir()
-    var_dir.mkdir()
-    notify_sock = var_dir / "notify.sock"
+    var_dir.mkdir(parents=True)
+    run_dir.mkdir(parents=True)
+    notify_sock = run_dir / "notify.sock"
     backend_port = 18889
 
     backend_src = (PROJECT_ROOT / "app" / "backend_stub.py").read_text(encoding="utf-8")
@@ -222,13 +225,14 @@ def test_flask_endpoints(require_backend: bool = True) -> None:
     backend_path.write_text(backend_src, encoding="utf-8")
 
     app_src = (PROJECT_ROOT / "app" / "app.py").read_text(encoding="utf-8")
-    app_src = app_src.replace("/var/myapp", str(var_dir))
+    app_src = app_src.replace("/var/lib/myapp", str(var_dir))
+    app_src = app_src.replace("/run/myapp", str(run_dir))
     app_src = app_src.replace("/opt/myapp/bin/backup.sh", str(bin_dir / "backup.sh"))
     app_path = tmp / "app.py"
     app_path.write_text(app_src, encoding="utf-8")
 
     backup_src = (PROJECT_ROOT / "app" / "backup.sh").read_text(encoding="utf-8")
-    backup_src = backup_src.replace("/var/myapp", str(var_dir))
+    backup_src = backup_src.replace("/var/lib/myapp", str(var_dir))
     backup_path = bin_dir / "backup.sh"
     backup_path.write_text(backup_src, encoding="utf-8")
     backup_path.chmod(0o755)
@@ -293,7 +297,7 @@ def test_assemble_pr_body() -> None:
         pr_summary = Path(tmp) / "pr_summary.md"
         pr_summary.write_text(
             "### Network Bindings\n- Port 8888 via unreserved_port_t\n\n"
-            "### File System Access\n- /var/myapp data dir\n\n"
+            "### File System Access\n- /var/lib/myapp data dir\n\n"
             "### Process Execution\n- backup.sh via myapp_exec_t\n\n"
             "### Explicit Denials Maintained\n- No wildcard allows\n",
             encoding="utf-8",

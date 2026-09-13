@@ -5,11 +5,12 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStartPre=+/bin/rm -f /var/myapp/notify.sock
 ExecStart=/opt/myapp/backend_stub.py
 User=myapp
 Group=myapp
 WorkingDirectory=/opt/myapp
+Environment=MYAPP_NOTIFY_SOCK=/run/myapp/notify.sock
+RuntimeDirectory=myapp
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=10

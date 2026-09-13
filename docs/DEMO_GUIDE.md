@@ -62,13 +62,13 @@ The **Order Processor** is a Flask app on port **8888**. Each endpoint exercises
 | Endpoint | What it does | SELinux activity |
 |----------|--------------|------------------|
 | `GET /` | Health check | Minimal — confirms app is up |
-| `GET /save-log` | Appends a line to `/var/myapp/data.log` | `myapp_t` writes to `myapp_var_lib_t` file |
+| `GET /save-log` | Appends a line to `/var/lib/myapp/data.log` | `myapp_t` writes to `myapp_var_lib_t` file |
 | `GET /run-script` | Runs `/opt/myapp/bin/backup.sh` | `myapp_t` executes `myapp_script_exec_t`; script uses **bash builtins only** (no `/usr/bin/date` or other `bin_t` helpers — forbidden by CI) |
 | `GET /rotate-log` | Renames `data.log`, creates new file | rename/create under `myapp_var_lib_t` |
 | `GET /probe-backend` | HTTP client to local backend on port **8889** | outbound `tcp_socket` `connectto` `myapp_backend_t`; client needs `getopt` on `self:tcp_socket` and read-only `cert_t` access for Python `urllib` |
-| `GET /notify-socket` | Unix stream client to `/var/myapp/notify.sock` | `unix_stream_socket connectto` `myapp_backend_t`; backend (`myapp_backend_t`) creates the socket under `myapp_var_lib_t` |
+| `GET /notify-socket` | Unix stream client to `/run/myapp/notify.sock` | `unix_stream_socket connectto` `myapp_backend_t`; backend (`myapp_backend_t`) creates the socket under `myapp_var_run_t` |
 
-**Backend stub:** `myapp-backend.service` runs `backend_stub.py` as user **`myapp`** in domain **`myapp_backend_t`** (separate from Flask). It listens on **`:8889/health`** and creates **`/var/myapp/notify.sock`**. The unit runs `ExecStartPre=+/bin/rm -f /var/myapp/notify.sock` so stale sockets from prior restarts do not block the listener under enforcing policy.
+**Backend stub:** `myapp-backend.service` runs `backend_stub.py` as user **`myapp`** in domain **`myapp_backend_t`** (separate from Flask). It listens on **`:8889/health`** and creates **`/run/myapp/notify.sock`**. The unit runs `ExecStartPre=+/bin/rm -f /run/myapp/notify.sock` so stale sockets from prior restarts do not block the listener under enforcing policy.
 
 **Note:** `/rotate-log` simulates log rotation from Flask in `myapp_t`. It does **not** run system `logrotate` as `logrotate_t` — real production soak must exercise actual schedulers.
 
@@ -206,7 +206,7 @@ Requires existing `policy_out/myapp.te`, `policy_out/myapp.fc`, and preferably `
 | Topic | Production | Workshop (`--demo-mode`) |
 |-------|------------|---------------------------|
 | Permissive soak | **7–14 real days** | Act 8 pre-seeds an 8-day-old marker |
-| Enforce gate | `check_soak_ready.sh` must pass | Act 9 uses `force_enforce=true` (break-glass) |
+| Enforce gate | `check_soak_ready.sh` must pass (soak + AVCs + deploy report) | Act 9 uses `force_enforce=true` (break-glass) |
 | Everything else | Same commands | **Real** — not simulated |
 
 **Say this to the audience before Act 8:**
@@ -297,7 +297,7 @@ AVC preprocess: raw=42 merged=6 net_new=2
 Wrote policy_out/avc_summary.txt
 [INFO] Wrote policy_out/myapp.te
 [INFO] Wrote policy_out/pr_summary.md
-[INFO] Policy version bumped to 1.0.9
+[INFO] Policy version bumped to 1.1.0
 ```
 
 **SELinux concept:** `.te` allow rules — [SELINUX_BASICS.md §5](SELINUX_BASICS.md).
@@ -332,7 +332,7 @@ $ grep -E 'Security and Sysadmin|forbidden-patterns|Network Bindings' policy_out
 
 **In plain English:** Run the same checks GitHub Actions runs before merge.
 
-**What runs:** `validate_forbidden_patterns.sh` + `compile_and_validate.sh`.
+**What runs:** `validate_forbidden_patterns.sh` + `compile_and_validate.sh` (refpolicy Makefile) + `validate_policy_semantics.sh` (`sesearch` assertions in CI).
 
 **What you should see:**
 
@@ -374,7 +374,7 @@ $ curl -sf http://127.0.0.1:8888/notify-socket
 
 **Talking point:** *"We deploy the real module early, but we don't enforce until we've watched production-like workloads for a full business cycle."*
 
-Soak marker written: `/var/myapp/selinux_canary_deployed_at` (soak clock starts here).
+Soak marker written: `/var/lib/myapp/selinux_canary_deployed_at` (soak clock starts here). Canary also runs **`semodule -DB`** so dontaudit rules do not hide soak AVCs.
 
 ---
 
@@ -405,10 +405,10 @@ Soak marker written: `/var/myapp/selinux_canary_deployed_at` (soak clock starts 
 
 | Step | What happens |
 |------|----------------|
-| Day 0 | Canary deploy writes `/var/myapp/selinux_canary_deployed_at` |
+| Day 0 | Canary deploy writes `/var/lib/myapp/selinux_canary_deployed_at` |
 | Days 1–14 | `myapp_t` still permissive; `getenforce` still Enforcing |
 | Daily | `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0` |
-| Before enforce | `check_soak_ready.sh` — marker age ≥ 7 days **and** zero new `myapp_t` AVCs |
+| Before enforce | `check_soak_ready.sh` — marker age ≥ 7 days, zero new `myapp_t` AVCs, **and** passing deploy report at `/var/lib/myapp/selinux_deploy_report.json` |
 
 **What runs:** `check_soak_ready.sh` (passes in `--demo-mode` after marker is pre-seeded).
 
@@ -456,11 +456,11 @@ $ curl -sf http://127.0.0.1:8888/probe-backend
 $ curl -sf http://127.0.0.1:8888/notify-socket
 {"status":"ok",...}
 
-$ cat /var/myapp/selinux_deploy_report.json
+$ cat /var/lib/myapp/selinux_deploy_report.json
 {"status":"pass","phase":"enforce",...}
 ```
 
-Playbook output should show `failed=0` on **Production smoke tests (unified endpoint wait)** and **Write enforce deploy report**.
+Playbook output should show `failed=0` on **Production smoke tests (unified endpoint wait)** and **Write enforce deploy report**. If enforce fails, Ansible **block/rescue** restores `myapp_t` to permissive and restarts services before failing.
 
 **SELinux concept:** `semanage permissive -d` — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
 
@@ -534,7 +534,7 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `ansible/enforce_production.yml` | Remove permissive + enforce |
 | `ansible/emergency_rollback.yml` | Outage response |
 | `scripts/wait_for_endpoints.sh` | Unified systemd + six HTTP endpoint readiness |
-| `scripts/post_deploy_report.sh` | JSON deploy feedback → `/var/myapp/selinux_deploy_report.json` |
+| `scripts/post_deploy_report.sh` | JSON deploy feedback → `/var/lib/myapp/selinux_deploy_report.json` |
 | `scripts/lib/vm_ready.sh` | Podman VM SSH readiness + recovery hints |
 | `.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md` | Admin review template |
 

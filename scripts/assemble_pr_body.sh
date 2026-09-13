@@ -64,15 +64,26 @@ if [[ -f "${AVC_LOG}" ]] && [[ -s "${AVC_LOG}" ]]; then
     [[ -n "${avc_excerpt}" ]] || avc_excerpt="(AVC log present but no matching lines)"
 fi
 
+BASE_PP="${PROJECT_ROOT}/selinux/myapp.pp"
+NEW_PP="${PROJECT_ROOT}/policy_out/${APP_NAME}.pp"
+
+sediff_file="$(mktemp)"
+if [[ -f "${BASE_PP}" && -f "${NEW_PP}" ]] && command -v sediff >/dev/null 2>&1; then
+    sediff "${BASE_PP}" "${NEW_PP}" > "${sediff_file}" 2>/dev/null || echo "(sediff produced no output)" > "${sediff_file}"
+else
+    echo "(sediff unavailable — install setools-console and provide base/new .pp)" > "${sediff_file}"
+fi
+
 tmp="$(mktemp)"
 # Strip YAML frontmatter (--- ... ---) for body-file usage
 awk 'BEGIN {delim=0} /^---$/ { delim++; next } delim >= 2' "${TEMPLATE}" > "${tmp}"
 
-python3 - "${tmp}" "${OUTPUT}" "${policy_version}" "${STAGING_HOST}" "${TEST_SUITE}" "${avc_line_count}" "${PR_SUMMARY}" "${AVC_LOG}" <<'PY'
+python3 - "${tmp}" "${OUTPUT}" "${policy_version}" "${STAGING_HOST}" "${TEST_SUITE}" "${avc_line_count}" "${PR_SUMMARY}" "${AVC_LOG}" "${sediff_file}" <<'PY'
 import pathlib
 import sys
 
-template_path, output_path, policy_version, staging_host, test_suite, avc_count, pr_summary_path, avc_log_path = sys.argv[1:9]
+template_path, output_path, policy_version, staging_host, test_suite, avc_count, pr_summary_path, avc_log_path, sediff_path = sys.argv[1:10]
+sediff_section = pathlib.Path(sediff_path).read_text(encoding="utf-8", errors="replace").strip()
 body = pathlib.Path(template_path).read_text(encoding="utf-8")
 pr_summary = pathlib.Path(pr_summary_path).read_text(encoding="utf-8").strip()
 avc_log = pathlib.Path(avc_log_path)
@@ -92,6 +103,7 @@ replacements = {
     "<!-- AUTO:AVC_LINE_COUNT -->": str(avc_count),
     "<!-- AUTO:PR_SUMMARY -->": pr_summary + "\n",
     "<!-- AUTO:AVC_EXCERPT -->": avc_excerpt,
+    "<!-- AUTO:SEDIFF -->": "### Policy diff (sediff)\n\n```\n" + sediff_section + "\n```\n",
 }
 for marker, value in replacements.items():
     body = body.replace(marker, value)
@@ -99,5 +111,5 @@ for marker, value in replacements.items():
 pathlib.Path(output_path).write_text(body.rstrip() + "\n", encoding="utf-8")
 PY
 
-rm -f "${tmp}"
+rm -f "${tmp}" "${sediff_file}"
 echo "Wrote ${OUTPUT}"

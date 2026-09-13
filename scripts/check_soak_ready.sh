@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 #
-# check_soak_ready.sh — Gate production enforce on soak duration + AVC count
+# check_soak_ready.sh — Gate production enforce on soak duration + AVC count + deploy coverage
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/avc_query.sh
+source "${SCRIPT_DIR}/lib/avc_query.sh"
+
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
-MARKER_FILE="${SOAK_MARKER_FILE:-/var/myapp/selinux_canary_deployed_at}"
+MARKER_FILE="${SOAK_MARKER_FILE:-/var/lib/myapp/selinux_canary_deployed_at}"
+REPORT_FILE="${DEPLOY_REPORT_FILE:-/var/lib/myapp/selinux_deploy_report.json}"
 MIN_DAYS="${SOAK_MIN_DAYS:-7}"
 MAX_AVC="${SOAK_MAX_AVC:-0}"
 SKIP_SELINUX="${SKIP_SELINUX:-0}"
@@ -21,13 +26,15 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [options]
 
-Exit 0 when canary soak period elapsed and domain AVC count is within threshold.
+Exit 0 when canary soak period elapsed, domain event count is within threshold,
+and last deploy report shows endpoint coverage.
 
 Options:
   --domain NAME         SELinux domain (default: myapp_t)
   --marker-file PATH    Canary deploy timestamp file (epoch seconds)
+  --report-file PATH    Deploy report JSON (default: /var/lib/myapp/selinux_deploy_report.json)
   --min-days N          Minimum soak days (default: 7)
-  --max-avc N           Maximum allowed AVC lines since canary (default: 0)
+  --max-avc N           Maximum allowed events since canary (default: 0)
   --skip-if-unavailable Exit 0 when marker or audit tools missing (CI smoke)
   -h, --help            Show help
 EOF
@@ -39,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --domain) DOMAIN="$2"; shift 2 ;;
         --marker-file) MARKER_FILE="$2"; shift 2 ;;
+        --report-file) REPORT_FILE="$2"; shift 2 ;;
         --min-days) MIN_DAYS="$2"; shift 2 ;;
         --max-avc) MAX_AVC="$2"; shift 2 ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
@@ -67,67 +75,22 @@ if ! [[ "${deploy_epoch}" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-read -r days_elapsed avc_count <<EOF
-$(python3 - "${deploy_epoch}" "${MIN_DAYS}" "${MAX_AVC}" "${DOMAIN}" "${MARKER_FILE}" <<'PY'
-import datetime
-import re
-import subprocess
-import sys
-
-deploy_epoch = int(sys.argv[1])
-min_days = int(sys.argv[2])
-max_avc = int(sys.argv[3])
-domain = sys.argv[4]
-marker_file = sys.argv[5]
-
-now = datetime.datetime.now(datetime.timezone.utc)
-deploy = datetime.datetime.fromtimestamp(deploy_epoch, tz=datetime.timezone.utc)
-days = (now - deploy).total_seconds() / 86400.0
-
-avc_count = 0
-deploy_local = deploy.astimezone()
-ts = deploy_local.strftime("%m/%d/%Y %H:%M:%S")
-try:
-    proc = subprocess.run(
-        ["ausearch", "-m", "avc", "-ts", ts],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    text = proc.stdout or ""
-    avc_count = sum(1 for line in text.splitlines() if domain in line)
-except FileNotFoundError:
-    # Fallback: parse audit.log timestamps since marker epoch
-    try:
-        ts_re = re.compile(r"msg=audit\((\d+(?:\.\d+)?):\d+\)")
-        with open("/var/log/audit/audit.log", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if "type=AVC" not in line or domain not in line:
-                    continue
-                match = ts_re.search(line)
-                if not match:
-                    continue
-                if float(match.group(1)) >= deploy_epoch:
-                    avc_count += 1
-    except OSError:
-        avc_count = -1
-
-print(int(days), avc_count)
-PY
-)
-EOF
+now_epoch="$(date +%s)"
+days_elapsed=$(( (now_epoch - deploy_epoch) / 86400 ))
+since_ts="$(avc_epoch_to_ts "${deploy_epoch}")"
+avc_count="$(count_domain_events_since "${DOMAIN}" "${since_ts}")"
 
 log_info "Soak: ${days_elapsed} day(s) elapsed (minimum ${MIN_DAYS})"
-log_info "AVCs since canary deploy for ${DOMAIN}: ${avc_count} (maximum ${MAX_AVC})"
+log_info "Events since canary deploy for ${DOMAIN}: ${avc_count} (maximum ${MAX_AVC})"
 
 if [[ "${days_elapsed}" -lt "${MIN_DAYS}" ]]; then
     log_error "Soak period not met — wait $((MIN_DAYS - days_elapsed)) more day(s) or use force_enforce=true (break-glass only)"
     exit 1
 fi
 
-if [[ "${avc_count}" -lt 0 ]]; then
+if [[ "${avc_count}" == "-1" ]]; then
     if [[ "${SKIP_IF_UNAVAILABLE}" -eq 1 ]]; then
-        log_info "Audit tools unavailable — treating AVC count as 0 for this check"
+        log_info "Audit tools unavailable — treating event count as 0 for this check"
         avc_count=0
     else
         log_error "Could not determine AVC count (install audit / ensure auditd running)"
@@ -136,7 +99,27 @@ if [[ "${avc_count}" -lt 0 ]]; then
 fi
 
 if [[ "${avc_count}" -gt "${MAX_AVC}" ]]; then
-    log_error "Too many AVC denials since canary deploy (${avc_count} > ${MAX_AVC})"
+    log_error "Too many SELinux events since canary deploy (${avc_count} > ${MAX_AVC})"
+    exit 1
+fi
+
+if [[ -f "${REPORT_FILE}" ]]; then
+    report_ok="$(python3 - "${REPORT_FILE}" <<'PY'
+import json, sys
+report = json.loads(open(sys.argv[1], encoding="utf-8").read())
+status = report.get("status") == "pass"
+endpoints = report.get("endpoints", {})
+all_passed = all(v.get("status") == "pass" for v in endpoints.values()) if endpoints else False
+print("yes" if status and all_passed else "no")
+PY
+)"
+    if [[ "${report_ok}" != "yes" ]]; then
+        log_error "Deploy report ${REPORT_FILE} missing pass status or endpoint coverage"
+        exit 1
+    fi
+    log_info "Deploy report confirms endpoint coverage"
+else
+    log_error "Deploy report not found: ${REPORT_FILE}"
     exit 1
 fi
 

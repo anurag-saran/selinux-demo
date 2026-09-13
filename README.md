@@ -19,7 +19,7 @@ App change → staging (permissive myapp_t) → AVC logs
 selinux-demo/
 ├── app/                    Flask app, backend stub, systemd units, logrotate config
 │   ├── app.py              Six demo HTTP endpoints (incl. Tier 6 network probes)
-│   ├── backend_stub.py     Backend on :8889 + /var/myapp/notify.sock (myapp_backend_t)
+│   ├── backend_stub.py     Backend on :8889 + /run/myapp/notify.sock (myapp_backend_t)
 │   └── bin/backup.sh       Executed by /run-script (bash builtins only)
 ├── cli/                    selinux_gen.py — AI policy CLI
 ├── selinux/                Version-controlled policy (source of truth)
@@ -95,7 +95,7 @@ curl http://127.0.0.1:8888/notify-socket
 
 # Tier 6 endpoints require myapp-backend.service (installed by setup_staging_env.sh):
 #   /probe-backend  → TCP client to 127.0.0.1:8889 (myapp_backend_t)
-#   /notify-socket  → Unix client to /var/myapp/notify.sock
+#   /notify-socket  → Unix client to /run/myapp/notify.sock
 
 # macOS: use --use-vm to export AVCs from Podman VM
 bash scripts/dev_generate_policy.sh --use-vm --apply
@@ -118,7 +118,7 @@ curl http://127.0.0.1:8888/notify-socket
 
 # Tier 6 endpoints require myapp-backend.service (installed by setup_staging_env.sh):
 #   /probe-backend  → TCP client to 127.0.0.1:8889 (myapp_backend_t)
-#   /notify-socket  → Unix client to /var/myapp/notify.sock
+#   /notify-socket  → Unix client to /run/myapp/notify.sock
 ```
 
 ### 2. Export AVC logs
@@ -176,9 +176,12 @@ Local equivalents:
 ```bash
 python3 scripts/smoke_test.py
 bash scripts/validate_forbidden_patterns.sh selinux
-bash scripts/compile_and_validate.sh selinux
+bash scripts/compile_and_validate.sh selinux      # refpolicy Makefile (checkmodule fallback)
+bash scripts/validate_policy_semantics.sh selinux   # sesearch assertions (CI: policy-semantics job)
 bash scripts/compile_and_validate.sh policy_out   # after AI generation
 ```
+
+PR CI also runs **`policy-semantics`** (`sesearch` via `validate_policy_semantics.sh`). Packaged installs: [`packaging/myapp-selinux.spec`](packaging/myapp-selinux.spec) builds an RPM from `selinux/`.
 
 ---
 
@@ -209,9 +212,9 @@ Requires a **self-hosted runner** on a SELinux host:
 2. Choose `canary` on `staging`, monitor AVCs daily: `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0`
 3. After merge to `main`, CI runs **`staging-endpoint-smoke`** (`wait_for_endpoints.sh` + deploy report check on the staging runner)
 4. Deploy to **prod canary host**: `ansible-playbook ... deploy_canary.yml --limit canary` (fails if `canary_max_avc` exceeded, default 0)
-5. After 7+ day soak (`check_soak_ready.sh` passes), choose `enforce` on `production` (configure Environment required reviewers)
+5. After 7+ day soak (`check_soak_ready.sh` passes — requires a passing deploy report at `/var/lib/myapp/selinux_deploy_report.json`), choose `enforce` on `production` (configure Environment required reviewers)
 
-Canary, enforce, and rollback playbooks all run **`wait_for_endpoints.sh`** (six HTTP endpoints + backend) and write **`/var/myapp/selinux_deploy_report.json`** via **`post_deploy_report.sh`**.
+Canary runs **`semodule -DB`** during soak so dontaudit rules do not hide AVCs. Canary, enforce, and rollback playbooks all run **`wait_for_endpoints.sh`** (six HTTP endpoints + backend) and write **`/var/lib/myapp/selinux_deploy_report.json`** via **`post_deploy_report.sh`**. Enforce uses an Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive and services are restarted before the playbook fails.
 
 Secrets (optional):
 
@@ -225,7 +228,7 @@ Secrets (optional):
 | Script | Purpose |
 |--------|---------|
 | [`scripts/wait_for_endpoints.sh`](scripts/wait_for_endpoints.sh) | Unified systemd + six HTTP endpoint readiness check |
-| [`scripts/post_deploy_report.sh`](scripts/post_deploy_report.sh) | Writes `/var/myapp/selinux_deploy_report.json` deploy feedback |
+| [`scripts/post_deploy_report.sh`](scripts/post_deploy_report.sh) | Writes `/var/lib/myapp/selinux_deploy_report.json` deploy feedback |
 | [`scripts/lib/vm_ready.sh`](scripts/lib/vm_ready.sh) | Podman VM SSH readiness and recovery hints (macOS demo path) |
 
 ### Manual Ansible (AWX/Tower compatible)
@@ -237,14 +240,14 @@ bash scripts/compile_and_validate.sh selinux
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
   --limit canary \
   -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
-bash scripts/monitor_avc.sh --domain myapp_t --marker-file /var/myapp/selinux_canary_deployed_at
-bash scripts/verify_file_contexts.sh --install-root /opt/myapp --var-dir /var/myapp
+bash scripts/monitor_avc.sh --domain myapp_t --marker-file /var/lib/myapp/selinux_canary_deployed_at
+bash scripts/verify_file_contexts.sh --install-root /opt/myapp --var-dir /var/lib/myapp
 ```
 
 ### Enforce production
 
 ```bash
-bash scripts/check_soak_ready.sh --domain myapp_t --marker-file /var/myapp/selinux_canary_deployed_at
+bash scripts/check_soak_ready.sh --domain myapp_t --marker-file /var/lib/myapp/selinux_canary_deployed_at
 ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
   -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
 # Break-glass only: add -e "force_enforce=true"
@@ -338,10 +341,10 @@ Environment: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL`, `OPENAI_TI
 ## Safety notes
 
 - Policy source of truth: **`selinux/`** — never commit API keys. Compiled `.pp` for `selinux/` is tracked; `policy_out/*.pp` is build output.
-- Current module version: **`selinux/policy_version.txt`** (1.0.9 — Tier 6 enforcing smoke tests for all six endpoints).
+- Current module version: **`selinux/policy_version.txt`** (1.1.0 — FHS paths, Tier 6 enforcing smoke tests for all six endpoints).
 - Unlike blind `audit2allow`, this workflow uses **AI + forbidden-pattern CI + human review**.
-- Always **`semodule -r myapp`** before upgrading module (handled in `apply_policy.sh` and Ansible).
-- FCOS: run explicit **`chcon`** after `restorecon` on `/opt/myapp/venv` (automated in setup/Ansible).
+- **`semodule -i`** upgrades the module in place — no `semodule -r` step before install (handled in `apply_policy.sh` and Ansible).
+- Path labels come from **`myapp.fc`** — run **`restorecon`** after install; `.fc` is the source of truth (no manual `chcon`).
 - AI-generated `.te` files must use **`policy_module()`** syntax; the CLI includes compile-retry.
 
 This is a **proof of concept**. All AI-generated policy requires human security review before production.

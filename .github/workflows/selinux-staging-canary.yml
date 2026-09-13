@@ -42,7 +42,7 @@ jobs:
             echo ""
             echo "- Policy dir: \`selinux/\`"
             echo "- Trigger: merge to \`${{ github.ref_name }}\`"
-            echo "- Deploy report: \`/var/myapp/selinux_deploy_report.json\`"
+            echo "- Deploy report: \`/var/lib/myapp/selinux_deploy_report.json\`"
             echo "- Next: admin runs **SELinux Policy Deploy** → \`enforce\` on \`production\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -62,10 +62,10 @@ jobs:
 
       - name: Show deploy report
         run: |
-          if [[ -f /var/myapp/selinux_deploy_report.json ]]; then
-            cat /var/myapp/selinux_deploy_report.json
+          if [[ -f /var/lib/myapp/selinux_deploy_report.json ]]; then
+            cat /var/lib/myapp/selinux_deploy_report.json
           else
-            echo "Deploy report not found at /var/myapp/selinux_deploy_report.json" >&2
+            echo "Deploy report not found at /var/lib/myapp/selinux_deploy_report.json" >&2
             exit 1
           fi
 
@@ -76,5 +76,5 @@ jobs:
             echo "## Staging endpoint smoke"
             echo ""
             echo "- Unified check: \`scripts/wait_for_endpoints.sh\` (6 HTTP endpoints + backend)"
-            echo "- Report: \`/var/myapp/selinux_deploy_report.json\`"
+            echo "- Report: \`/var/lib/myapp/selinux_deploy_report.json\`"
           } >> "${GITHUB_STEP_SUMMARY}"

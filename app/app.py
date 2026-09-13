@@ -30,12 +30,12 @@ APP_HOST = "0.0.0.0"
 # binding to 8888 triggers a network AVC denial (tcp_socket name_bind).
 APP_PORT = 8888
 
-DATA_LOG_PATH = Path("/var/myapp/data.log")
+DATA_LOG_PATH = Path("/var/lib/myapp/data.log")
 BACKUP_SCRIPT = Path("/opt/myapp/bin/backup.sh")
 BACKEND_HEALTH_URL = os.environ.get("MYAPP_BACKEND_URL", "http://127.0.0.1:8889/health")
-NOTIFY_SOCK = Path(os.environ.get("MYAPP_NOTIFY_SOCK", "/var/myapp/notify.sock"))
+NOTIFY_SOCK = Path(os.environ.get("MYAPP_NOTIFY_SOCK", "/run/myapp/notify.sock"))
 SELINUX_DOMAIN = os.environ.get("MYAPP_SELINUX_DOMAIN", "myapp_t")
-DEPLOY_REPORT_PATH = Path("/var/myapp/selinux_deploy_report.json")
+DEPLOY_REPORT_PATH = Path("/var/lib/myapp/selinux_deploy_report.json")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,11 +125,11 @@ def health_check():
 @app.route("/save-log", methods=["GET"])
 def save_log():
     """
-    Attempt to append a timestamp to /var/myapp/data.log.
+    Attempt to append a timestamp to /var/lib/myapp/data.log.
 
     SELinux denial (before policy):
       - Source domain: myapp_t (Flask/python3 process)
-      - Target context: typically var_t or an unlabeled path under /var/myapp
+      - Target context: typically var_t or an unlabeled path under /var/lib/myapp
       - Permission denied: write, append, open (file class)
       - Cause: myapp_t lacks allow rules for myapp_var_lib_t:file write
     """
@@ -151,7 +151,7 @@ def save_log():
                         "path": str(DATA_LOG_PATH),
                         "error": str(exc),
                         "selinux_hint": (
-                            "Expected AVC: myapp_t -> file write on /var/myapp/data.log. "
+                            "Expected AVC: myapp_t -> file write on /var/lib/myapp/data.log. "
                             "Policy needs allow myapp_t myapp_var_lib_t:file { write append open };"
                         ),
                     },
@@ -297,11 +297,11 @@ def probe_backend():
 @app.route("/notify-socket", methods=["GET"])
 def notify_socket():
     """
-    Unix stream client to /var/myapp/notify.sock (backend stub listener).
+    Unix stream client to /run/myapp/notify.sock (backend stub listener).
 
     SELinux denial (before policy):
       - Source domain: myapp_t
-      - Target: myapp_var_lib_t sock_file + unconfined_t unix_stream_socket peer
+      - Target: myapp_var_run_t sock_file + myapp_backend_t unix_stream_socket peer
     """
     if not NOTIFY_SOCK.exists():
         return (
@@ -334,7 +334,7 @@ def notify_socket():
                         "path": str(NOTIFY_SOCK),
                         "error": str(exc),
                         "selinux_hint": (
-                            "Expected AVC: myapp_t -> myapp_var_lib_t:sock_file write and "
+                            "Expected AVC: myapp_t -> myapp_var_run_t:sock_file write and "
                             "unix_stream_socket connectto to backend peer."
                         ),
                     },

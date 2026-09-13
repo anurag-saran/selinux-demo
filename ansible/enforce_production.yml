@@ -3,11 +3,16 @@
   hosts: all
   become: true
   serial: 1
+  collections:
+    - community.general
+    - ansible.posix
   environment:
     PATH: "{{ ansible_env_path | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
 
   vars:
     bin_dir: "{{ install_root }}/bin"
+    notify_sock: "{{ (runtime_dir | default('/run/myapp')) }}/notify.sock"
+    policy_history_dir: "{{ var_dir }}/policy-history"
 
   tasks:
     - name: Check soak period and AVC gate before enforce
@@ -15,6 +20,7 @@
         bash {{ project_root }}/scripts/check_soak_ready.sh
         --domain {{ domain }}
         --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
+        --report-file {{ var_dir }}/selinux_deploy_report.json
         --min-days {{ soak_min_days | default(7) }}
         --max-avc {{ soak_max_avc | default(0) }}
       when: not (force_enforce | default(false) | bool)
@@ -25,96 +31,103 @@
         msg: "force_enforce=true — skipping soak gate (document approval in change ticket)"
       when: force_enforce | default(false) | bool
 
+    - name: Re-enable dontaudit baseline before enforce
+      ansible.builtin.command: semodule -B
+      changed_when: true
+
     - name: Detect semanage availability
       ansible.builtin.stat:
         path: /usr/sbin/semanage
       register: semanage_bin
 
-    - name: Remove permissive flag from domain (semanage)
-      ansible.builtin.command: "semanage permissive -d {{ domain }}"
-      register: semanage_del
-      failed_when: semanage_del.rc not in [0, 1]
-      changed_when: semanage_del.rc == 0
-      when: semanage_bin.stat.exists
+    - name: Enforce production domain (with auto-rescue on failure)
+      block:
+        - name: Remove permissive flag from domain
+          community.general.selinux_permissive:
+            name: "{{ domain }}"
+            permissive: false
+          when: semanage_bin.stat.exists
 
-    - name: Remove FCOS permissive overlay before enforce
-      ansible.builtin.command: semodule -r myapp_canary
-      register: overlay_remove
-      failed_when: overlay_remove.rc not in [0, 1]
-      changed_when: overlay_remove.rc == 0
-      when: not semanage_bin.stat.exists
+        - name: Remove FCOS permissive overlay before enforce
+          ansible.builtin.command: semodule -r myapp_canary
+          register: overlay_remove
+          failed_when: overlay_remove.rc not in [0, 1]
+          changed_when: overlay_remove.rc == 0
+          when: not semanage_bin.stat.exists
 
-    - name: Verify SELinux enforcing mode
-      ansible.builtin.command: getenforce
-      register: selinux_mode
-      changed_when: false
-      failed_when: selinux_mode.stdout != "Enforcing"
+        - name: Verify SELinux enforcing mode
+          ansible.builtin.command: getenforce
+          register: selinux_mode
+          changed_when: false
+          failed_when: selinux_mode.stdout != "Enforcing"
 
-    - name: Verify domain not permissive
-      ansible.builtin.shell: |
-        semanage permissive -l 2>/dev/null | grep -w {{ domain }} && exit 1 || exit 0
-      changed_when: false
-      when: semanage_bin.stat.exists
+        - name: Verify domain not permissive
+          ansible.builtin.shell: |
+            semanage permissive -l 2>/dev/null | grep -w {{ domain }} && exit 1 || exit 0
+          changed_when: false
+          when: semanage_bin.stat.exists
 
-    - name: restorecon on data directory
-      ansible.builtin.command: "restorecon -Rv {{ var_dir }}"
-      changed_when: true
+        - name: Restore file contexts on application paths
+          ansible.builtin.command: "restorecon -Rv {{ install_root }} {{ var_dir }} {{ runtime_dir | default('/run/myapp') }}"
+          changed_when: true
 
-    - name: Explicit chcon fallback (FCOS /opt symlink paths)
-      ansible.builtin.shell: |
-        chcon -t {{ app_name }}_exec_t {{ install_root }}/app.py 2>/dev/null || true
-        chcon -t {{ app_name }}_backend_exec_t {{ install_root }}/backend_stub.py 2>/dev/null || true
-        chcon -R -t {{ app_name }}_exec_t {{ install_root }}/venv 2>/dev/null || true
-        chcon -t {{ app_name }}_script_exec_t {{ bin_dir }}/backup.sh 2>/dev/null || true
-        chcon -R -t {{ app_name }}_var_lib_t {{ var_dir }} 2>/dev/null || true
-        if [[ -S {{ var_dir }}/notify.sock ]]; then
-          chcon -t {{ app_name }}_var_lib_t {{ var_dir }}/notify.sock 2>/dev/null || true
-        fi
-      changed_when: true
+        - name: Verify file contexts before service restart
+          ansible.builtin.command: >
+            bash {{ project_root }}/scripts/verify_file_contexts.sh
+            --install-root {{ install_root }}
+            --var-dir {{ var_dir }}
+            --app-name {{ app_name }}
+          changed_when: false
 
-    - name: Verify file contexts before service restart
-      ansible.builtin.command: >
-        bash {{ project_root }}/scripts/verify_file_contexts.sh
-        --install-root {{ install_root }}
-        --var-dir {{ var_dir }}
-        --app-name {{ app_name }}
-      changed_when: false
+        - name: Restart services under enforcing policy via systemd
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: restarted
+          loop:
+            - myapp-backend.service
+            - "{{ service_name }}"
 
-    - name: Remove stale notify socket before service restart
-      ansible.builtin.file:
-        path: "{{ var_dir }}/notify.sock"
-        state: absent
+        - name: Production smoke tests (unified endpoint wait)
+          ansible.builtin.command: >
+            bash {{ project_root }}/scripts/wait_for_endpoints.sh
+            --host 127.0.0.1 --retries 15 --delay 2
+          changed_when: false
 
-    - name: Restart services under enforcing policy via systemd
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: restarted
-      loop:
-        - myapp-backend.service
-        - "{{ service_name }}"
+        - name: Write enforce deploy report
+          ansible.builtin.command: >
+            bash {{ project_root }}/scripts/post_deploy_report.sh
+            --phase enforce
+            --domain {{ domain }}
+            --var-dir {{ var_dir }}
+            --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
+            --project-root {{ project_root }}
+          register: deploy_report
+          changed_when: true
+          failed_when: deploy_report.rc != 0
 
-    - name: Wait for systemd active state
-      ansible.builtin.command: systemctl is-active {{ service_name }}
-      register: service_active
-      retries: 15
-      delay: 2
-      until: service_active.stdout == "active"
-      changed_when: false
+      rescue:
+        - name: Auto-rescue — restore permissive domain after enforce failure
+          community.general.selinux_permissive:
+            name: "{{ domain }}"
+            permissive: true
+          when: semanage_bin.stat.exists
 
-    - name: Production smoke tests (unified endpoint wait)
-      ansible.builtin.command: >
-        bash {{ project_root }}/scripts/wait_for_endpoints.sh
-        --host 127.0.0.1 --retries 15 --delay 2
-      changed_when: false
+        - name: Auto-rescue — restart services after enforce failure
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: restarted
+          loop:
+            - myapp-backend.service
+            - "{{ service_name }}"
 
-    - name: Write enforce deploy report
-      ansible.builtin.command: >
-        bash {{ project_root }}/scripts/post_deploy_report.sh
-        --phase enforce
-        --domain {{ domain }}
-        --var-dir {{ var_dir }}
-        --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
-        --project-root {{ project_root }}
-      register: deploy_report
-      changed_when: true
-      failed_when: deploy_report.rc != 0
+        - name: Auto-rescue — verify endpoints after rollback to permissive
+          ansible.builtin.command: >
+            bash {{ project_root }}/scripts/wait_for_endpoints.sh
+            --host 127.0.0.1 --retries 10 --delay 2
+          changed_when: false
+
+        - name: Enforce failed — domain reverted to permissive
+          ansible.builtin.fail:
+            msg: >-
+              Enforce failed on {{ inventory_hostname }}; {{ domain }} restored to permissive.
+              Inspect AVCs and deploy report at {{ var_dir }}/selinux_deploy_report.json.

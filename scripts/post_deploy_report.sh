@@ -10,7 +10,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PHASE="${DEPLOY_PHASE:-unknown}"
 HOST="$(hostname -s 2>/dev/null || hostname)"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
-VAR_DIR="${VAR_DIR:-/var/myapp}"
+VAR_DIR="${VAR_DIR:-/var/lib/myapp}"
 MARKER_FILE="${SOAK_MARKER_FILE:-${VAR_DIR}/selinux_canary_deployed_at}"
 REPORT_FILE="${DEPLOY_REPORT_FILE:-${VAR_DIR}/selinux_deploy_report.json}"
 POLICY_VERSION_FILE="${PROJECT_ROOT}/selinux/policy_version.txt"
@@ -32,7 +32,7 @@ Options:
   --phase NAME          canary | enforce | rollback (required)
   --host NAME           Host label (default: short hostname)
   --domain NAME         SELinux domain (default: myapp_t)
-  --var-dir PATH        Data directory (default: /var/myapp)
+  --var-dir PATH        Data directory (default: /var/lib/myapp)
   --marker-file PATH    Soak marker for AVC/day calculations
   --report-file PATH    Output JSON path
   --project-root PATH   Repo root for policy version lookup
@@ -131,6 +131,10 @@ report = {
         "myapp-backend": "${backend_state}",
     },
     "endpoints": endpoint_data.get("endpoints", {}),
+    "endpoints_exercised": endpoint_data.get("status") == "pass",
+    "endpoints_all_passed": all(
+        v.get("status") == "pass" for v in endpoint_data.get("endpoints", {}).values()
+    ) if endpoint_data.get("endpoints") else False,
     "avc_count_since_marker": int("${avc_count}"),
     "soak_days_elapsed": int("${soak_days}"),
     "status": "${overall_status}",

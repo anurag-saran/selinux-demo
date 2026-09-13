@@ -55,7 +55,7 @@ export_avcs() {
     log_info "Exporting AVC logs to ${output}"
     podman machine ssh -- \
         "sudo ausearch -m avc -ts boot --raw 2>/dev/null || sudo grep '^type=AVC' /var/log/audit/audit.log" \
-        | grep -E "myapp|/opt/myapp|/var/myapp|/var/opt/myapp" > "${output}" || true
+        | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp|/var/opt/myapp" > "${output}" || true
     [[ -s "${output}" ]] || { log_warn "No AVC lines exported"; return 1; }
     log_info "Exported $(wc -l < "${output}" | tr -d ' ') lines"
 }

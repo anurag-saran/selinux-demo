@@ -67,7 +67,7 @@ if re.search(r'require\s*\{[^}]*\btype\s+' + re.escape(prefix), te, re.DOTALL):
 fi
 
 for priv in shadow_t unconfined_t sysadm_t; do
-    if grep -qE "allow[[:space:]]+[^[:space:]]+[[:space:]]+${priv}:" "${te}"; then
+    if grep -qE "allow[[:space:]]+[^[:space:]]+[[:space:]]+${priv}[[:space:]]*:" "${te}"; then
         check_fail "Forbidden allow rule targeting high-privilege type: ${priv}"
     fi
 done
@@ -84,9 +84,9 @@ if ! grep -q "${DOMAIN}" "${te}"; then
     check_fail "Domain ${DOMAIN} not referenced in ${te}"
 fi
 
-for token in "/opt/${MODULE_NAME}" "/var/myapp" "${MODULE_NAME}_exec_t" "${MODULE_NAME}_var_lib_t"; do
+for token in "/opt/${MODULE_NAME}" "/var/lib/myapp" "${MODULE_NAME}_exec_t" "${MODULE_NAME}_var_lib_t"; do
     if ! grep -q "${token}" "${fc}"; then
-        if ! grep -q "/opt/myapp" "${fc}" || ! grep -q "/var/myapp" "${fc}"; then
+        if ! grep -q "/opt/myapp" "${fc}" || ! grep -q "/var/lib/myapp" "${fc}"; then
             check_fail "fc_content missing expected path/type: ${token}"
             break
         fi

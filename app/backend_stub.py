@@ -16,7 +16,7 @@ from pathlib import Path
 
 HTTP_HOST = os.environ.get("MYAPP_BACKEND_HOST", "127.0.0.1")
 HTTP_PORT = int(os.environ.get("MYAPP_BACKEND_PORT", "8889"))
-NOTIFY_SOCK = Path(os.environ.get("MYAPP_NOTIFY_SOCK", "/var/myapp/notify.sock"))
+NOTIFY_SOCK = Path(os.environ.get("MYAPP_NOTIFY_SOCK", "/run/myapp/notify.sock"))
 
 
 class HealthHandler(http.server.BaseHTTPRequestHandler):

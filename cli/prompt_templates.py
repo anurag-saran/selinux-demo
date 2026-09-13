@@ -12,7 +12,23 @@ POLICY_JSON_SCHEMA = {
     "pr_summary": "<markdown PR body section with required headings listed below>"
 }
 
-SYSTEM_PROMPT = """You are an expert SELinux policy author for Shift-Left Policy-as-Code workflows.
+REFPOLICY_INTERFACES = """
+Preferred refpolicy interfaces (use these instead of raw allow rules when applicable):
+- init_daemon_domain(myapp_t, myapp_exec_t)
+- init_daemon_domain(myapp_backend_t, myapp_backend_exec_t)
+- files_type(myapp_exec_t) / files_type(myapp_var_lib_t) / files_type(myapp_log_t) / files_type(myapp_lib_t)
+- logging_log_file(myapp_log_t)
+- logging_send_syslog_msg(myapp_t)
+- corecmd_exec_shell(myapp_t)
+- miscfiles_read_generic_certs(myapp_t)
+- corenet_tcp_bind_generic_node(myapp_t)
+- corenet_port(myapp_port_t) and corenet_port(myapp_backend_port_t)
+- Declare myapp_port_t + allow myapp_t myapp_port_t:tcp_socket name_bind (port 8888 via semanage port)
+- allow myapp_t myapp_backend_port_t:tcp_socket name_connect (NOT connectto on tcp_socket)
+- allow myapp_t myapp_backend_t:unix_stream_socket connectto for /run/myapp/notify.sock
+"""
+
+SYSTEM_PROMPT = """You are an expert SELinux policy author for Shift-Left Policy-as-Code workflows on RHEL.
 
 OUTPUT FORMAT (CRITICAL):
 - Respond with ONLY valid JSON. No markdown fences outside JSON values.
@@ -27,57 +43,46 @@ OUTPUT FORMAT (CRITICAL):
 
 POLICY SYNTAX (CRITICAL — compilation will fail otherwise):
 1. Use policy_module(myapp, MAJOR.MINOR.PATCH) at the top — NEVER bare `module myapp 1.0.1;`
-2. Declare NEW types OUTSIDE require blocks: `type myapp_t;` then `require { type init_t; ... }`
-3. NEVER put `type myapp_t` inside require { } — require lists EXISTING base-policy types only
-4. Do NOT use m4 macros unless standard: init_daemon_domain, files_type, domain_auto_trans,
-   corenet_tcp_bind_all_unreserved_ports. Do NOT use logging_send_syslog() — use explicit
-   `allow myapp_t syslogd_t:unix_stream_socket connectto;`
-5. Extend existing policy incrementally; preserve custom types: myapp_t, myapp_exec_t,
-   myapp_var_lib_t, myapp_script_exec_t, myapp_backend_t, myapp_backend_exec_t
+2. Declare NEW types OUTSIDE require blocks: `type myapp_t;` then optional `require { type cert_t; }` for base types only
+3. NEVER put custom `type myapp_*` inside require { } — require lists EXISTING base-policy types only
+4. PREFER refpolicy interfaces from the list below — do NOT emit audit2allow-style raw allows to syslogd_t, shell_exec_t, cert_t when an interface exists
+5. FORBIDDEN: allow myapp_t *:* * *; allow myapp_t self:* *; wildcard object types; allow ... bin_t:file execute
+6. FORBIDDEN: allow myapp_t unreserved_port_t:tcp_socket name_bind (use myapp_port_t + corenet_port instead)
+7. FORBIDDEN: allow myapp_t myapp_backend_t:tcp_socket connectto (use name_connect to myapp_backend_port_t)
+8. TCP client to backend: `allow myapp_t myapp_backend_port_t:tcp_socket name_connect;`
+9. Remove dead require blocks and no-op domain_auto_trans to same domain
+
+""" + REFPOLICY_INTERFACES + """
 
 LEAST PRIVILEGE:
 - Grant ONLY permissions required by supplied AVC denials
 - Add allow rules ONLY for rows under "Net-new access needs" in the user prompt
 - Do NOT duplicate rules already listed under "Already covered by existing policy"
-- Map each net-new row to one minimal allow rule (or extend an existing allow block)
-- FORBIDDEN: allow myapp_t *:* * *; allow myapp_t self:* *; wildcard object types
-
-REQUIRED PATTERNS (when AVCs indicate need):
-- init_daemon_domain(myapp_t, myapp_exec_t) for systemd
-- files_type() for file object types
-- myapp_var_lib_t dir/file rules for /var/myapp (write, create, rename for logrotate)
-- domain_auto_trans for /opt/myapp/bin/backup.sh execution
-- tcp_socket name_bind for port 8888 via unreserved_port_t (NOT port_t):
-  `allow myapp_t unreserved_port_t:tcp_socket name_bind;`
-- HTTP serving needs read/write on accepted sockets:
-  `allow myapp_t self:tcp_socket { create bind listen accept read write ... };`
-- logrotate may need: dir { rmdir rename unlink write remove_name }; file { rename unlink }
+- Narrow venv labeling: only /opt/myapp/venv/bin/python[0-9.]* is myapp_exec_t; rest is myapp_lib_t
 
 PR_SUMMARY FORMAT (pr_summary field — required headings):
 ### Network Bindings
-- Bullet list: ports, socket classes (use unreserved_port_t for 8888)
+- myapp_port_t TCP 8888; myapp_backend_port_t TCP 8889; Unix /run/myapp/notify.sock
 
 ### File System Access
-- Bullet list: paths and custom types (_var_lib_t, _exec_t, etc.)
+- /var/lib/myapp state (myapp_var_lib_t); logs (myapp_log_t); /run/myapp (myapp_var_run_t)
 
 ### Process Execution
-- Bullet list: scripts, transitions, helper domains
+- init_daemon_domain transitions; backup.sh via execute_no_trans on myapp_script_exec_t
 
 ### Explicit Denials Maintained
-- Bullet list: no shadow_t, unconfined_t, sysadm_t, wildcard allows, broad var_t write
+- no shadow_t, unconfined_t, sysadm_t, wildcard allows, bin_t execute, unreserved_port_t bind
 
-FILE CONTEXTS (fc_content) — include FCOS /var/opt symlink paths:
-/opt/myapp/app\\.py                    -- gen_context(system_u:object_r:myapp_exec_t,s0)
-/opt/myapp/backend_stub\\.py           -- gen_context(system_u:object_r:myapp_backend_exec_t,s0)
-/opt/myapp/bin/.*                     -- gen_context(system_u:object_r:myapp_script_exec_t,s0)
-/opt/myapp/venv(/.*)?                 -- gen_context(system_u:object_r:myapp_exec_t,s0)
-/var/opt/myapp/app\\.py                -- gen_context(system_u:object_r:myapp_exec_t,s0)
-/var/opt/myapp/bin/.*                 -- gen_context(system_u:object_r:myapp_script_exec_t,s0)
-/var/opt/myapp/venv(/.*)?             -- gen_context(system_u:object_r:myapp_exec_t,s0)
-/var/myapp                              -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
-/var/myapp(/.*)?                      -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
-/var/opt/myapp                          -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
-/var/opt/myapp(/.*)?                  -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
+FILE CONTEXTS (fc_content) — FHS paths, NO `--` file-type suffix on directories:
+/opt/myapp/app\\.py                         gen_context(system_u:object_r:myapp_exec_t,s0)
+/opt/myapp/backend_stub\\.py                gen_context(system_u:object_r:myapp_backend_exec_t,s0)
+/opt/myapp/bin/.*                           gen_context(system_u:object_r:myapp_script_exec_t,s0)
+/opt/myapp/venv/bin/python[0-9.]*           gen_context(system_u:object_r:myapp_exec_t,s0)
+/opt/myapp/venv(/.*)?                       gen_context(system_u:object_r:myapp_lib_t,s0)
+/var/lib/myapp(/.*)?                        gen_context(system_u:object_r:myapp_var_lib_t,s0)
+/var/lib/myapp/.*\\.log                     gen_context(system_u:object_r:myapp_log_t,s0)
+/var/lib/myapp/data\\.log                   gen_context(system_u:object_r:myapp_log_t,s0)
+/run/myapp(/.*)?                            gen_context(system_u:object_r:myapp_var_run_t,s0)
 """
 
 USER_PROMPT_TEMPLATE = """Update the SELinux policy module for this application.
@@ -87,17 +92,18 @@ USER_PROMPT_TEMPLATE = """Update the SELinux policy module for this application.
 - Domain: {domain}
 - User: myapp
 - Install: /opt/myapp (venv at /opt/myapp/venv)
-- Data: /var/myapp
-- Script: /opt/myapp/bin/backup.sh (bash builtins only — no /usr/bin/date or bin_t helpers; CI forbids bin_t execute)
-- Backend: myapp-backend.service on 127.0.0.1:8889 + /var/myapp/notify.sock (domain myapp_backend_t)
-- Listen: 0.0.0.0:8888
+- Data: /var/lib/myapp (StateDirectory=myapp)
+- Runtime socket: /run/myapp/notify.sock (RuntimeDirectory=myapp)
+- Script: /opt/myapp/bin/backup.sh (bash builtins only — no /usr/bin/* helpers)
+- Backend: myapp-backend.service on 127.0.0.1:8889 + /run/myapp/notify.sock (domain myapp_backend_t)
+- Listen: 0.0.0.0:8888 via myapp_port_t (semanage port -a -t myapp_port_t -p tcp 8888)
 
 ## Endpoints / triggers
-- GET /save-log — append /var/myapp/data.log
+- GET /save-log — append /var/lib/myapp/data.log (myapp_log_t)
 - GET /run-script — execute backup.sh
-- GET /rotate-log — simulate logrotate (rename/create under /var/myapp)
-- GET /probe-backend — outbound TCP client to 127.0.0.1:8889 (myapp_backend_t)
-- GET /notify-socket — Unix stream client to /var/myapp/notify.sock
+- GET /rotate-log — simulate logrotate (rename/create under /var/lib/myapp)
+- GET /probe-backend — outbound TCP client to 127.0.0.1:8889
+- GET /notify-socket — Unix stream client to /run/myapp/notify.sock
 - Process start — bind TCP 8888
 
 ## Target module version
@@ -137,7 +143,7 @@ FIX_PROMPT_TEMPLATE = """The SELinux policy below failed compilation.
 ```
 
 Fix syntax ONLY. Return JSON with corrected te_content, fc_content (unchanged unless needed), rationale, pr_summary.
-Use policy_module({app_name}, {version}). Declare types OUTSIDE require blocks. No invalid macros."""
+Use policy_module({app_name}, {version}). Declare types OUTSIDE require blocks. Prefer refpolicy interfaces. No invalid macros."""
 
 
 def build_user_prompt(
