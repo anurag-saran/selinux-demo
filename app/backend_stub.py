@@ -2,8 +2,7 @@
 """
 Minimal backend for Tier 6 demo endpoints.
 
-Runs as root (unconfined_t) so myapp_t client connections exercise outbound
-TCP and Unix stream socket AVCs before policy is applied.
+Runs as myapp (myapp_backend_t) with HTTP on :8889 and a Unix notify socket.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
         return
 
 
-def unix_listener() -> None:
+def unix_listener(ready: threading.Event) -> None:
     NOTIFY_SOCK.parent.mkdir(parents=True, exist_ok=True)
     if NOTIFY_SOCK.exists():
         NOTIFY_SOCK.unlink()
@@ -44,6 +43,7 @@ def unix_listener() -> None:
     server.bind(str(NOTIFY_SOCK))
     server.listen(5)
     os.chmod(NOTIFY_SOCK, 0o666)
+    ready.set()
 
     while True:
         conn, _addr = server.accept()
@@ -53,9 +53,13 @@ def unix_listener() -> None:
 
 
 def main() -> None:
-    listener = threading.Thread(target=unix_listener, daemon=True)
+    ready = threading.Event()
+    listener = threading.Thread(target=unix_listener, args=(ready,), daemon=True)
     listener.start()
+    if not ready.wait(timeout=10):
+        raise RuntimeError(f"notify socket not ready at {NOTIFY_SOCK}")
 
+    socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer((HTTP_HOST, HTTP_PORT), HealthHandler) as httpd:
         httpd.serve_forever()
 

@@ -79,6 +79,11 @@
       ansible.builtin.shell: "date +%s > {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}"
       changed_when: true
 
+    - name: Remove stale notify socket before service restart
+      ansible.builtin.file:
+        path: "{{ var_dir }}/notify.sock"
+        state: absent
+
     - name: Restart application services via systemd
       ansible.builtin.systemd:
         name: "{{ item }}"
@@ -96,6 +101,14 @@
       until: service_active.stdout == "active"
       changed_when: false
 
+    - name: Verify backend service active after restart
+      ansible.builtin.command: systemctl is-active myapp-backend.service
+      register: backend_active
+      retries: 10
+      delay: 2
+      until: backend_active.stdout == "active"
+      changed_when: false
+
     - name: Wait for health endpoint
       ansible.builtin.uri:
         url: "http://127.0.0.1:8888/"
@@ -104,6 +117,24 @@
       retries: 10
       delay: 2
       until: health.status == 200
+
+    - name: Wait for backend health endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8889/health"
+        status_code: 200
+      register: backend_health
+      retries: 10
+      delay: 2
+      until: backend_health.status == 200
+
+    - name: Wait for notify socket endpoint
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8888/notify-socket"
+        status_code: 200
+      register: notify_endpoint
+      retries: 10
+      delay: 2
+      until: notify_endpoint.status == 200
 
     - name: Exercise canary endpoints
       ansible.builtin.uri:

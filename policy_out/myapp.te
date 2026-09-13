@@ -1,4 +1,4 @@
-policy_module(myapp, 1.0.6)
+policy_module(myapp, 1.0.9)
 
 require {
     type init_t;
@@ -6,8 +6,10 @@ require {
     type syslogd_t;
     type node_t;
     type unreserved_port_t;
+    type cert_t;
     class process transition;
     class file entrypoint;
+    class dir search;
 }
 
 type myapp_t;
@@ -43,7 +45,7 @@ allow myapp_t shell_exec_t:file { read open getattr execute map };
 
 domain_auto_trans(myapp_t, myapp_script_exec_t, myapp_t)
 
-allow myapp_t self:tcp_socket { create bind listen accept read write shutdown setopt name_bind node_bind getattr ioctl connect };
+allow myapp_t self:tcp_socket { create bind listen accept read write shutdown getopt setopt name_bind node_bind getattr ioctl connect };
 allow myapp_t self:udp_socket { create getattr };
 allow myapp_t node_t:tcp_socket { node_bind name_connect };
 allow myapp_t unreserved_port_t:tcp_socket { name_bind name_connect };
@@ -52,9 +54,13 @@ allow myapp_t myapp_backend_t:tcp_socket connectto;
 allow myapp_t self:unix_stream_socket { create connect read write getattr setopt shutdown };
 allow myapp_t myapp_backend_t:unix_stream_socket connectto;
 
+allow myapp_t cert_t:dir search;
+allow myapp_t cert_t:lnk_file read;
+
 allow myapp_backend_t self:tcp_socket { create bind listen accept read write getattr setopt shutdown };
 allow myapp_backend_t node_t:tcp_socket node_bind;
 allow myapp_backend_t unreserved_port_t:tcp_socket name_bind;
+allow myapp_backend_t myapp_var_lib_t:dir { add_name remove_name write search getattr open read };
 allow myapp_backend_t myapp_var_lib_t:sock_file { create write unlink setattr getattr open };
 allow myapp_backend_t self:unix_stream_socket { create bind listen accept read write getattr setopt shutdown };
 

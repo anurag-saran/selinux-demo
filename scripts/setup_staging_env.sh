@@ -223,6 +223,9 @@ install_systemd_service() {
     systemctl daemon-reload
     systemctl enable myapp-backend.service
     systemctl enable "${SERVICE_NAME}"
+    systemctl stop myapp-backend.service "${SERVICE_NAME}" 2>/dev/null || true
+    pkill -f 'backend_stub.py' 2>/dev/null || true
+    rm -f "${VAR_DIR}/notify.sock"
     systemctl restart myapp-backend.service
     systemctl restart "${SERVICE_NAME}"
 }

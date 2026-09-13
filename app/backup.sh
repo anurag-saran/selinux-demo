@@ -6,8 +6,8 @@
 set -euo pipefail
 
 BACKUP_LOG="/var/myapp/backup.log"
-TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+TIMESTAMP="$(printf '%(%Y-%m-%dT%H:%M:%SZ)T' -1)"
 
-mkdir -p "$(dirname "${BACKUP_LOG}")"
+# /var/myapp is created at install time; append only (no bin_t helpers).
 echo "[${TIMESTAMP}] backup ran" >> "${BACKUP_LOG}"
 echo "backup completed"
