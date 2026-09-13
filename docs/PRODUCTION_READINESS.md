@@ -127,11 +127,11 @@ Manual Ansible (AWX/Tower compatible) uses the same playbooks — see phases bel
 | **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` | `myapp.pp` built, no errors |
 | **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` | `Forbidden-pattern checks passed` |
 | **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh` | `File context verification passed` |
-| **Staging canary** | Permissive domain + integration smoke | Merge to `main` or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.staging.yml` | App responds on `:8888`, `myapp_t` in `semanage permissive -l` |
+| **Staging canary** | Permissive domain + integration smoke | Merge to `main` or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.staging.yml` | All **six** endpoints return HTTP 200; `myapp_t` in `semanage permissive -l`; backend active on `:8889` |
 | **Permissive soak** | Capture weekly cron, logrotate, restarts (7–14 days) | `semanage permissive -a myapp_t` + daily `monitor_avc.sh` | `count=0`, exit 0 |
-| **Production canary host** | Deploy to one node before fleet | `deploy_canary.yml --limit canary` | Marker file written, app healthy |
+| **Production canary host** | Deploy to one node before fleet | `deploy_canary.yml --limit canary` | Marker file written, app + backend healthy |
 | **Enforce gate** | Soak elapsed and zero domain AVCs | `check_soak_ready.sh` (in `enforce_production.yml`) | `Soak gate passed — safe to enforce myapp_t` |
-| **Production enforce** | Remove permissive domain | `ansible/enforce_production.yml` | `semanage permissive -l` empty for `myapp_t` |
+| **Production enforce** | Remove permissive domain | `ansible/enforce_production.yml` | `semanage permissive -l` empty; **six** production smoke tests pass under enforcing |
 | **Outage response** | Instant relief + AVC capture | `ansible/emergency_rollback.yml` | Domain back in permissive list |
 
 ---
@@ -336,7 +336,21 @@ Workshop demo shows these commands in [DEMO_GUIDE.md § Act 10](DEMO_GUIDE.md).
 
 1. **`check_soak_ready.sh`** — minimum soak days + AVC count threshold
 2. **`verify_file_contexts.sh`** — labeling dry-run
-3. **`systemctl restart`** + endpoint smoke tests
+3. **Remove stale `/var/myapp/notify.sock`** — avoids false-positive socket checks after restarts
+4. **`systemctl restart`** — `myapp-backend.service` then `myapp.service`
+5. **Readiness waits** — `:8888/`, `:8889/health`, and `GET /notify-socket`
+6. **Production smoke tests** — all six HTTP endpoints must return HTTP 200 under enforcing:
+
+```bash
+curl -sf http://127.0.0.1:8888/
+curl -sf http://127.0.0.1:8888/save-log
+curl -sf http://127.0.0.1:8888/run-script
+curl -sf http://127.0.0.1:8888/rotate-log
+curl -sf http://127.0.0.1:8888/probe-backend
+curl -sf http://127.0.0.1:8888/notify-socket
+```
+
+`deploy_canary.yml` runs the same Tier 6 endpoints (minus `/`) during canary exercise, with the same backend and notify-socket waits.
 
 ### `check_soak_ready.sh` — pass vs fail examples
 
@@ -390,6 +404,7 @@ Before you enforce on production, confirm:
 - [ ] `monitor_avc.sh --max-avc 0` clean for a full business cycle (including weekends)
 - [ ] Prod canary host deployed and soaked separately
 - [ ] `verify_file_contexts.sh` passed after last canary deploy
+- [ ] `myapp-backend.service` active; `:8889/health` and `/notify-socket` succeed on canary host
 - [ ] PR admin review table signed off ([PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md))
 - [ ] Change ticket documents enforce window and rollback owner
 - [ ] Rollback playbook tested on staging **or** on-call briefed on `emergency_rollback.yml`
@@ -408,6 +423,9 @@ Before you enforce on production, confirm:
 | **Canary marker missing** | `Canary marker not found` | Run `deploy_canary.yml` first — marker is written on canary deploy |
 | **Audit tools unavailable** | `Could not determine AVC count` | Install `audit` package; ensure `auditd` is running |
 | **App fails after enforce** | curl errors; AVCs in enforcing mode | `semanage permissive -a myapp_t` immediately; run emergency rollback playbook |
+| **`/notify-socket` fails post-enforce** | HTTP 500; stale socket on disk | Remove `/var/myapp/notify.sock` and restart backend; playbooks do this automatically |
+| **`/probe-backend` fails post-enforce** | `Permission denied` on TCP connect | Check backend on `:8889`; look for `tcp_socket getopt` or `cert_t` AVCs on `myapp_t` |
+| **`/run-script` fails post-enforce** | `Permission denied` on `/usr/bin/*` | Do not add `bin_t:file execute` — fix `backup.sh` to use bash builtins |
 | **Wrong cron path** | cron job fails silently | Use repo path: `bash /path/to/selinux-demo/scripts/monitor_avc.sh` — scripts are **not** installed under `/opt/myapp` in this PoC |
 
 ---

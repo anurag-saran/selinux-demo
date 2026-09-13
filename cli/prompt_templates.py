@@ -88,7 +88,8 @@ USER_PROMPT_TEMPLATE = """Update the SELinux policy module for this application.
 - User: myapp
 - Install: /opt/myapp (venv at /opt/myapp/venv)
 - Data: /var/myapp
-- Script: /opt/myapp/bin/backup.sh
+- Script: /opt/myapp/bin/backup.sh (bash builtins only — no /usr/bin/date or bin_t helpers; CI forbids bin_t execute)
+- Backend: myapp-backend.service on 127.0.0.1:8889 + /var/myapp/notify.sock (domain myapp_backend_t)
 - Listen: 0.0.0.0:8888
 
 ## Endpoints / triggers

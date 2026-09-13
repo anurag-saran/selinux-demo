@@ -17,7 +17,10 @@ App change → staging (permissive myapp_t) → AVC logs
 
 ```text
 selinux-demo/
-├── app/                    Flask app + systemd unit + logrotate config
+├── app/                    Flask app, backend stub, systemd units, logrotate config
+│   ├── app.py              Six demo HTTP endpoints (incl. Tier 6 network probes)
+│   ├── backend_stub.py     Backend on :8889 + /var/myapp/notify.sock (myapp_backend_t)
+│   └── bin/backup.sh       Executed by /run-script (bash builtins only)
 ├── cli/                    selinux_gen.py — AI policy CLI
 ├── selinux/                Version-controlled policy (source of truth)
 │   ├── myapp.te / myapp.fc
@@ -89,6 +92,10 @@ curl http://127.0.0.1:8888/rotate-log
 curl http://127.0.0.1:8888/probe-backend
 curl http://127.0.0.1:8888/notify-socket
 
+# Tier 6 endpoints require myapp-backend.service (installed by setup_staging_env.sh):
+#   /probe-backend  → TCP client to 127.0.0.1:8889 (myapp_backend_t)
+#   /notify-socket  → Unix client to /var/myapp/notify.sock
+
 # macOS: use --use-vm to export AVCs from Podman VM
 bash scripts/dev_generate_policy.sh --use-vm --apply
 
@@ -107,6 +114,10 @@ curl http://127.0.0.1:8888/run-script
 curl http://127.0.0.1:8888/rotate-log
 curl http://127.0.0.1:8888/probe-backend
 curl http://127.0.0.1:8888/notify-socket
+
+# Tier 6 endpoints require myapp-backend.service (installed by setup_staging_env.sh):
+#   /probe-backend  → TCP client to 127.0.0.1:8889 (myapp_backend_t)
+#   /notify-socket  → Unix client to /var/myapp/notify.sock
 ```
 
 ### 2. Export AVC logs
@@ -309,7 +320,8 @@ Environment: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL`, `OPENAI_TI
 
 ## Safety notes
 
-- Policy source of truth: **`selinux/`** — never commit `.pp` or API keys.
+- Policy source of truth: **`selinux/`** — never commit API keys. Compiled `.pp` for `selinux/` is tracked; `policy_out/*.pp` is build output.
+- Current module version: **`selinux/policy_version.txt`** (1.0.9 — Tier 6 enforcing smoke tests for all six endpoints).
 - Unlike blind `audit2allow`, this workflow uses **AI + forbidden-pattern CI + human review**.
 - Always **`semodule -r myapp`** before upgrading module (handled in `apply_policy.sh` and Ansible).
 - FCOS: run explicit **`chcon`** after `restorecon` on `/opt/myapp/venv` (automated in setup/Ansible).

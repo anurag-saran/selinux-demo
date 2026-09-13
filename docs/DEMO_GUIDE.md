@@ -63,12 +63,12 @@ The **Order Processor** is a Flask app on port **8888**. Each endpoint exercises
 |----------|--------------|------------------|
 | `GET /` | Health check | Minimal — confirms app is up |
 | `GET /save-log` | Appends a line to `/var/myapp/data.log` | `myapp_t` writes to `myapp_var_lib_t` file |
-| `GET /run-script` | Runs `/opt/myapp/bin/backup.sh` | `myapp_t` executes `myapp_script_exec_t` |
+| `GET /run-script` | Runs `/opt/myapp/bin/backup.sh` | `myapp_t` executes `myapp_script_exec_t`; script uses **bash builtins only** (no `/usr/bin/date` or other `bin_t` helpers — forbidden by CI) |
 | `GET /rotate-log` | Renames `data.log`, creates new file | rename/create under `myapp_var_lib_t` |
-| `GET /probe-backend` | HTTP client to local backend on port **8889** | outbound `tcp_socket` connect to `myapp_backend_t` |
-| `GET /notify-socket` | Unix stream client to `/var/myapp/notify.sock` | `sock_file` write + `unix_stream_socket connectto` |
+| `GET /probe-backend` | HTTP client to local backend on port **8889** | outbound `tcp_socket` `connectto` `myapp_backend_t`; client needs `getopt` on `self:tcp_socket` and read-only `cert_t` access for Python `urllib` |
+| `GET /notify-socket` | Unix stream client to `/var/myapp/notify.sock` | `unix_stream_socket connectto` `myapp_backend_t`; backend (`myapp_backend_t`) creates the socket under `myapp_var_lib_t` |
 
-**Backend stub:** `myapp-backend.service` runs `backend_stub.py` in domain **`myapp_backend_t`** (separate from Flask). This exercises cross-domain network rules without relying on `unconfined_t`.
+**Backend stub:** `myapp-backend.service` runs `backend_stub.py` as user **`myapp`** in domain **`myapp_backend_t`** (separate from Flask). It listens on **`:8889/health`** and creates **`/var/myapp/notify.sock`**. The unit runs `ExecStartPre=+/bin/rm -f /var/myapp/notify.sock` so stale sockets from prior restarts do not block the listener under enforcing policy.
 
 **Note:** `/rotate-log` simulates log rotation from Flask in `myapp_t`. It does **not** run system `logrotate` as `logrotate_t` — real production soak must exercise actual schedulers.
 
@@ -297,7 +297,7 @@ AVC preprocess: raw=42 merged=6 net_new=2
 Wrote policy_out/avc_summary.txt
 [INFO] Wrote policy_out/myapp.te
 [INFO] Wrote policy_out/pr_summary.md
-[INFO] Policy version bumped to 1.0.3
+[INFO] Policy version bumped to 1.0.9
 ```
 
 **SELinux concept:** `.te` allow rules — [SELINUX_BASICS.md §5](SELINUX_BASICS.md).
@@ -364,9 +364,11 @@ myapp_t
 $ sudo semodule -l | grep myapp
 myapp
 
-$ curl -sf http://127.0.0.1:8888/
-{"status":"ok","service":"order-processor",...}
+$ curl -sf http://127.0.0.1:8888/notify-socket
+{"status":"ok","endpoint":"/notify-socket",...}
 ```
+
+**Canary playbook checks:** after restart, Ansible waits for `:8888/`, `:8889/health`, and `GET /notify-socket`, then curls `/save-log`, `/run-script`, `/rotate-log`, `/probe-backend`, and `/notify-socket`.
 
 **SELinux concept:** `semodule -i` + `restorecon` — [SELINUX_BASICS.md §5–6](SELINUX_BASICS.md). Two permissive phases — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
 
@@ -441,9 +443,17 @@ Soak marker written: `/var/myapp/selinux_canary_deployed_at` (soak clock starts 
 $ sudo semanage permissive -l
 # (empty — myapp_t not listed)
 
+# enforce_production.yml runs all six production smoke tests:
+$ curl -sf http://127.0.0.1:8888/
 $ curl -sf http://127.0.0.1:8888/save-log
+$ curl -sf http://127.0.0.1:8888/run-script
+$ curl -sf http://127.0.0.1:8888/rotate-log
+$ curl -sf http://127.0.0.1:8888/probe-backend
+$ curl -sf http://127.0.0.1:8888/notify-socket
 {"status":"ok",...}
 ```
+
+Playbook output should show `failed=0` on the **Production smoke tests** task (all six endpoints).
 
 **SELinux concept:** `semanage permissive -d` — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
 
@@ -478,8 +488,9 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `policy_out/pr_body.md` | Exists with admin table + AVC excerpt |
 | `policy_out/myapp.pp` | Compiled policy package |
 | `sudo semanage permissive -l` | Empty (after Act 9) |
-| `curl http://127.0.0.1:8888/` | `{"status":"ok",...}` |
+| All six HTTP endpoints | `curl` returns HTTP 200 with `"status":"ok"` (see section 3) |
 | `getenforce` | `Enforcing` (OS was never set permissive) |
+| `systemctl is-active myapp-backend` | `active` (Tier 6 backend required for `/probe-backend` and `/notify-socket`) |
 
 ---
 
@@ -501,7 +512,10 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 
 | Path | Purpose |
 |------|---------|
-| `app/app.py` | Demo application |
+| `app/app.py` | Demo application (six HTTP endpoints) |
+| `app/backend_stub.py` | Tier 6 backend stub (`myapp_backend_t`, `:8889`, Unix socket) |
+| `app/myapp-backend.service` | systemd unit for backend stub |
+| `app/bin/backup.sh` | Script executed by `/run-script` (bash builtins only) |
 | `selinux/myapp.te` | Type enforcement rules — Git source of truth |
 | `selinux/myapp.fc` | File path → label mappings |
 | `selinux/policy_version.txt` | SemVer bumped on each generation |
@@ -527,6 +541,9 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | AI generation fails | HTTP/timeout errors | Check `OPENAI_BASE_URL`; use `--skip-ai` |
 | Compile fails on macOS | Podman/checkmodule error | Use `--use-vm`; compile runs inside VM |
 | Enforce fails (no demo mode) | `Soak period not met` | Use `--demo-mode` for workshops |
+| `/notify-socket` fails after enforce | Stale socket or backend not listening | Check `journalctl -u myapp-backend`; Ansible removes stale socket before restart |
+| `/probe-backend` Permission denied | Missing TCP `getopt` or backend down | Confirm `:8889/health`; check AVC for `tcp_socket getopt` |
+| `/run-script` Permission denied | Script calls `/usr/bin/*` (`bin_t`) | Keep `backup.sh` on bash builtins — CI forbids `bin_t:file execute` |
 | Port 8888 in use | curl connection refused | Stop conflicting service |
 | `ansible-playbook not found` | Warning + fallback | Install ansible, or demo uses `apply_policy.sh` |
 

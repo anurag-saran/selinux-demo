@@ -492,6 +492,19 @@ curl /save-log  →  AVC in audit.log  →  export to policy_out/avc.log
 
 Same pattern applies to `/run-script` (execute `myapp_script_exec_t`), `/rotate-log` (rename files under `myapp_var_lib_t`), `/probe-backend` (outbound TCP to `myapp_backend_t` on port 8889), and `/notify-socket` (Unix stream to `/var/myapp/notify.sock`).
 
+### Tier 6 network endpoints (policy v1.0.9+)
+
+These endpoints exercise **cross-domain** rules between Flask (`myapp_t`) and the backend stub (`myapp_backend_t`):
+
+| Endpoint | Client domain | Server / target | Typical net-new allows |
+|----------|---------------|-----------------|------------------------|
+| `/probe-backend` | `myapp_t` | `myapp_backend_t` on TCP **8889** | `connectto`; `self:tcp_socket getopt`; read-only `cert_t` for `urllib` |
+| `/notify-socket` | `myapp_t` | `myapp_backend_t` on `/var/myapp/notify.sock` | `unix_stream_socket connectto`; backend needs `myapp_var_lib_t:dir remove_name` to replace stale sockets |
+
+**Backend process:** `systemd` starts `/opt/myapp/backend_stub.py` (labeled `myapp_backend_exec_t`) → `init_daemon_domain(myapp_backend_t, ...)` → listener on `:8889` and Unix socket under `/var/myapp`.
+
+**Script pitfall:** `backup.sh` must not call `/usr/bin/date`, `mkdir`, or other **`bin_t`** helpers — CI rejects `allow ... bin_t:file execute`. Use bash builtins (e.g. `printf '%(%Y-%m-%dT%H:%M:%SZ)T' -1`) and append to `/var/myapp/backup.log` only.
+
 ---
 
 ## 10. How the app process gets type `myapp_t`
@@ -508,7 +521,9 @@ systemd (runs as init_t)
 
 If you start the app manually as root (`python app.py`) instead of **`systemctl restart myapp`**, you may get a **different domain** and **different AVCs** than production. The demo playbooks always restart via systemd for this reason.
 
-**Script execution:** `GET /run-script` runs `backup.sh` labeled `myapp_script_exec_t`. Policy uses `domain_auto_trans(..., myapp_t)` so the process **remains `myapp_t`** — not a separate backup helper domain.
+**Script execution:** `GET /run-script` runs `backup.sh` labeled `myapp_script_exec_t`. Policy uses `domain_auto_trans(..., myapp_t)` so the process **remains `myapp_t`** — not a separate backup helper domain. The script intentionally avoids external `/usr/bin/*` binaries so policy stays within forbidden-pattern CI limits.
+
+**Backend execution:** `myapp-backend.service` starts `backend_stub.py` labeled `myapp_backend_exec_t` → running process is **`myapp_backend_t`**. Flask connects to it over TCP **8889** and the Unix socket at `/var/myapp/notify.sock`.
 
 ---
 
@@ -518,9 +533,11 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 |------|----------|
 | `myapp_t` | Running Flask app (process domain) |
 | `myapp_exec_t` | App binary, Python venv (entrypoint) |
-| `myapp_var_lib_t` | Data under `/var/myapp` (logs, state) |
+| `myapp_var_lib_t` | Data under `/var/myapp` (logs, state, `notify.sock`) |
 | `myapp_script_exec_t` | `backup.sh` and scripts in `/opt/myapp/bin/` |
-| `unreserved_port_t` | Binding TCP port **8888** (not `http_port_t`) |
+| `myapp_backend_t` | Running backend stub (`backend_stub.py`) |
+| `myapp_backend_exec_t` | Backend entrypoint (`/opt/myapp/backend_stub.py`) |
+| `unreserved_port_t` | Binding TCP ports **8888** (Flask) and **8889** (backend) |
 
 ---
 
@@ -548,6 +565,7 @@ Presenter steps: [DEMO_GUIDE.md](DEMO_GUIDE.md). Admin gates: [PRODUCTION_READIN
 | Confusing process and file labels | Wrong mental model for AVCs | Use `ps -eZ` vs `ls -Z` (section 4) |
 | Setting entire OS permissive (`setenforce 0`) | Removes protection for everything | Only `myapp_t` permissive during soak |
 | Using `audit2allow` blindly | Over-broad rules (`allow myapp_t *:*`) | AI + forbidden-pattern CI + human review |
+| Allowing `bin_t:file execute` for helper scripts | CI rejects; over-broad | Keep `backup.sh` on bash builtins only |
 | Skipping `restorecon` after deploy | Old files keep wrong types | `verify_file_contexts.sh`, Ansible playbooks |
 | Testing only manual `python app.py` | Missing systemd transition AVCs | Playbooks restart via **systemd** |
 | Wrong port type for 8888 | `http_port_t` is wrong on RHEL | Uses **`unreserved_port_t`** |
@@ -605,6 +623,8 @@ Port **8888** uses **`unreserved_port_t`** + `name_bind` — not `http_port_t`. 
 ### Process transitions
 
 `domain_auto_trans(myapp_t, myapp_script_exec_t, myapp_t)` keeps `backup.sh` in **`myapp_t`** — not a separate helper domain.
+
+`init_daemon_domain(myapp_backend_t, myapp_backend_exec_t)` gives the backend stub its own domain for Tier 6 TCP/Unix rules.
 
 ---
 
