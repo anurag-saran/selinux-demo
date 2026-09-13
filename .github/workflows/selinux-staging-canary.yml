@@ -7,6 +7,9 @@ on:
       - master
     paths:
       - 'selinux/**'
+      - 'ansible/**'
+      - 'scripts/wait_for_endpoints.sh'
+      - 'scripts/post_deploy_report.sh'
 
 jobs:
   staging-canary:
@@ -39,5 +42,39 @@ jobs:
             echo ""
             echo "- Policy dir: \`selinux/\`"
             echo "- Trigger: merge to \`${{ github.ref_name }}\`"
+            echo "- Deploy report: \`/var/myapp/selinux_deploy_report.json\`"
             echo "- Next: admin runs **SELinux Policy Deploy** → \`enforce\` on \`production\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  staging-endpoint-smoke:
+    name: staging-endpoint-smoke
+    needs: staging-canary
+    runs-on: [self-hosted, selinux-staging]
+    environment: staging
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify all endpoints after canary
+        run: bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 10 --delay 2
+
+      - name: Show deploy report
+        run: |
+          if [[ -f /var/myapp/selinux_deploy_report.json ]]; then
+            cat /var/myapp/selinux_deploy_report.json
+          else
+            echo "Deploy report not found at /var/myapp/selinux_deploy_report.json" >&2
+            exit 1
+          fi
+
+      - name: Endpoint smoke summary
+        if: always()
+        run: |
+          {
+            echo "## Staging endpoint smoke"
+            echo ""
+            echo "- Unified check: \`scripts/wait_for_endpoints.sh\` (6 HTTP endpoints + backend)"
+            echo "- Report: \`/var/myapp/selinux_deploy_report.json\`"
           } >> "${GITHUB_STEP_SUMMARY}"

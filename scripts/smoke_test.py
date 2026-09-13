@@ -208,7 +208,7 @@ def test_version_bump() -> None:
         assert read_policy_version(vf) == "1.0.1"
 
 
-def test_flask_endpoints() -> None:
+def test_flask_endpoints(require_backend: bool = True) -> None:
     tmp = Path(tempfile.mkdtemp(prefix="myapp-smoke-"))
     bin_dir = tmp / "bin"
     var_dir = tmp / "var"
@@ -268,6 +268,10 @@ def test_flask_endpoints() -> None:
                 time.sleep(0.2)
         else:
             raise AssertionError("Flask app or backend stub did not become healthy")
+
+        if require_backend:
+            with urllib.request.urlopen(f"http://127.0.0.1:{backend_port}/health", timeout=3) as resp:
+                assert resp.status == 200
 
         for path in ("/", "/save-log", "/run-script", "/rotate-log", "/probe-backend", "/notify-socket"):
             with urllib.request.urlopen(f"http://127.0.0.1:8888{path}", timeout=3) as resp:
@@ -410,6 +414,23 @@ def test_demo_present_help() -> None:
 
 
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="SELinux demo smoke tests")
+    parser.add_argument(
+        "--require-backend",
+        action="store_true",
+        default=os.environ.get("SMOKE_REQUIRE_BACKEND", "1") != "0",
+        help="Fail if Tier 6 backend stub is not healthy (default: true)",
+    )
+    parser.add_argument(
+        "--no-require-backend",
+        action="store_true",
+        help="Skip backend health requirement in flask_endpoints test",
+    )
+    args = parser.parse_args()
+    require_backend = args.require_backend and not args.no_require_backend
+
     tests = [
         ("prompts", test_prompts),
         ("avc_parsing", test_avc_parsing),
@@ -422,7 +443,7 @@ def main() -> int:
         ("no_changes_needed_summary", test_no_changes_needed_summary),
         ("policy_json_validation", test_policy_json_validation),
         ("version_bump", test_version_bump),
-        ("flask_endpoints", test_flask_endpoints),
+        ("flask_endpoints", lambda: test_flask_endpoints(require_backend=require_backend)),
         ("assemble_pr_body", test_assemble_pr_body),
         ("verify_file_contexts_skip", test_verify_file_contexts_skip),
         ("check_soak_ready_gate", test_check_soak_ready_gate),

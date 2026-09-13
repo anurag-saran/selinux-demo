@@ -101,49 +101,20 @@
       until: service_active.stdout == "active"
       changed_when: false
 
-    - name: Verify backend service active after restart
-      ansible.builtin.command: systemctl is-active myapp-backend.service
-      register: backend_active
-      retries: 15
-      delay: 2
-      until: backend_active.stdout == "active"
+    - name: Production smoke tests (unified endpoint wait)
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/wait_for_endpoints.sh
+        --host 127.0.0.1 --retries 15 --delay 2
       changed_when: false
 
-    - name: Wait for health endpoint
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8888/"
-        status_code: 200
-      register: health
-      retries: 15
-      delay: 2
-      until: health.status == 200
-
-    - name: Wait for backend health endpoint
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8889/health"
-        status_code: 200
-      register: backend_health
-      retries: 15
-      delay: 2
-      until: backend_health.status == 200
-
-    - name: Wait for notify socket endpoint
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8888/notify-socket"
-        status_code: 200
-      register: notify_endpoint
-      retries: 15
-      delay: 2
-      until: notify_endpoint.status == 200
-
-    - name: Production smoke tests
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8888{{ item }}"
-        status_code: 200
-      loop:
-        - /
-        - /save-log
-        - /run-script
-        - /rotate-log
-        - /probe-backend
-        - /notify-socket
+    - name: Write enforce deploy report
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/post_deploy_report.sh
+        --phase enforce
+        --domain {{ domain }}
+        --var-dir {{ var_dir }}
+        --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
+        --project-root {{ project_root }}
+      register: deploy_report
+      changed_when: true
+      failed_when: deploy_report.rc != 0

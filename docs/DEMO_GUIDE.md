@@ -536,7 +536,9 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 |---------|-------------------|-----|
 | `OPENAI_API_KEY not set` | Script exits immediately | `export OPENAI_API_KEY=...` or `--skip-ai` |
 | `Run as root` | Error before Act 1 | `sudo bash scripts/demo_present.sh ...` |
-| `Podman VM unreachable` | Connection refused to VM | `bash scripts/fix_podman.sh`; `podman machine start` |
+| `Podman VM unreachable` | Connection refused to VM API/SSH | `source ~/.local/share/selinux-demo/podman/env.sh`; `bash scripts/fix_podman.sh`; retry after `ensure_vm_ready` recovery card |
+| Demo hangs on sync/setup | Long wait, no progress | `podman machine stop && podman machine start`; increase `VM_SSH_TIMEOUT_SEC` (default 90) |
+| `connection refused` before compile | Podman machine stopped | `compile_and_validate.sh` now waits for VM — retry; run `bash scripts/fix_podman.sh` |
 | No AVC lines exported | `wc -l` shows 0 | Re-run Act 1; check `systemctl status auditd` |
 | AI generation fails | HTTP/timeout errors | Check `OPENAI_BASE_URL`; use `--skip-ai` |
 | Compile fails on macOS | Podman/checkmodule error | Use `--use-vm`; compile runs inside VM |

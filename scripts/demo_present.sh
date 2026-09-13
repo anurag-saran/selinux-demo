@@ -155,13 +155,26 @@ require_root_if_native() {
     [[ "${EUID}" -eq 0 ]] || { log_error "Run as root on native Linux: sudo $0 ..."; exit 1; }
 }
 
+VM_SYNCED=0
+
 vm_sync() {
     bash "${VM_HELPER}" sync
+    VM_SYNCED=1
 }
 
 vm_run() {
-    vm_sync
-    podman machine ssh -- "cd /home/core/selinux-demo && $1"
+    local sync_first="${1:-}"
+    shift || true
+    if [[ "${sync_first}" == "--sync" ]]; then
+        vm_sync
+    fi
+    bash "${VM_HELPER}" exec "$*"
+}
+
+vm_ensure_ready() {
+    # shellcheck source=lib/vm_ready.sh
+    source "${SCRIPT_DIR}/lib/vm_ready.sh"
+    ensure_vm_ready
 }
 
 trigger_endpoints_native() {
@@ -268,7 +281,7 @@ act_5_ci_gates() {
 
 run_canary_playbook() {
     if [[ "${USE_VM}" -eq 1 ]]; then
-        vm_sync
+        [[ "${VM_SYNCED}" -eq 1 ]] || vm_sync
         local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/deploy_canary.yml \
             -e policy_pp_path=${VM_POLICY_PP}"
         for arg in "$@"; do cmd+=" ${arg}"; done
@@ -281,7 +294,7 @@ run_canary_playbook() {
 
 run_enforce_playbook() {
     if [[ "${USE_VM}" -eq 1 ]]; then
-        vm_sync
+        [[ "${VM_SYNCED}" -eq 1 ]] || vm_sync
         local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/enforce_production.yml \
             -e policy_pp_path=${VM_POLICY_PP}"
         for arg in "$@"; do cmd+=" ${arg}"; done
@@ -398,6 +411,7 @@ main() {
         # shellcheck disable=SC1090
         [[ -f "${HOME}/.local/share/selinux-demo/podman/env.sh" ]] && source "${HOME}/.local/share/selinux-demo/podman/env.sh"
         command -v podman >/dev/null 2>&1 || { log_error "Install Podman: bash scripts/fix_podman.sh"; exit 1; }
+        vm_ensure_ready
     fi
 
     for act in 1 2 3 4 5 6 7 8 9 10; do

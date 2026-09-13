@@ -109,6 +109,10 @@ init_machine() {
         podman machine start
     fi
 
+    # shellcheck source=lib/vm_ready.sh
+    source "$(cd "$(dirname "$0")" && pwd)/lib/vm_ready.sh"
+    wait_for_vm_ssh 120 || exit 1
+
     log_info "Podman is ready:"
     podman --version
     podman machine ls

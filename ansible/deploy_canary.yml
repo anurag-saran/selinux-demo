@@ -101,51 +101,11 @@
       until: service_active.stdout == "active"
       changed_when: false
 
-    - name: Verify backend service active after restart
-      ansible.builtin.command: systemctl is-active myapp-backend.service
-      register: backend_active
-      retries: 10
-      delay: 2
-      until: backend_active.stdout == "active"
+    - name: Wait for all endpoints (unified canary smoke)
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/wait_for_endpoints.sh
+        --host 127.0.0.1 --retries 15 --delay 2
       changed_when: false
-
-    - name: Wait for health endpoint
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8888/"
-        status_code: 200
-      register: health
-      retries: 10
-      delay: 2
-      until: health.status == 200
-
-    - name: Wait for backend health endpoint
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8889/health"
-        status_code: 200
-      register: backend_health
-      retries: 10
-      delay: 2
-      until: backend_health.status == 200
-
-    - name: Wait for notify socket endpoint
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8888/notify-socket"
-        status_code: 200
-      register: notify_endpoint
-      retries: 10
-      delay: 2
-      until: notify_endpoint.status == 200
-
-    - name: Exercise canary endpoints
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8888{{ item }}"
-        status_code: 200
-      loop:
-        - /save-log
-        - /run-script
-        - /rotate-log
-        - /probe-backend
-        - /notify-socket
 
     - name: Check for new AVC denials
       ansible.builtin.shell: |
@@ -154,9 +114,29 @@
       register: avc_count
       changed_when: false
 
+    - name: Fail when canary AVC count exceeds threshold
+      ansible.builtin.fail:
+        msg: >-
+          Canary AVC count {{ avc_count.stdout | trim }} exceeds threshold
+          {{ canary_max_avc | default(0) }}. Review AVCs before enforce.
+      when: (avc_count.stdout | trim | int) > (canary_max_avc | default(0) | int)
+
+    - name: Write canary deploy report
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/post_deploy_report.sh
+        --phase canary
+        --domain {{ domain }}
+        --var-dir {{ var_dir }}
+        --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
+        --project-root {{ project_root }}
+      register: deploy_report
+      changed_when: true
+      failed_when: deploy_report.rc != 0
+
     - name: Report canary AVC count
       ansible.builtin.debug:
         msg: >-
-          Recent {{ domain }} AVC lines: {{ avc_count.stdout }} (review before enforce).
+          Recent {{ domain }} AVC lines: {{ avc_count.stdout }} (threshold {{ canary_max_avc | default(0) }}).
+          Deploy report: {{ var_dir }}/selinux_deploy_report.json.
           Soak marker: {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}.
           Daily monitor: bash scripts/monitor_avc.sh --domain {{ domain }} --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}

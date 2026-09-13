@@ -63,6 +63,7 @@ selinux-demo/
 | **Admin canary** | GitHub Actions → **SELinux Policy Deploy** → `canary` / `staging` |
 | **Admin enforce** | Same workflow → `enforce` / `production` (Environment approval) |
 | **Admin rollback** | Same workflow → `rollback` |
+| **App team incident card** | [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) §12.5 — checks when SELinux deploy breaks startup |
 
 ### Branch protection (recommended)
 

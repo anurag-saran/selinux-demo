@@ -37,6 +37,12 @@ if [[ -f /usr/share/selinux/devel/include/common.inc.sh ]]; then
     checkmodule -M -m -o "${mod}" "${te}"
     semodule_package -o "${pp}" -m "${mod}" -f "${fc}"
 elif command -v podman >/dev/null 2>&1; then
+    # shellcheck source=lib/vm_ready.sh
+    source "${SCRIPT_DIR}/lib/vm_ready.sh"
+    ensure_vm_ready || {
+        log_error "Podman machine not ready for compile"
+        exit 1
+    }
     work_dir="$(mktemp -d)"
     cp "${te}" "${fc}" "${work_dir}/"
     podman run --rm \

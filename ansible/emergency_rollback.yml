@@ -30,10 +30,40 @@
       when: not semanage_bin.stat.exists
       changed_when: true
 
-    - name: Restart service to restore availability
+    - name: Remove stale notify socket before service restart
+      ansible.builtin.file:
+        path: "{{ var_dir }}/notify.sock"
+        state: absent
+
+    - name: Restart application services after rollback
       ansible.builtin.systemd:
-        name: "{{ service_name }}"
+        name: "{{ item }}"
         state: restarted
+      loop:
+        - myapp-backend.service
+        - "{{ service_name }}"
+
+    - name: Wait for endpoints after rollback
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/wait_for_endpoints.sh
+        --host 127.0.0.1 --retries 15 --delay 2
+      changed_when: false
+
+    - name: Record rollback timestamp (reset soak clock)
+      ansible.builtin.shell: "date +%s > {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}"
+      changed_when: true
+
+    - name: Write rollback deploy report
+      ansible.builtin.command: >
+        bash {{ project_root }}/scripts/post_deploy_report.sh
+        --phase rollback
+        --domain {{ domain }}
+        --var-dir {{ var_dir }}
+        --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
+        --project-root {{ project_root }}
+      register: rollback_report
+      changed_when: true
+      failed_when: rollback_report.rc != 0
 
     - name: Export recent AVC logs
       ansible.builtin.shell: |

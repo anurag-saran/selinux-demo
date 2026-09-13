@@ -31,12 +31,16 @@ Options:
   --marker-file PATH    Use canary deploy epoch as ausearch start (overrides --since)
   --max-avc N           Fail if count > N (-1 = report only, default)
   --show-lines N        Print last N matching lines (default: 10)
+  --format FORMAT       Output format: text (default) or json
+  --notify-webhook URL  POST JSON summary to webhook on failure
   --skip-if-unavailable Exit 0 when audit tools unavailable (CI smoke)
   -h, --help            Show help
 EOF
 }
 
 SKIP_IF_UNAVAILABLE=0
+OUTPUT_FORMAT="text"
+NOTIFY_WEBHOOK=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -46,6 +50,8 @@ while [[ $# -gt 0 ]]; do
         --marker-file) MARKER_FILE="$2"; shift 2 ;;
         --max-avc) MAX_AVC="$2"; shift 2 ;;
         --show-lines) SHOW_LINES="$2"; shift 2 ;;
+        --format) OUTPUT_FORMAT="$2"; shift 2 ;;
+        --notify-webhook) NOTIFY_WEBHOOK="$2"; shift 2 ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
@@ -95,9 +101,23 @@ while IFS= read -r line; do
 done <<< "${raw}"
 
 count="${#matches[@]}"
-log_info "AVC report: domain=${DOMAIN} since=${SINCE} count=${count}"
 
-if [[ "${SHOW_LINES}" -gt 0 && "${count}" -gt 0 ]]; then
+if [[ "${OUTPUT_FORMAT}" == "json" ]]; then
+    python3 - <<PY
+import json
+print(json.dumps({
+    "domain": "${DOMAIN}",
+    "since": """${SINCE}""",
+    "count": ${count},
+    "max_avc": ${MAX_AVC},
+    "status": "fail" if (${MAX_AVC} >= 0 and ${count} > ${MAX_AVC}) else "pass",
+}, indent=2))
+PY
+else
+    log_info "AVC report: domain=${DOMAIN} since=${SINCE} count=${count}"
+fi
+
+if [[ "${OUTPUT_FORMAT}" != "json" && "${SHOW_LINES}" -gt 0 && "${count}" -gt 0 ]]; then
     echo "--- recent matching AVC lines ---"
     start=$(( count > SHOW_LINES ? count - SHOW_LINES : 0 ))
     for ((i=start; i<count; i++)); do
@@ -107,7 +127,14 @@ fi
 
 if [[ "${MAX_AVC}" -ge 0 && "${count}" -gt "${MAX_AVC}" ]]; then
     log_error "AVC count ${count} exceeds threshold ${MAX_AVC}"
+    if [[ -n "${NOTIFY_WEBHOOK}" ]]; then
+        curl -sf -X POST -H "Content-Type: application/json" \
+            -d "{\"text\":\"SELinux AVC alert: domain=${DOMAIN} count=${count} max=${MAX_AVC}\"}" \
+            "${NOTIFY_WEBHOOK}" >/dev/null 2>&1 || true
+    fi
     exit 1
 fi
 
-log_info "AVC monitoring check complete"
+if [[ "${OUTPUT_FORMAT}" != "json" ]]; then
+    log_info "AVC monitoring check complete"
+fi

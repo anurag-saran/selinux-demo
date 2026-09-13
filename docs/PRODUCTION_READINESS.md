@@ -338,16 +338,13 @@ Workshop demo shows these commands in [DEMO_GUIDE.md § Act 10](DEMO_GUIDE.md).
 2. **`verify_file_contexts.sh`** — labeling dry-run
 3. **Remove stale `/var/myapp/notify.sock`** — avoids false-positive socket checks after restarts
 4. **`systemctl restart`** — `myapp-backend.service` then `myapp.service`
-5. **Readiness waits** — `:8888/`, `:8889/health`, and `GET /notify-socket`
-6. **Production smoke tests** — all six HTTP endpoints must return HTTP 200 under enforcing:
+5. **Unified readiness** — `bash scripts/wait_for_endpoints.sh` (systemd + all six HTTP endpoints)
+6. **Deploy report** — `bash scripts/post_deploy_report.sh` writes `/var/myapp/selinux_deploy_report.json`
 
 ```bash
-curl -sf http://127.0.0.1:8888/
-curl -sf http://127.0.0.1:8888/save-log
-curl -sf http://127.0.0.1:8888/run-script
-curl -sf http://127.0.0.1:8888/rotate-log
-curl -sf http://127.0.0.1:8888/probe-backend
-curl -sf http://127.0.0.1:8888/notify-socket
+bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 15 --delay 2
+bash scripts/post_deploy_report.sh --phase enforce --domain myapp_t --var-dir /var/myapp \
+  --marker-file /var/myapp/selinux_canary_deployed_at --project-root /path/to/selinux-demo
 ```
 
 `deploy_canary.yml` runs the same Tier 6 endpoints (minus `/`) during canary exercise, with the same backend and notify-socket waits.
@@ -393,6 +390,46 @@ bash scripts/check_soak_ready.sh \
   --domain myapp_t \
   --marker-file /var/myapp/selinux_canary_deployed_at
 ```
+
+---
+
+## 12.5 App team incident card
+
+When SELinux deploy or enforce affects the app, app teams need fast, non-ambiguous signals — not generic HTTP 500s that look like application regressions.
+
+### What you will see
+
+| Signal | Likely meaning |
+|--------|----------------|
+| `systemctl status myapp` / `myapp-backend` → `failed` | Service did not start after policy restart |
+| `GET /` returns `"selinux": { "domain_permissive": false, "mode": "Enforcing" }` | Enforce is active — denials now block |
+| Endpoint JSON includes `"selinux_context"` and `"Permission denied"` | SELinux denial (check AVCs, not app logic first) |
+| `/var/myapp/selinux_deploy_report.json` with `"status": "fail"` | Last canary/enforce/rollback deploy did not pass smoke |
+
+### 60-second checklist (app team)
+
+```bash
+systemctl is-active myapp myapp-backend
+curl -sf http://127.0.0.1:8888/ | python3 -m json.tool
+bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 3 --delay 2
+cat /var/myapp/selinux_deploy_report.json
+```
+
+### Do / do not
+
+| Do | Do not |
+|----|--------|
+| Page the SELinux/admin on-call with deploy phase + report JSON | Run `setenforce 0` globally |
+| Capture `ausearch -m avc -ts recent` excerpt | Add broad `bin_t` execute rules locally |
+| Retry after admin sets domain permissive or patches policy | Re-deploy app code alone without policy fix |
+
+### Expected recovery loop
+
+```text
+Outage → semanage permissive -a myapp_t (admin) → export AVCs → policy PR → canary redeploy → soak → enforce
+```
+
+Deploy feedback artifact: **`/var/myapp/selinux_deploy_report.json`** (written by canary, enforce, and rollback playbooks).
 
 ---
 

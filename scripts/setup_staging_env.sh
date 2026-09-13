@@ -258,18 +258,8 @@ restore_contexts() {
 }
 
 wait_for_service() {
-    local retries=15
-    local i
-    for ((i = 1; i <= retries; i++)); do
-        if curl -sf "http://127.0.0.1:8888/" >/dev/null 2>&1 \
-            && curl -sf "http://127.0.0.1:8889/health" >/dev/null 2>&1; then
-            log_info "Services responding on ports 8888 and 8889"
-            return 0
-        fi
-        sleep 1
-    done
-    log_warn "Services did not respond yet. Check: systemctl status myapp-backend ${SERVICE_NAME}"
-    return 0
+    bash "${SCRIPT_DIR}/wait_for_endpoints.sh" --host 127.0.0.1 --retries 15 --delay 1 \
+        || log_warn "Services did not respond yet. Check: systemctl status myapp-backend ${SERVICE_NAME}"
 }
 
 print_next_steps() {

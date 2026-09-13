@@ -20,6 +20,12 @@ if [[ -f "${PODMAN_ENV}" ]]; then
     source "${PODMAN_ENV}"
 fi
 
+if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "${SCRIPT_DIR}/lib/vm_ready.sh" ]]; then
+    # shellcheck source=lib/vm_ready.sh
+    source "${SCRIPT_DIR}/lib/vm_ready.sh"
+    ensure_vm_ready || exit 1
+fi
+
 echo "Building image: ${IMAGE_NAME}"
 podman build \
     --tag "${IMAGE_NAME}" \

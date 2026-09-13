@@ -34,6 +34,8 @@ DATA_LOG_PATH = Path("/var/myapp/data.log")
 BACKUP_SCRIPT = Path("/opt/myapp/bin/backup.sh")
 BACKEND_HEALTH_URL = os.environ.get("MYAPP_BACKEND_URL", "http://127.0.0.1:8889/health")
 NOTIFY_SOCK = Path(os.environ.get("MYAPP_NOTIFY_SOCK", "/var/myapp/notify.sock"))
+SELINUX_DOMAIN = os.environ.get("MYAPP_SELINUX_DOMAIN", "myapp_t")
+DEPLOY_REPORT_PATH = Path("/var/myapp/selinux_deploy_report.json")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,6 +47,68 @@ logger = logging.getLogger("myapp")
 app = Flask(__name__)
 
 
+def read_process_context() -> str | None:
+    try:
+        return Path("/proc/self/attr/current").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
+def selinux_status() -> dict[str, object]:
+    mode = "unknown"
+    try:
+        proc = subprocess.run(
+            ["getenforce"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        mode = proc.stdout.strip() or "unknown"
+    except OSError:
+        pass
+
+    domain_permissive: bool | None = None
+    try:
+        proc = subprocess.run(
+            ["semanage", "permissive", "-l"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        if proc.returncode == 0:
+            domain_permissive = SELINUX_DOMAIN in proc.stdout.split()
+    except OSError:
+        pass
+
+    policy_version = os.environ.get("MYAPP_POLICY_VERSION", "unknown")
+    if policy_version == "unknown" and DEPLOY_REPORT_PATH.is_file():
+        try:
+            import json
+
+            report = json.loads(DEPLOY_REPORT_PATH.read_text(encoding="utf-8"))
+            policy_version = report.get("policy_version", "unknown")
+        except (OSError, ValueError):
+            pass
+
+    return {
+        "mode": mode,
+        "domain": SELINUX_DOMAIN,
+        "domain_permissive": domain_permissive,
+        "policy_version": policy_version,
+        "process_context": read_process_context(),
+    }
+
+
+def with_selinux_error(base: dict[str, object], exc: BaseException | None = None) -> dict[str, object]:
+    payload = dict(base)
+    payload["selinux"] = selinux_status()
+    if isinstance(exc, OSError) and exc.errno == 13:
+        payload["selinux_context"] = read_process_context()
+    return payload
+
+
 @app.route("/", methods=["GET"])
 def health_check():
     """Simple health check - should not trigger SELinux denials."""
@@ -53,6 +117,7 @@ def health_check():
             "status": "ok",
             "service": "order-processor",
             "port": APP_PORT,
+            "selinux": selinux_status(),
         }
     )
 
@@ -79,16 +144,19 @@ def save_log():
         logger.exception("Failed to write data log at %s", DATA_LOG_PATH)
         return (
             jsonify(
-                {
-                    "status": "error",
-                    "endpoint": "/save-log",
-                    "path": str(DATA_LOG_PATH),
-                    "error": str(exc),
-                    "selinux_hint": (
-                        "Expected AVC: myapp_t -> file write on /var/myapp/data.log. "
-                        "Policy needs allow myapp_t myapp_var_lib_t:file { write append open };"
-                    ),
-                }
+                with_selinux_error(
+                    {
+                        "status": "error",
+                        "endpoint": "/save-log",
+                        "path": str(DATA_LOG_PATH),
+                        "error": str(exc),
+                        "selinux_hint": (
+                            "Expected AVC: myapp_t -> file write on /var/myapp/data.log. "
+                            "Policy needs allow myapp_t myapp_var_lib_t:file { write append open };"
+                        ),
+                    },
+                    exc,
+                )
             ),
             500,
         )
@@ -140,16 +208,19 @@ def run_script():
         logger.exception("Failed to execute backup script %s", BACKUP_SCRIPT)
         return (
             jsonify(
-                {
-                    "status": "error",
-                    "endpoint": "/run-script",
-                    "path": str(BACKUP_SCRIPT),
-                    "error": str(exc),
-                    "selinux_hint": (
-                        "Expected AVC: myapp_t -> file execute on backup.sh. "
-                        "Policy needs domain_auto_trans or allow execute + transition."
-                    ),
-                }
+                with_selinux_error(
+                    {
+                        "status": "error",
+                        "endpoint": "/run-script",
+                        "path": str(BACKUP_SCRIPT),
+                        "error": str(exc),
+                        "selinux_hint": (
+                            "Expected AVC: myapp_t -> file execute on backup.sh. "
+                            "Policy needs domain_auto_trans or allow execute + transition."
+                        ),
+                    },
+                    exc,
+                )
             ),
             500,
         )
@@ -195,16 +266,19 @@ def probe_backend():
         logger.exception("Backend probe failed for %s", BACKEND_HEALTH_URL)
         return (
             jsonify(
-                {
-                    "status": "error",
-                    "endpoint": "/probe-backend",
-                    "url": BACKEND_HEALTH_URL,
-                    "error": str(exc),
-                    "selinux_hint": (
-                        "Expected AVC: myapp_t outbound tcp_socket connect/name_connect "
-                        "to 127.0.0.1:8889."
-                    ),
-                }
+                with_selinux_error(
+                    {
+                        "status": "error",
+                        "endpoint": "/probe-backend",
+                        "url": BACKEND_HEALTH_URL,
+                        "error": str(exc),
+                        "selinux_hint": (
+                            "Expected AVC: myapp_t outbound tcp_socket connect/name_connect "
+                            "to 127.0.0.1:8889."
+                        ),
+                    },
+                    exc,
+                )
             ),
             500,
         )
@@ -253,16 +327,19 @@ def notify_socket():
         logger.exception("Notify socket call failed for %s", NOTIFY_SOCK)
         return (
             jsonify(
-                {
-                    "status": "error",
-                    "endpoint": "/notify-socket",
-                    "path": str(NOTIFY_SOCK),
-                    "error": str(exc),
-                    "selinux_hint": (
-                        "Expected AVC: myapp_t -> myapp_var_lib_t:sock_file write and "
-                        "unix_stream_socket connectto to backend peer."
-                    ),
-                }
+                with_selinux_error(
+                    {
+                        "status": "error",
+                        "endpoint": "/notify-socket",
+                        "path": str(NOTIFY_SOCK),
+                        "error": str(exc),
+                        "selinux_hint": (
+                            "Expected AVC: myapp_t -> myapp_var_lib_t:sock_file write and "
+                            "unix_stream_socket connectto to backend peer."
+                        ),
+                    },
+                    exc,
+                )
             ),
             500,
         )
@@ -298,7 +375,7 @@ def rotate_log():
         DATA_LOG_PATH.write_text("", encoding="utf-8")
     except OSError as exc:
         logger.exception("Log rotation failed at %s", DATA_LOG_PATH)
-        return jsonify({"status": "error", "endpoint": "/rotate-log", "error": str(exc)}), 500
+        return jsonify(with_selinux_error({"status": "error", "endpoint": "/rotate-log", "error": str(exc)}, exc)), 500
 
     if shutil.which("logrotate") and Path("/etc/logrotate.d/myapp").is_file():
         subprocess.run(["logrotate", "-f", "/etc/logrotate.d/myapp"], check=False, timeout=30)
