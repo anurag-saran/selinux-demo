@@ -368,5 +368,6 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 | [docs/TESTING.md](docs/TESTING.md) | **All test cases** — six HTTP endpoints, `smoke_test.py`, CI jobs, soak/enforce gates |
 | [ansible/README.md](ansible/README.md) | **Ansible playbooks** — canary, enforce, rollback task order and variables |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Workshop demo for newbies — 10 acts, example output, observer vs presenter paths |
+| [docs/examples/](docs/examples/) | **Curated PR samples** — `pr_summary.example.md` and `pr_body.example.md` for Act 4 when staging is unavailable |
 | [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Post-demo admin runbook — soak, canary hosts, enforce gates, deploy report JSON, incident card §12.5, pass/fail examples |
 | [docs/SELINUX_BEST_PRACTICES.md](docs/SELINUX_BEST_PRACTICES.md) | **Policy-as-Code principles** — refpolicy interfaces, labeling, CI gates, soak/enforce anti-patterns (admin + reviewer checklist) |

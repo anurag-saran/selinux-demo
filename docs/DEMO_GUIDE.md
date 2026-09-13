@@ -45,7 +45,7 @@ The presenter script [`scripts/demo_present.sh`](../scripts/demo_present.sh) wal
 | **Enforce** | Remove permissive — denials now **block** the app (`semanage permissive -d myapp_t`) |
 | **Canary deploy** | Install real policy on a host, but keep the domain permissive while you watch for problems |
 | **Soak** | Run in permissive canary for **7–14 days** (production) to catch weekly jobs, cron, logrotate |
-| **PR handoff** | Assembled markdown (`policy_out/pr_body.md`) admins review — not just raw `.te` files |
+| **PR handoff** | Assembled markdown (`policy_out/pr_body.md`) admins review — curated sample: [`docs/examples/pr_body.example.md`](examples/pr_body.example.md) |
 | **CI** | Automated checks on every PR: compile policy + block wildcards and high-privilege allows |
 | **Demo mode (`--demo-mode`)** | Workshop shortcut — skips the 7-day calendar wait only; everything else is real |
 | **`getenforce`** | Whole-system SELinux mode — stays **Enforcing** throughout this demo |
@@ -530,8 +530,8 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `selinux/policy_version.txt` | SemVer bumped on each generation |
 | `policy_out/avc.log` | Raw exported denials (audit trail + PR excerpt) |
 | `policy_out/avc_summary.txt` | Merged net-new access needs (LLM input) |
-| `policy_out/pr_summary.md` | Plain-English summary for admins |
-| `policy_out/pr_body.md` | Assembled GitHub PR body |
+| `policy_out/pr_summary.md` | Plain-English summary for admins (live); sample: [`docs/examples/pr_summary.example.md`](../examples/pr_summary.example.md) |
+| `policy_out/pr_body.md` | Assembled GitHub PR body (live); sample: [`docs/examples/pr_body.example.md`](../examples/pr_body.example.md) |
 | `ansible/deploy_canary.yml` | Permissive canary deploy — see [ansible/README.md](../ansible/README.md) |
 | `ansible/enforce_production.yml` | Remove permissive + enforce — see [ansible/README.md](../ansible/README.md) |
 | `ansible/emergency_rollback.yml` | Outage response — see [ansible/README.md](../ansible/README.md) |
