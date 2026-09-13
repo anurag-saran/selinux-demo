@@ -37,6 +37,9 @@ POLICY SYNTAX (CRITICAL — compilation will fail otherwise):
 
 LEAST PRIVILEGE:
 - Grant ONLY permissions required by supplied AVC denials
+- Add allow rules ONLY for rows under "Net-new access needs" in the user prompt
+- Do NOT duplicate rules already listed under "Already covered by existing policy"
+- Map each net-new row to one minimal allow rule (or extend an existing allow block)
 - FORBIDDEN: allow myapp_t *:* * *; allow myapp_t self:* *; wildcard object types
 
 REQUIRED PATTERNS (when AVCs indicate need):
@@ -104,8 +107,14 @@ policy_module({app_name}, {version})
 {existing_fc}
 ```
 
-## New AVC Denials (compact summary)
+## Access needs derived from AVCs
 {avc_logs}
+
+Use the structured tables above:
+- **Net-new access needs** — add or extend allow rules for these permissions only
+- **Already covered** — confirm existing policy; do not duplicate these allows
+- If stats show no_changes_needed, return existing te_content unchanged with minimal rationale
+- If stats show fallback_merged, treat all merged rows as candidates but still avoid duplicating existing .te rules
 
 Produce JSON with updated te_content (full file, version {version}), fc_content, rationale, and pr_summary markdown."""
 

@@ -2,6 +2,7 @@
 - name: Enforce production — remove permissive domain
   hosts: all
   become: true
+  serial: 1
   environment:
     PATH: "{{ ansible_env_path | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
 

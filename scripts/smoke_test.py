@@ -15,6 +15,16 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "cli"))
 
+from avc_preprocess import (  # noqa: E402
+    AccessNeed,
+    build_llm_avc_summary,
+    extract_type,
+    merge_avc_entries,
+    normalize_perms,
+    parse_existing_allows,
+    preprocess_avc_entries,
+    subtract_covered,
+)
 from prompt_templates import SYSTEM_PROMPT, build_user_prompt  # noqa: E402
 from selinux_gen import (  # noqa: E402
     bump_policy_version,
@@ -55,6 +65,116 @@ def test_avc_parsing() -> None:
     deduped = deduplicate_avc_entries([entry, parse_avc_line(line)])
     assert len(deduped) == 1
     assert len(filter_avc_entries(deduped, "myapp_t")) == 1
+
+
+def _sample_avc_line(perm: str, scontext: str, tcontext: str, tclass: str = "file") -> str:
+    return (
+        f'type=AVC msg=audit(1): avc: denied {{ {perm} }} for pid=1 comm="python3" '
+        f"scontext={scontext} tcontext={tcontext} tclass={tclass} permissive=1"
+    )
+
+
+def test_perm_merge() -> None:
+    line_a = _sample_avc_line(
+        "write",
+        "system_u:system_r:myapp_t:s0",
+        "system_u:object_r:myapp_var_lib_t:s0",
+    )
+    line_b = _sample_avc_line(
+        "append open",
+        "system_u:system_r:myapp_t:s0",
+        "system_u:object_r:myapp_var_lib_t:s0",
+    )
+    merged = merge_avc_entries([parse_avc_line(line_a), parse_avc_line(line_b)])
+    assert len(merged) == 1
+    assert merged[0].perms == frozenset({"write", "append", "open"})
+
+
+def test_type_extraction_dedup() -> None:
+    line_a = _sample_avc_line(
+        "write",
+        "system_u:system_r:myapp_t:s0",
+        "system_u:object_r:myapp_var_lib_t:s0",
+    )
+    line_b = _sample_avc_line(
+        "write",
+        "system_u:object_r:myapp_t:s0",
+        "system_u:object_r:myapp_var_lib_t:s0",
+    )
+    merged = merge_avc_entries([parse_avc_line(line_a), parse_avc_line(line_b)])
+    assert len(merged) == 1
+    assert extract_type("system_u:system_r:myapp_t:s0") == "myapp_t"
+
+
+def test_subtract_existing() -> None:
+    te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
+    existing = parse_existing_allows(te)
+    merged = [
+        AccessNeed("myapp_t", "myapp_var_lib_t", "file", frozenset({"write"})),
+    ]
+    net_new, covered = subtract_covered(merged, existing)
+    assert len(net_new) == 0
+    assert len(covered) == 1
+    assert "write" in covered[0].perms
+
+
+def test_net_new_detection() -> None:
+    te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
+    existing = parse_existing_allows(te)
+    merged = [
+        AccessNeed("myapp_t", "myapp_var_lib_t", "file", frozenset({"write", "link"})),
+    ]
+    net_new, covered = subtract_covered(merged, existing)
+    assert any("link" in need.perms for need in net_new)
+    assert any("write" in need.perms for need in covered)
+
+
+def test_preprocess_stats() -> None:
+    lines = [
+        _sample_avc_line("write", "system_u:system_r:myapp_t:s0", "system_u:object_r:myapp_var_lib_t:s0"),
+        _sample_avc_line("append", "system_u:system_r:myapp_t:s0", "system_u:object_r:myapp_var_lib_t:s0"),
+        _sample_avc_line(
+            "name_bind",
+            "system_u:system_r:myapp_t:s0",
+            "system_u:object_r:unreserved_port_t:s0",
+            tclass="tcp_socket",
+        ),
+    ]
+    entries = [parse_avc_line(line) for line in lines]
+    entries = filter_avc_entries(entries, "myapp_t")
+    _, stats = preprocess_avc_entries(entries, existing_te="")
+    assert stats["raw"] == 3
+    assert stats["merged"] == 2
+    assert stats["merged"] < stats["raw"]
+
+
+def test_prompt_uses_summary() -> None:
+    te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
+    fc = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
+    entries = [
+        parse_avc_line(
+            _sample_avc_line("link", "system_u:system_r:myapp_t:s0", "system_u:object_r:myapp_var_lib_t:s0")
+        )
+    ]
+    summary, _ = build_llm_avc_summary(entries, existing_te=te)
+    prompt = build_user_prompt(
+        "myapp_t", summary, app_name="myapp", version="1.0.0", existing_te=te, existing_fc=fc
+    )
+    assert "Net-new access needs" in prompt
+    assert "Access needs derived from AVCs" in prompt
+    assert "Already covered by existing policy" in prompt
+
+
+def test_no_changes_needed_summary() -> None:
+    te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
+    entries = [
+        parse_avc_line(
+            _sample_avc_line("write", "system_u:system_r:myapp_t:s0", "system_u:object_r:myapp_var_lib_t:s0")
+        )
+    ]
+    summary, stats = build_llm_avc_summary(entries, existing_te=te)
+    assert stats.get("no_changes_needed") == 1
+    assert "no te_content changes required" in summary.lower() or "No te_content changes" in summary
 
 
 def test_policy_json_validation() -> None:
@@ -260,6 +380,13 @@ def main() -> int:
     tests = [
         ("prompts", test_prompts),
         ("avc_parsing", test_avc_parsing),
+        ("perm_merge", test_perm_merge),
+        ("type_extraction_dedup", test_type_extraction_dedup),
+        ("subtract_existing", test_subtract_existing),
+        ("net_new_detection", test_net_new_detection),
+        ("preprocess_stats", test_preprocess_stats),
+        ("prompt_uses_summary", test_prompt_uses_summary),
+        ("no_changes_needed_summary", test_no_changes_needed_summary),
         ("policy_json_validation", test_policy_json_validation),
         ("version_bump", test_version_bump),
         ("flask_endpoints", test_flask_endpoints),

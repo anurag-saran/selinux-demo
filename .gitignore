@@ -1,6 +1,7 @@
 policy_out/*.pp
 policy_out/*.mod
 policy_out/avc.log
+policy_out/avc_summary.txt
 policy_out/container_build/
 cli/.env
 ansible/inventory.staging.yml

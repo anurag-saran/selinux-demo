@@ -97,11 +97,17 @@ try:
     text = proc.stdout or ""
     avc_count = sum(1 for line in text.splitlines() if domain in line)
 except FileNotFoundError:
-    # Fallback: grep audit.log since marker epoch (best effort)
+    # Fallback: parse audit.log timestamps since marker epoch
     try:
+        ts_re = re.compile(r"msg=audit\((\d+(?:\.\d+)?):\d+\)")
         with open("/var/log/audit/audit.log", encoding="utf-8", errors="replace") as fh:
             for line in fh:
-                if "type=AVC" in line and domain in line:
+                if "type=AVC" not in line or domain not in line:
+                    continue
+                match = ts_re.search(line)
+                if not match:
+                    continue
+                if float(match.group(1)) >= deploy_epoch:
                     avc_count += 1
     except OSError:
         avc_count = -1

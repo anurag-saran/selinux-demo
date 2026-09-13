@@ -27,22 +27,9 @@ if [[ ! -f "${te}" ]] || [[ ! -f "${fc}" ]]; then
     exit 1
 fi
 
-log_info "Static checks on ${te}"
-if grep -qE 'allow\s+\w+\s+\*:' "${te}"; then
-    log_error "Forbidden wildcard allow rule in ${te}"
-    exit 1
-fi
-if grep -q 'policy_module' "${te}"; then
-    log_info "policy_module() present"
-else
-    log_error "Missing policy_module() in ${te}"
-    exit 1
-fi
-if ! grep -q "${DOMAIN}" "${te}"; then
-    log_error "Domain ${DOMAIN} not referenced in ${te}"
-    exit 1
-fi
+bash "${SCRIPT_DIR}/validate_forbidden_patterns.sh" "${POLICY_DIR}"
 
+log_info "Static checks on ${te}"
 rm -f "${pp}" "${mod}"
 log_info "Compiling ${MODULE_NAME} in ${POLICY_DIR}"
 

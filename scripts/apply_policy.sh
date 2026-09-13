@@ -7,12 +7,39 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-POLICY_DIR="${1:-${PROJECT_ROOT}/policy_out}"
+CANARY_MODE=0
+POSITIONAL=()
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--canary] [policy_dir]
+
+  --canary   Install policy, keep ${DOMAIN:-myapp_t} permissive, write soak marker
+             (production canary path — does NOT enforce)
+
+  default    Install and remove permissive flag (dev/FCOS fallback — NOT for prod soak bypass)
+
+Examples:
+  sudo bash scripts/apply_policy.sh --canary policy_out
+  sudo bash scripts/apply_policy.sh selinux
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --canary) CANARY_MODE=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+
+POLICY_DIR="${POSITIONAL[0]:-${PROJECT_ROOT}/policy_out}"
 MODULE_NAME="${POLICY_MODULE:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 INSTALL_ROOT="/opt/myapp"
 BIN_DIR="${INSTALL_ROOT}/bin"
 VAR_DIR="/var/myapp"
+SOAK_MARKER="${VAR_DIR}/selinux_canary_deployed_at"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -72,14 +99,32 @@ compile_policy() {
 }
 
 restore_contexts() {
-    log_info "Restoring contexts on ${INSTALL_ROOT} and ${VAR_DIR}"
-    # FCOS: /opt -> /var/opt; restorecon on venv often relabels to var_t — prefer chcon
-    restorecon -Rv "${VAR_DIR}" 2>/dev/null || true
+    log_info "Restoring contexts on ${INSTALL_ROOT}, ${VAR_DIR}, and /var/opt/myapp"
+    restorecon -Rv "${VAR_DIR}" /var/opt/myapp 2>/dev/null || true
     if command -v chcon >/dev/null 2>&1; then
         chcon -t myapp_exec_t "${INSTALL_ROOT}/app.py" 2>/dev/null || true
         chcon -R -t myapp_exec_t "${INSTALL_ROOT}/venv" 2>/dev/null || true
         chcon -t myapp_script_exec_t "${BIN_DIR}/backup.sh" 2>/dev/null || true
         chcon -R -t myapp_var_lib_t "${VAR_DIR}" 2>/dev/null || true
+    fi
+}
+
+write_soak_marker() {
+    mkdir -p "${VAR_DIR}"
+    date +%s > "${SOAK_MARKER}"
+    log_info "Soak marker written: ${SOAK_MARKER}"
+}
+
+set_permissive_domain() {
+    if command -v semanage >/dev/null 2>&1; then
+        if semanage permissive -l 2>/dev/null | grep -qw "${DOMAIN}"; then
+            log_info "Domain ${DOMAIN} already permissive"
+        else
+            log_info "Setting ${DOMAIN} permissive via semanage"
+            semanage permissive -a "${DOMAIN}"
+        fi
+    else
+        log_warn "semanage unavailable; ensure policy declares permissive ${DOMAIN} or use RHEL host"
     fi
 }
 
@@ -94,6 +139,13 @@ install_policy() {
     fi
     semodule -i "${pp}"
 
+    if [[ "${CANARY_MODE}" -eq 1 ]]; then
+        set_permissive_domain
+        write_soak_marker
+        return 0
+    fi
+
+    log_warn "Direct apply without --canary removes permissive and skips soak gate — dev/FCOS only"
     if command -v semanage >/dev/null 2>&1; then
         if semanage permissive -l 2>/dev/null | grep -qw "${DOMAIN}"; then
             log_info "Removing permissive flag from ${DOMAIN}"
@@ -130,7 +182,11 @@ main() {
         systemctl restart myapp.service
     fi
 
-    log_info "Policy applied from ${POLICY_DIR}"
+    if [[ "${CANARY_MODE}" -eq 1 ]]; then
+        log_info "Canary policy applied from ${POLICY_DIR} (${DOMAIN} permissive; soak clock started)"
+    else
+        log_info "Policy applied from ${POLICY_DIR} (enforcing domain — not a production canary deploy)"
+    fi
     echo "Verify:"
     echo "  curl -v http://127.0.0.1:8888/save-log"
     echo "  curl -v http://127.0.0.1:8888/run-script"

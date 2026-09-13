@@ -44,6 +44,14 @@ if grep -qE 'allow\s+\w+\s+\*:\*\s+\*\s+\*' "${te}"; then
     check_fail "Fully wildcard allow rule"
 fi
 
+if grep -qE 'allow\s+\w+\s+self:\*' "${te}"; then
+    check_fail "Forbidden allow rule targeting self:* (over-broad)"
+fi
+
+if grep -qE 'allow\s+\w+\s+bin_t:file[[:space:]]+\{[^}]*execute' "${te}"; then
+    check_fail "Forbidden bin_t:file execute — label app binaries with dedicated exec types in .fc"
+fi
+
 if grep -qE '^module\s+' "${te}"; then
     check_fail "Use policy_module() syntax, not bare 'module' declaration"
 fi

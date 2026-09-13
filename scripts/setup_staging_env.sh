@@ -294,8 +294,15 @@ main() {
     compile_stub_policy
     install_python_deps
     set_permissive_domain
-    install_systemd_service
     restore_contexts
+    if [[ -x "${PROJECT_ROOT}/scripts/verify_file_contexts.sh" ]]; then
+        bash "${PROJECT_ROOT}/scripts/verify_file_contexts.sh" \
+            --install-root "${INSTALL_ROOT}" \
+            --var-dir "${VAR_DIR}" \
+            --app-name myapp \
+            --skip-if-unavailable || true
+    fi
+    install_systemd_service
     wait_for_service
     print_next_steps
 }

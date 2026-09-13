@@ -5,9 +5,10 @@ This guide explains **SELinux from zero** using the `myapp` demo in this reposit
 **How to read this guide (about 15–20 minutes):**
 
 1. Sections 1–4 — what SELinux is and how **labels** work (start here)
-2. Sections 5–7 — **commands** to view labels, **policy files** (`.te`/`.fc`), and **`restorecon`**
-3. Sections 8–10 — permissive mode, **AVC denials**, and a **worked example** tied to the demo
-4. Sections 11+ — reference tables, cheat sheet, and links to the live workshop
+2. Sections 5–7 — **commands** to view labels, **policy files** (`.te`/`.fc`), **`restorecon`**, and the **two-layer model** (OS Enforcing + permissive app domain)
+3. Section 7.5 — **soak** timeline (why production waits 7–14 days)
+4. Sections 8–10 — **AVC denials**, export filtering, and a **worked example** tied to the demo
+5. Sections 11+ — reference tables, cheat sheet, and links to the live workshop
 
 **Before the live demo:** read sections 3–7, then follow [DEMO_GUIDE.md](DEMO_GUIDE.md).
 
@@ -269,6 +270,28 @@ You can keep the **OS Enforcing** but mark **one app domain** as permissive:
 
 **This is not `setenforce 0`.** The rest of the system stays protected; only processes in `myapp_t` get log-only denials.
 
+### The two-layer model (Enforcing OS + permissive app domain)
+
+This repo uses **two separate checks**. Beginners often confuse them:
+
+| Check | Command | What it tells you |
+|-------|---------|-------------------|
+| **Whole-system mode** | `getenforce` | Is SELinux enforcing **globally**? (Always **Enforcing** in this demo.) |
+| **Per-domain log-only list** | `sudo semanage permissive -l` | Which **process types** get log-only denials? (Usually **`myapp_t`** during staging/soak.) |
+
+```text
+Host state during staging and soak:
+  getenforce          →  Enforcing     (SSH, cron, systemd, etc. stay fully protected)
+  semanage permissive -l  →  myapp_t   (Flask app domain: deny → log only, app keeps running)
+  ps -eZ | grep app   →  myapp_t       (running Flask process label)
+```
+
+**What this means in plain English:**
+
+- **`sshd_t`**, **`init_t`**, **`cron_t`**, and every other domain stay **enforcing** — a denial blocks the operation.
+- Only **`myapp_t`** (the Flask app) is on the permissive list — denials are **logged** but the app **keeps working**.
+- We **never** run `setenforce 0` (whole-OS permissive) in production workflows.
+
 #### Example: `-a` vs `-l`
 
 ```bash
@@ -294,6 +317,51 @@ $ sudo semanage permissive -l
 - **`-a`** = turn on log-only mode **for one domain** (action / change)
 - **`-l`** = show who is currently in that log-only list (read / inspect)
 - **`-d`** = turn log-only mode off for that domain (enforce)
+
+### Two permissive phases (do not confuse them)
+
+| Phase | When | Policy on host | Why `myapp_t` is permissive |
+|-------|------|----------------|----------------------------|
+| **Staging discovery** | Demo Acts 1–2, `dev_generate_policy.sh` | Stub or minimal module | Run tests, collect AVC evidence, AI writes `.te` |
+| **Canary soak** | Demo Acts 6–8, production rollout | **Full** `myapp.pp` installed | Real policy loaded; watch 7–14 days for missed edge cases before enforce |
+
+Both phases keep `getenforce` = **Enforcing**. Only **`myapp_t`** is log-only.
+
+---
+
+## 7.5 What soak means (production)
+
+**Soak** = run the app with **real policy installed** but **`myapp_t` still permissive** for **7–14 days**, watching for new AVC surprises (weekly cron, logrotate, cert renewals, restarts).
+
+```text
+Day 0   Canary deploy
+        → semodule -i myapp.pp
+        → semanage permissive -a myapp_t
+        → write marker: /var/myapp/selinux_canary_deployed_at
+
+Days 1–14   Soak (production)
+        → app keeps running; myapp_t still log-only
+        → daily: bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0
+        → goal: zero new myapp_t AVCs
+
+Enforce gate   check_soak_ready.sh must pass BOTH:
+        → marker age ≥ 7 days
+        → AVC count for myapp_t since marker ≤ 0
+
+Enforce   semanage permissive -d myapp_t
+        → denials now BLOCK the app if policy is incomplete
+        → getenforce still Enforcing (only myapp_t changed)
+```
+
+| Artifact | Purpose |
+|----------|---------|
+| `/var/myapp/selinux_canary_deployed_at` | Epoch timestamp — soak clock starts here |
+| `scripts/monitor_avc.sh` | Daily check during soak — fail if new denials appear |
+| `scripts/check_soak_ready.sh` | Automated gate before enforce |
+
+**"Zero AVCs during soak"** means no **new** `myapp_t` denials since canary deploy — not that the audit log is empty globally.
+
+If policy changes mid-soak, redeploy canary and **reset the soak clock**. Full admin runbook: [PRODUCTION_READINESS.md §6–12](PRODUCTION_READINESS.md).
 
 ---
 
@@ -323,7 +391,40 @@ sudo ausearch -m avc -ts recent
 sudo ausearch -m avc -ts recent | grep myapp_t
 ```
 
-This repo exports matching lines to `policy_out/avc.log` and feeds them to the AI CLI — instead of blindly running `audit2allow`, which often creates over-broad rules.
+### What goes into `policy_out/avc.log`
+
+**Important:** `avc.log` does **not** contain every SELinux denial on the host.
+
+Export scripts filter the audit log to **app-related evidence only**:
+
+```bash
+# Simplified from scripts/demo_present.sh export_avcs_native
+ausearch -m avc -ts boot --raw | grep -E "myapp|/opt/myapp|/var/myapp"
+```
+
+| Included in `avc.log` | Not included |
+|-------------------------|--------------|
+| Denials where **`myapp_t`** is the source (`scontext`) | Denials for **`sshd_t`**, **`init_t`**, other domains |
+| Lines mentioning **`/opt/myapp`** or **`/var/myapp`** paths | Unrelated system AVCs |
+
+So: the host audit log records **all** domains; **`policy_out/avc.log`** is filtered input for **this app's policy update** — not a full-server security report.
+
+This repo exports matching lines to `policy_out/avc.log` (raw audit trail for PR review) and feeds a **processed** summary to the AI CLI — instead of blindly running `audit2allow`, which often creates over-broad rules.
+
+### Raw log vs processed summary
+
+| File | Purpose |
+|------|---------|
+| `policy_out/avc.log` | Raw AVC lines from `ausearch` — kept for audit and PR excerpts |
+| `policy_out/avc_summary.txt` | Merged, deduped access needs sent to the LLM |
+
+Before calling the LLM, `cli/selinux_gen.py` (via [`cli/avc_preprocess.py`](../cli/avc_preprocess.py)):
+
+1. **Merge** — combine duplicate lines that share the same source type, target type, and object class (union permissions)
+2. **Subtract** — drop permissions already allowed in the existing `.te` file
+3. **Structure** — send net-new needs as a table, not repetitive raw AVC bullets
+
+Example: 42 raw lines may collapse to 6 merged rows, with only 2 net-new after subtracting existing policy.
 
 ---
 
@@ -332,6 +433,20 @@ This repo exports matching lines to `policy_out/avc.log` and feeds them to the A
 This ties labels, `.te`, `.fc`, AVCs, and the demo together.
 
 The Flask app ([`app/app.py`](../app/app.py)) exposes `GET /save-log`, which appends a line to `/var/myapp/data.log`.
+
+### Step 0 — Confirm two-layer SELinux state
+
+Before hitting the endpoint, verify the host is Enforcing but the app domain is log-only:
+
+```bash
+$ getenforce
+Enforcing
+
+$ sudo semanage permissive -l
+myapp_t
+```
+
+SSH and other services stay enforcing; only the Flask process domain is permissive.
 
 ### Step 1 — Process and file labels
 
@@ -392,6 +507,8 @@ systemd (runs as init_t)
 ```
 
 If you start the app manually as root (`python app.py`) instead of **`systemctl restart myapp`**, you may get a **different domain** and **different AVCs** than production. The demo playbooks always restart via systemd for this reason.
+
+**Script execution:** `GET /run-script` runs `backup.sh` labeled `myapp_script_exec_t`. Policy uses `domain_auto_trans(..., myapp_t)` so the process **remains `myapp_t`** — not a separate backup helper domain.
 
 ---
 
@@ -456,6 +573,41 @@ sudo semodule -l | grep myapp
 
 ---
 
+## 14.5 Production topics (beyond this PoC)
+
+This demo focuses on custom types, `.te` allows, canary soak, and enforce. Real RHEL apps often also need:
+
+### auditd (AVC source)
+
+| Command | Purpose |
+|---------|---------|
+| `systemctl status auditd` | Confirm denial logging is on |
+| `ausearch -m avc -ts recent` | Query structured AVC events |
+| `grep '^type=AVC' /var/log/audit/audit.log` | Raw log fallback |
+
+Export scripts prefer `ausearch`; if auditd is stopped, `policy_out/avc.log` will be empty.
+
+### SELinux booleans
+
+Booleans toggle optional base-policy behavior without a custom module:
+
+```bash
+getsebool -a | head
+semanage boolean -l | head
+```
+
+This PoC uses **custom `.te` rules** instead of toggling booleans (e.g. `httpd_can_network_connect`).
+
+### Port labeling (`semanage port`)
+
+Port **8888** uses **`unreserved_port_t`** + `name_bind` — not `http_port_t`. Admins assign well-known ports with `semanage port -a -t http_port_t -p tcp PORT`.
+
+### Process transitions
+
+`domain_auto_trans(myapp_t, myapp_script_exec_t, myapp_t)` keeps `backup.sh` in **`myapp_t`** — not a separate helper domain.
+
+---
+
 ## 15. Command cheat sheet (by task)
 
 **Check SELinux status**
@@ -491,9 +643,12 @@ sudo semanage permissive -d myapp_t   # delete — enforce
 **Audit / denials**
 
 ```bash
+sudo systemctl status auditd          # must be active for AVC export
 sudo ausearch -m avc -ts recent
 sudo ausearch -m avc -ts recent | grep myapp_t
 ```
+
+If `auditd` is stopped, `policy_out/avc.log` export will be empty even when the app runs.
 
 **Policy modules**
 

@@ -6,7 +6,7 @@ This guide is for **RHEL/Fedora admins** who reviewed the workshop demo and are 
 
 | You are… | Read first | Then |
 |----------|------------|------|
-| **New to SELinux** | [SELINUX_BASICS.md](SELINUX_BASICS.md) sections 1–7 | This guide sections 1–4 |
+| **New to SELinux** | [SELINUX_BASICS.md](SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
 | **Saw the demo** | [DEMO_GUIDE.md](DEMO_GUIDE.md) acts 6–10 | This guide from section 4 onward |
 | **Running day-to-day deploys** | Section 5 (deploy paths) | Phases 1–6 as your checklist |
 
@@ -70,6 +70,42 @@ PR merge → staging canary (auto on main)
 
 ---
 
+## 3.5 Soak in plain English
+
+**Soak** is not idle waiting — it is **active monitoring** while the app runs with **real policy** but **`myapp_t` still permissive**.
+
+```text
+Day 0     deploy_canary.yml
+          → semodule -i myapp.pp + semanage permissive -a myapp_t
+          → marker: /var/myapp/selinux_canary_deployed_at
+
+Week 1–2  Daily monitor_avc.sh (--max-avc 0)
+          → getenforce stays Enforcing; only myapp_t is log-only
+          → catch weekly cron, logrotate, cert renewals, restarts
+
+Gate      check_soak_ready.sh passes BOTH:
+          → marker age ≥ 7 days
+          → zero new myapp_t AVCs since marker
+
+Enforce   semanage permissive -d myapp_t
+          → denials now block the app if policy is incomplete
+```
+
+| Week | Admin action | Pass looks like |
+|------|--------------|-----------------|
+| **Week 0** | Deploy canary to staging or prod-canary host | App healthy; `myapp_t` in `semanage permissive -l`; marker file exists |
+| **Week 1** | Daily `monitor_avc.sh` | `count=0`, exit 0 each day |
+| **Week 2** | Run `check_soak_ready.sh` manually | `Soak gate passed — safe to enforce myapp_t` |
+| **Enforce day** | `enforce_production.yml` | `semanage permissive -l` empty; app still responds |
+
+**Two-layer reminder:** `getenforce` = **Enforcing** throughout soak. Only **`myapp_t`** is on the permissive list until enforce.
+
+**If policy changes during soak:** redeploy canary, extend `.te`, and **reset the soak clock** (new marker timestamp). See [§14 Troubleshooting](#14-troubleshooting).
+
+Full timeline for beginners: [SELINUX_BASICS.md §7.5](SELINUX_BASICS.md).
+
+---
+
 ## 4. Three deploy paths
 
 | When | Who | How |
@@ -79,6 +115,8 @@ PR merge → staging canary (auto on main)
 | **Production cutover** | Admin (manual) | **SELinux Policy Deploy** workflow → `enforce` + GitHub `production` Environment approval |
 
 Manual Ansible (AWX/Tower compatible) uses the same playbooks — see phases below and [README.md § Admins](../README.md).
+
+**Staging soak is manual:** merge to `main` triggers staging canary automatically, but there is **no timer** before production — admins must run daily `monitor_avc.sh` and wait 7–14 days before prod canary/enforce.
 
 ---
 
@@ -98,7 +136,9 @@ Manual Ansible (AWX/Tower compatible) uses the same playbooks — see phases bel
 
 ---
 
-## 6. Phase 1 — Per-domain permissive soak
+## 6. Phase 1 — Per-domain permissive soak (canary)
+
+This phase is **canary soak after merge** — not the developer's **staging discovery** permissive (Acts 1–2 in the demo, where the app team collects AVCs to write initial policy). Here the **full** `myapp.pp` is already installed; permissive mode lets you watch real workloads before enforce.
 
 Enable permissive mode **only** for the application domain (OS stays enforcing):
 
@@ -162,12 +202,16 @@ sudo systemctl is-active myapp.service
 curl -sf http://127.0.0.1:8888/rotate-log
 ```
 
-**Cron (optional soak test on staging):**
+**Cron (optional — does not run as `myapp_t`):**
+
+The example below runs `backup.sh` as **root** in the **`cron_t`** domain — it does **not** exercise `myapp_t` during soak. Use it only to illustrate why real production soak must include schedulers that run **as the app domain** (systemd timers, app-owned cron, etc.).
 
 ```bash
-# Example: daily backup script under myapp_t
+# Illustration only — runs as cron_t/root, NOT myapp_t
 echo '0 2 * * * root /opt/myapp/bin/backup.sh' | sudo tee /etc/cron.d/myapp-backup-smoke
 ```
+
+For this PoC, use **`GET /rotate-log`** (Flask in `myapp_t`) to simulate log rotation during staging tests.
 
 The PoC validates log rotation via HTTP `/rotate-log`. Real `logrotate` cron requires capturing AVCs from `logrotate_t` and extending policy — not included in the PoC module.
 
@@ -384,7 +428,7 @@ Developer workflow and PR assembly: [README.md](../README.md) and [DEMO_GUIDE.md
 
 | Guide | Sections to read | Audience |
 |-------|------------------|----------|
-| [SELINUX_BASICS.md](SELINUX_BASICS.md) | §1–7 concepts; §6 restorecon; §7 semanage | New to SELinux |
-| [DEMO_GUIDE.md](DEMO_GUIDE.md) | §9 acts 6–10 (admin story) | Workshop observers |
-| **This file** | §3 rollout; §5–14 phases and checklist | RHEL admins |
+| [SELINUX_BASICS.md](SELINUX_BASICS.md) | §7 two-layer model; §7.5 soak timeline; §8 avc.log filter | New to SELinux |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Acts 1–2 discovery; Acts 6–10 admin soak/enforce | Workshop observers |
+| **This file** | §3.5 soak; §5–14 phases and checklist | RHEL admins |
 | [README.md](../README.md) | Deploy paths + GitHub Actions | Day-to-day commands |

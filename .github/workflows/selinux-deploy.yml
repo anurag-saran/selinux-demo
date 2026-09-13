@@ -22,6 +22,10 @@ on:
         description: Policy source directory (relative to repo root)
         required: false
         default: selinux
+      host_limit:
+        description: Ansible --limit (blank = auto canary/production on prod)
+        required: false
+        default: ""
 
 # Requires a self-hosted runner on a SELinux host:
 #   staging:    runs-on: [self-hosted, selinux-staging]
@@ -52,26 +56,45 @@ jobs:
       - name: Select Ansible inventory
         id: inv
         run: |
-          if [[ -f "ansible/inventory.${{ inputs.environment }}.yml" ]]; then
-            echo "path=ansible/inventory.${{ inputs.environment }}.yml" >> "$GITHUB_OUTPUT"
-          elif [[ -f "ansible/inventory.example.yml" ]]; then
-            echo "path=ansible/inventory.example.yml" >> "$GITHUB_OUTPUT"
-          else
-            echo "No inventory file found for environment ${{ inputs.environment }}" >&2
+          inv="ansible/inventory.${{ inputs.environment }}.yml"
+          if [[ ! -f "${inv}" ]]; then
+            echo "Missing ${inv} — copy from ansible/inventory.${{ inputs.environment }}.example.yml" >&2
             exit 1
           fi
+          echo "path=${inv}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Ansible host limit
+        id: limit
+        run: |
+          host_limit="${{ inputs.host_limit }}"
+          if [[ -z "${host_limit}" && "${{ inputs.environment }}" == "production" ]]; then
+            if [[ "${{ inputs.action }}" == "canary" ]]; then
+              host_limit="canary"
+            elif [[ "${{ inputs.action }}" == "enforce" ]]; then
+              host_limit="production"
+            fi
+          fi
+          echo "value=${host_limit}" >> "$GITHUB_OUTPUT"
 
       - name: Run canary deploy
         if: inputs.action == 'canary'
         run: |
-          ansible-playbook -i "${{ steps.inv.outputs.path }}" ansible/deploy_canary.yml \
-            -e "policy_pp_path=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp"
+          args=(-i "${{ steps.inv.outputs.path }}" ansible/deploy_canary.yml \
+            -e "policy_pp_path=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp")
+          if [[ -n "${{ steps.limit.outputs.value }}" ]]; then
+            args+=(--limit "${{ steps.limit.outputs.value }}")
+          fi
+          ansible-playbook "${args[@]}"
 
       - name: Run enforce production
         if: inputs.action == 'enforce'
         run: |
-          ansible-playbook -i "${{ steps.inv.outputs.path }}" ansible/enforce_production.yml \
-            -e "policy_pp_path=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp"
+          args=(-i "${{ steps.inv.outputs.path }}" ansible/enforce_production.yml \
+            -e "policy_pp_path=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp")
+          if [[ -n "${{ steps.limit.outputs.value }}" ]]; then
+            args+=(--limit "${{ steps.limit.outputs.value }}")
+          fi
+          ansible-playbook "${args[@]}"
 
       - name: Enforce job summary
         if: inputs.action == 'enforce'
@@ -79,6 +102,7 @@ jobs:
           {
             echo "## Production enforce"
             echo ""
+            echo "- Host limit: \`${{ steps.limit.outputs.value || 'all inventory hosts' }}\`"
             echo "- Soak gate: \`check_soak_ready.sh\` (7+ days, zero domain AVCs by default)"
             echo "- Override: \`-e force_enforce=true\` break-glass only"
             echo "- Runbook: [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md)"
@@ -91,4 +115,8 @@ jobs:
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           OPENAI_API_MODEL: ${{ secrets.OPENAI_API_MODEL }}
         run: |
-          ansible-playbook -i "${{ steps.inv.outputs.path }}" ansible/emergency_rollback.yml
+          args=(-i "${{ steps.inv.outputs.path }}" ansible/emergency_rollback.yml)
+          if [[ -n "${{ steps.limit.outputs.value }}" ]]; then
+            args+=(--limit "${{ steps.limit.outputs.value }}")
+          fi
+          ansible-playbook "${args[@]}"

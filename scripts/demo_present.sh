@@ -24,6 +24,7 @@ APP_NAME="${POLICY_APP:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/myapp}"
 VAR_DIR="${VAR_DIR:-/var/myapp}"
+SOAK_MARKER="${VAR_DIR}/selinux_canary_deployed_at"
 VM_PROJECT="/home/core/selinux-demo"
 VM_POLICY_PP="${VM_PROJECT}/policy_out/${APP_NAME}.pp"
 

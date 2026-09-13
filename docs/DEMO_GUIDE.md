@@ -19,8 +19,8 @@ This guide helps **newcomers**, **presenters**, and **observers** understand and
 
 This demo shows how an application team and a security admin work together to update SELinux policy safely:
 
-1. A small Flask app runs on a Linux host with SELinux **on**.
-2. The app domain (`myapp_t`) starts in **permissive** mode — the app keeps working, but denials are **logged**.
+1. A small Flask app runs on a Linux host with SELinux **on** — the **whole OS stays Enforcing** (`getenforce`).
+2. Only the app domain (`myapp_t`) is set **permissive** — the app keeps working, but its denials are **logged** (SSH, cron, and other domains stay fully enforcing).
 3. Integration tests hit HTTP endpoints; denials are exported to a file.
 4. An **AI CLI** reads those denials and proposes updates to policy files in Git.
 5. A **Pull Request body** is assembled with a plain-English summary for admins.
@@ -48,8 +48,10 @@ The presenter script [`scripts/demo_present.sh`](../scripts/demo_present.sh) wal
 | **PR handoff** | Assembled markdown (`policy_out/pr_body.md`) admins review — not just raw `.te` files |
 | **CI** | Automated checks on every PR: compile policy + block wildcards and high-privilege allows |
 | **Demo mode (`--demo-mode`)** | Workshop shortcut — skips the 7-day calendar wait only; everything else is real |
+| **`getenforce`** | Whole-system SELinux mode — stays **Enforcing** throughout this demo |
+| **`avc.log` filter** | Only **myapp-related** denials exported — not every domain on the host |
 
-Confused about labels, `.te`/`.fc`, or `restorecon`? See [SELINUX_BASICS.md](SELINUX_BASICS.md).
+Confused about labels, `.te`/`.fc`, `restorecon`, or the two-layer model? See [SELINUX_BASICS.md §7–7.5](SELINUX_BASICS.md).
 
 ---
 
@@ -63,6 +65,8 @@ The **Order Processor** is a Flask app on port **8888**. Each endpoint exercises
 | `GET /save-log` | Appends a line to `/var/myapp/data.log` | `myapp_t` writes to `myapp_var_lib_t` file |
 | `GET /run-script` | Runs `/opt/myapp/bin/backup.sh` | `myapp_t` executes `myapp_script_exec_t` |
 | `GET /rotate-log` | Renames `data.log`, creates new file | rename/create under `myapp_var_lib_t` |
+
+**Note:** `/rotate-log` simulates log rotation from Flask in `myapp_t`. It does **not** run system `logrotate` as `logrotate_t` — real production soak must exercise actual schedulers.
 
 Full SELinux walkthrough of `/save-log`: [SELINUX_BASICS.md §9](SELINUX_BASICS.md).
 
@@ -232,30 +236,33 @@ Each act prints a blue banner. Below: plain English, what runs, what you should 
 **What you should see:**
 
 ```bash
-$ curl -sf http://127.0.0.1:8888/save-log
-{"status":"ok","message":"Log entry saved",...}
+$ getenforce
+Enforcing
 
 $ sudo semanage permissive -l
 myapp_t
+
+$ curl -sf http://127.0.0.1:8888/save-log
+{"status":"ok","message":"Log entry saved",...}
 ```
 
-**SELinux concept:** Per-domain permissive — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
+**SELinux concept:** Per-domain permissive (two-layer model) — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
 
-**Talking point:** *"We intentionally run permissive first so the app keeps working while we collect an accurate list of what SELinux would block."*
+**Talking point:** *"SSH, systemd, and everything else stay enforcing — only our app domain is log-only so we can collect accurate AVC evidence without blocking the demo."*
 
 ---
 
 ### Act 2 — AVC export (Application team)
 
-**In plain English:** Copy denial lines from the audit log into a file for the AI.
+**In plain English:** Copy **myapp-related** denial lines from the audit log into a file for the AI. This is **staging discovery** — not the production soak yet.
 
-**What runs:** Export to `policy_out/avc.log`.
+**What runs:** Export to `policy_out/avc.log` (filtered grep — not every SELinux denial on the host).
 
 **What you should see:**
 
 ```bash
 $ wc -l policy_out/avc.log
-42 policy_out/avc.log
+# non-zero — often dozens on first run with stub/minimal policy
 
 $ head -1 policy_out/avc.log
 type=AVC msg=audit(...): avc: denied { write } for comm="python3"
@@ -263,9 +270,11 @@ type=AVC msg=audit(...): avc: denied { write } for comm="python3"
   tcontext=system_u:object_r:myapp_var_lib_t:s0 tclass=file permissive=1
 ```
 
-**SELinux concept:** Reading AVC lines — [SELINUX_BASICS.md §8](SELINUX_BASICS.md).
+All exported lines should show `myapp_t` in `scontext` and `permissive=1` during staging.
 
-**Talking point:** *"Every line here is evidence from our tests — not a generic template policy."*
+**SELinux concept:** Reading AVC lines and export filter — [SELINUX_BASICS.md §8](SELINUX_BASICS.md).
+
+**Talking point:** *"Every line here is myapp evidence from our tests — not SSH or cron denials from the rest of the server."*
 
 **Show on screen:** `wc -l policy_out/avc.log` and one sample AVC line.
 
@@ -273,13 +282,15 @@ type=AVC msg=audit(...): avc: denied { write } for comm="python3"
 
 ### Act 3 — AI policy generation (Application team)
 
-**In plain English:** The CLI merges AVC evidence into existing policy files and writes a human-readable summary.
+**In plain English:** The CLI merges duplicate AVC lines, subtracts permissions already in the existing `.te`, and sends only net-new access needs to the LLM.
 
 **What runs:** `cli/selinux_gen.py` with `--generate-only`.
 
 **What you should see:**
 
 ```text
+AVC preprocess: raw=42 merged=6 net_new=2
+Wrote policy_out/avc_summary.txt
 [INFO] Wrote policy_out/myapp.te
 [INFO] Wrote policy_out/pr_summary.md
 [INFO] Policy version bumped to 1.0.3
@@ -333,25 +344,31 @@ $ grep -E 'Security and Sysadmin|forbidden-patterns|Network Bindings' policy_out
 
 ### Act 6 — Canary deploy (Admin)
 
-**In plain English:** Install the real policy module but keep `myapp_t` permissive for soak.
+**In plain English:** Install the **full** policy module (not the staging stub) but keep `myapp_t` permissive for **canary soak**. This is a different permissive phase from Acts 1–2 (discovery).
 
-**What runs:** `ansible/deploy_canary.yml` (or `apply_policy.sh` fallback).
+**What runs:** `ansible/deploy_canary.yml` (or `apply_policy.sh --canary` fallback).
 
 **What you should see:**
 
 ```bash
+$ getenforce
+Enforcing
+
 $ sudo semanage permissive -l
 myapp_t
+
+$ sudo semodule -l | grep myapp
+myapp
 
 $ curl -sf http://127.0.0.1:8888/
 {"status":"ok","service":"order-processor",...}
 ```
 
-**SELinux concept:** `semodule -i` + `restorecon` — [SELINUX_BASICS.md §5–6](SELINUX_BASICS.md).
+**SELinux concept:** `semodule -i` + `restorecon` — [SELINUX_BASICS.md §5–6](SELINUX_BASICS.md). Two permissive phases — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
 
-**Talking point:** *"We deploy the real module early, but we don't enforce until we've watched production-like workloads."*
+**Talking point:** *"We deploy the real module early, but we don't enforce until we've watched production-like workloads for a full business cycle."*
 
-Soak marker written: `/var/myapp/selinux_canary_deployed_at`.
+Soak marker written: `/var/myapp/selinux_canary_deployed_at` (soak clock starts here).
 
 ---
 
@@ -376,7 +393,16 @@ Soak marker written: `/var/myapp/selinux_canary_deployed_at`.
 
 ### Act 8 — Soak period (Admin)
 
-**In plain English:** Explain why production waits 7–14 days; demo mode pre-seeds an old marker to show the gate passing.
+**In plain English:** In production, the admin waits **7–14 real days** after canary deploy while `myapp_t` stays permissive and daily monitoring confirms zero new AVCs. Demo mode pre-seeds an old marker to show the gate passing.
+
+**Production soak checklist:**
+
+| Step | What happens |
+|------|----------------|
+| Day 0 | Canary deploy writes `/var/myapp/selinux_canary_deployed_at` |
+| Days 1–14 | `myapp_t` still permissive; `getenforce` still Enforcing |
+| Daily | `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0` |
+| Before enforce | `check_soak_ready.sh` — marker age ≥ 7 days **and** zero new `myapp_t` AVCs |
 
 **What runs:** `check_soak_ready.sh` (passes in `--demo-mode` after marker is pre-seeded).
 
@@ -393,9 +419,9 @@ Soak marker written: `/var/myapp/selinux_canary_deployed_at`.
 [ERROR] Soak period not met — wait 6 more day(s)
 ```
 
-**SELinux concept:** `semanage permissive -a` vs soak timer — [SELINUX_BASICS.md §7](SELINUX_BASICS.md), [PRODUCTION_READINESS.md §7](PRODUCTION_READINESS.md).
+**SELinux concept:** Soak timeline — [SELINUX_BASICS.md §7.5](SELINUX_BASICS.md), [PRODUCTION_READINESS.md §3.5](PRODUCTION_READINESS.md).
 
-**Talking point:** *"In production we wait a full business cycle. Demo mode only skips the calendar."*
+**Talking point:** *"In production we wait a full business cycle so weekly cron and logrotate fire. Demo mode only skips the calendar — permissive semantics are real."*
 
 ---
 
@@ -418,6 +444,8 @@ $ curl -sf http://127.0.0.1:8888/save-log
 **SELinux concept:** `semanage permissive -d` — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
 
 **Talking point:** *"After enforce, any missing permission becomes a hard denial — that's why soak and monitoring matter."*
+
+**Optional presenter beat (after Act 9):** Temporarily remove one allow from a test host, enforce, and show a blocked curl or an AVC with `permissive=0` — then rollback with `semanage permissive -a myapp_t`.
 
 ---
 
@@ -473,7 +501,8 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `selinux/myapp.te` | Type enforcement rules — Git source of truth |
 | `selinux/myapp.fc` | File path → label mappings |
 | `selinux/policy_version.txt` | SemVer bumped on each generation |
-| `policy_out/avc.log` | Exported denials (AI input) |
+| `policy_out/avc.log` | Raw exported denials (audit trail + PR excerpt) |
+| `policy_out/avc_summary.txt` | Merged net-new access needs (LLM input) |
 | `policy_out/pr_summary.md` | Plain-English summary for admins |
 | `policy_out/pr_body.md` | Assembled GitHub PR body |
 | `ansible/deploy_canary.yml` | Permissive canary deploy |
@@ -515,6 +544,7 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 - [ ] Call out **`--demo-mode`** honestly before Act 8
 - [ ] Show `pr_summary.md` and PR template table at Act 4
 - [ ] Emphasize port **8888** uses **`unreserved_port_t`** (not `http_port_t`)
+- [ ] Optional: demonstrate enforce-mode denial (`permissive=0` AVC) after Act 9
 
 **After the session:**
 

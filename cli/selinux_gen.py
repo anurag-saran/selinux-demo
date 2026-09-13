@@ -55,6 +55,8 @@ FORBIDDEN_TE_PATTERNS = [
     re.compile(r"allow\s+\w+\s+\*:"),
     re.compile(r"allow\s+\w+\s+\w+:\*\s"),
     re.compile(r"allow\s+\w+\s+\*:\*\s+\*\s+\*"),
+    re.compile(r"allow\s+\w+\s+self:\*"),
+    re.compile(r"allow\s+\w+\s+bin_t:file\s+\{[^}]*\bexecute"),
 ]
 
 INVALID_REQUIRE_TYPE = re.compile(r"require\s*\{[^}]*\btype\s+myapp_", re.DOTALL)
@@ -257,7 +259,7 @@ def filter_prompt_avc_entries(entries: list[AvcEntry], domain: str) -> list[AvcE
             perm in entry.perm for perm in ("search", "write", "add_name", "create", "rename", "rmdir", "unlink")
         ):
             relevant.append(entry)
-    return relevant or entries
+    return relevant
 
 
 def format_avc_summary(entries: list[AvcEntry]) -> str:
@@ -267,7 +269,14 @@ def format_avc_summary(entries: list[AvcEntry]) -> str:
     )
 
 
-def load_avc_logs_from_file(path: Path, domain: str) -> str:
+def load_avc_logs_from_file(
+    path: Path,
+    domain: str,
+    *,
+    existing_te: str = "",
+    use_preprocess: bool = True,
+    summary_path: Path | None = None,
+) -> str:
     if not path.is_file():
         raise RuntimeError(f"Audit log not found: {path}")
 
@@ -275,6 +284,30 @@ def load_avc_logs_from_file(path: Path, domain: str) -> str:
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if "type=AVC" in line:
             entries.append(parse_avc_line(line))
+
+    if use_preprocess:
+        from avc_preprocess import build_llm_avc_summary
+
+        entries = filter_avc_entries(entries, domain)
+        entries = filter_prompt_avc_entries(entries, domain)
+        if not entries:
+            eprint(f"Warning: No AVC entries in {path} for {domain}")
+            return ""
+
+        summary, stats = build_llm_avc_summary(entries, existing_te=existing_te)
+        if summary_path is not None:
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(summary + "\n", encoding="utf-8")
+            print(f"Wrote {summary_path}")
+        print(
+            "AVC preprocess: "
+            f"raw={stats['raw']} merged={stats['merged']} net_new={stats['net_new']}"
+        )
+        if stats.get("fallback_merged"):
+            eprint("Warning: No net-new needs after subtracting existing .te; using merged AVC set")
+        if stats.get("no_changes_needed"):
+            eprint("Note: All merged AVC permissions appear covered — LLM should make minimal or no changes")
+        return summary
 
     entries = filter_avc_entries(entries, domain)
     entries = deduplicate_avc_entries(entries)
@@ -286,10 +319,24 @@ def load_avc_logs_from_file(path: Path, domain: str) -> str:
     return format_avc_summary(entries)
 
 
-def extract_avc_logs(domain: str, since: str, audit_log: Path | None) -> str:
+def extract_avc_logs(
+    domain: str,
+    since: str,
+    audit_log: Path | None,
+    *,
+    existing_te: str = "",
+    use_preprocess: bool = True,
+    summary_path: Path | None = None,
+) -> str:
     if audit_log is not None:
         print(f"Loading AVC logs from {audit_log}...")
-        return load_avc_logs_from_file(audit_log, domain)
+        return load_avc_logs_from_file(
+            audit_log,
+            domain,
+            existing_te=existing_te,
+            use_preprocess=use_preprocess,
+            summary_path=summary_path,
+        )
 
     entries: list[AvcEntry] = []
     if shutil.which("ausearch"):
@@ -303,6 +350,30 @@ def extract_avc_logs(domain: str, since: str, audit_log: Path | None) -> str:
         for line in AUDIT_LOG.read_text(encoding="utf-8", errors="replace").splitlines():
             if "type=AVC" in line:
                 entries.append(parse_avc_line(line))
+
+    if use_preprocess:
+        from avc_preprocess import build_llm_avc_summary
+
+        entries = filter_avc_entries(entries, domain)
+        entries = filter_prompt_avc_entries(entries, domain)
+        if not entries:
+            eprint(f"Warning: No AVC entries for domain '{domain}'")
+            return ""
+
+        summary, stats = build_llm_avc_summary(entries, existing_te=existing_te)
+        if summary_path is not None:
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(summary + "\n", encoding="utf-8")
+            print(f"Wrote {summary_path}")
+        print(
+            "AVC preprocess: "
+            f"raw={stats['raw']} merged={stats['merged']} net_new={stats['net_new']}"
+        )
+        if stats.get("fallback_merged"):
+            eprint("Warning: No net-new needs after subtracting existing .te; using merged AVC set")
+        if stats.get("no_changes_needed"):
+            eprint("Note: All merged AVC permissions appear covered — LLM should make minimal or no changes")
+        return summary
 
     entries = filter_avc_entries(entries, domain)
     entries = deduplicate_avc_entries(entries)
@@ -544,7 +615,7 @@ def install_policy(pp_path: Path, domain: str, module_name: str) -> None:
         if domain in (result.stdout or ""):
             run_command(["semanage", "permissive", "-d", domain], check=False)
 
-    run_command(["restorecon", "-Rv", "/opt/myapp", "/var/myapp"], check=False)
+    run_command(["restorecon", "-Rv", "/opt/myapp", "/var/myapp", "/var/opt/myapp"], check=False)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -576,6 +647,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Compile but do not install")
     parser.add_argument("--apply", action="store_true", help="Compile and semodule -i (requires root)")
     parser.add_argument("--max-retries", type=int, default=3, help="LLM compile-retry attempts")
+    parser.add_argument(
+        "--no-avc-preprocess",
+        action="store_true",
+        help="Send legacy compact AVC bullets instead of structured avc_summary",
+    )
+    parser.add_argument(
+        "--write-avc-summary",
+        type=Path,
+        default=None,
+        help="Write structured AVC summary (default: <output-dir>/avc_summary.txt)",
+    )
     return parser
 
 
@@ -611,7 +693,19 @@ def main() -> int:
     existing_te = args.existing_te.read_text(encoding="utf-8") if args.existing_te.is_file() else ""
     existing_fc = args.existing_fc.read_text(encoding="utf-8") if args.existing_fc.is_file() else ""
 
-    avc_logs = extract_avc_logs(domain, args.since, audit_log)
+    use_preprocess = not args.no_avc_preprocess
+    avc_summary_path = args.write_avc_summary
+    if use_preprocess and avc_summary_path is None:
+        avc_summary_path = output_dir / "avc_summary.txt"
+
+    avc_logs = extract_avc_logs(
+        domain,
+        args.since,
+        audit_log,
+        existing_te=existing_te,
+        use_preprocess=use_preprocess,
+        summary_path=avc_summary_path if use_preprocess else None,
+    )
     user_prompt = build_user_prompt(
         domain,
         avc_logs,

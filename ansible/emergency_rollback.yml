@@ -1,4 +1,7 @@
 ---
+# Emergency rollback — instant permissive relief (NOT prior module version revert).
+# After rollback: capture AVCs, patch policy, redeploy canary, reset soak clock.
+# To revert module version: semodule -l && semodule -r myapp && semodule -i prior.pp
 - name: Emergency rollback — permissive domain + AVC export + AI patch
   hosts: all
   become: true

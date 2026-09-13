@@ -2,6 +2,8 @@
 
 Shift-left DevSecOps workflow: application teams version-control SELinux policy alongside code, generate updates from AVC audit logs with AI, and deploy safely via **per-domain permissive canary**, **enforce**, and **emergency rollback** Ansible playbooks.
 
+**Security model:** The host stays **`getenforce` = Enforcing** throughout staging and soak. Only the app domain (`myapp_t`) is set permissive via `semanage permissive -a myapp_t` so AVCs are logged without blocking the app. Export filters `policy_out/avc.log` to app-related denials; enforce removes permissive after soak gates pass.
+
 ## Architecture
 
 ```text
@@ -67,7 +69,7 @@ Require these status checks on PRs touching `selinux/**`:
 - `forbidden-patterns`
 - `compile-policy`
 
-Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansible/`.
+Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansible/`. Replace the placeholder `@your-org/security-team` in `.github/CODEOWNERS` before using branch protection in your org.
 
 ---
 
@@ -196,7 +198,7 @@ Secrets (optional, for emergency rollback AI patch): `OPENAI_API_KEY`, `OPENAI_B
 
 ### Manual Ansible (AWX/Tower compatible)
 
-### Canary (permissive domain + policy install)
+#### Canary (permissive domain + policy install)
 
 ```bash
 bash scripts/compile_and_validate.sh selinux
@@ -226,6 +228,10 @@ ansible-playbook -i ansible/inventory.example.yml ansible/emergency_rollback.yml
 Direct apply (without Ansible):
 
 ```bash
+# Production canary (keeps myapp_t permissive + soak marker):
+sudo bash scripts/apply_policy.sh --canary policy_out
+
+# Dev/FCOS only — enforces immediately (skips soak gate):
 sudo bash scripts/apply_policy.sh policy_out
 ```
 
