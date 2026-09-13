@@ -86,7 +86,7 @@ bash scripts/verify_file_contexts.sh   # uses matchpathcon -V
 
 ```text
 1. grep forbidden patterns     →  validate_forbidden_patterns.sh (fast pre-filter)
-2. refpolicy Makefile compile  →  compile-policy job + verify_pp_drift.sh
+2. refpolicy Makefile compile  →  compile-policy job (artifact upload)
 3. semantic sesearch checks    →  validate_policy_semantics.sh (what policy *means*)
 4. staging canary + smoke      →  selinux-staging-canary.yml
 ```
@@ -96,7 +96,7 @@ bash scripts/verify_file_contexts.sh   # uses matchpathcon -V
 | Practice | Script / job |
 |----------|--------------|
 | Rebuild `.pp` from `.te`/`.fc` in CI | `compile-policy` |
-| Fail if committed `.pp` drifts | `verify_pp_drift.sh` |
+| CI builds `.pp` as artifact only | `compile-policy` job upload (not committed) |
 | Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` |
 | Include policy diff in PR body | `assemble_pr_body.sh` + `sediff` |
 | Lint shell and YAML | `shellcheck`, `yamllint` in CI |

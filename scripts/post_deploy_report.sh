@@ -10,6 +10,8 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PHASE="${DEPLOY_PHASE:-unknown}"
 HOST="$(hostname -s 2>/dev/null || hostname)"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
+APP_DOMAIN="${SELINUX_APP_DOMAIN:-myapp_t}"
+BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}"
 VAR_DIR="${VAR_DIR:-/var/lib/myapp}"
 MARKER_FILE="${SOAK_MARKER_FILE:-${VAR_DIR}/selinux_canary_deployed_at}"
 REPORT_FILE="${DEPLOY_REPORT_FILE:-${VAR_DIR}/selinux_deploy_report.json}"
@@ -75,10 +77,13 @@ myapp_state="$(systemctl is-active myapp.service 2>/dev/null || echo unknown)"
 backend_state="$(systemctl is-active myapp-backend.service 2>/dev/null || echo unknown)"
 
 endpoint_tmp="$(mktemp)"
-if bash "${SCRIPT_DIR}/wait_for_endpoints.sh" --host 127.0.0.1 --retries 5 --delay 1 --json > "${endpoint_tmp}" 2>/dev/null; then
+if bash "${SCRIPT_DIR}/wait_for_endpoints.sh" \
+    --host 127.0.0.1 --retries 5 --delay 1 --json \
+    --app-domain "${APP_DOMAIN}" --backend-domain "${BACKEND_DOMAIN}" \
+    > "${endpoint_tmp}" 2>/dev/null; then
     endpoint_status="pass"
 else
-    echo '{"status":"fail","endpoints":{}}' > "${endpoint_tmp}"
+    echo '{"status":"fail","endpoints":{},"domain_context":{}}' > "${endpoint_tmp}"
     endpoint_status="fail"
 fi
 
@@ -103,7 +108,16 @@ if [[ -f "${MARKER_FILE}" ]]; then
 fi
 
 overall_status="pass"
-if [[ "${myapp_state}" != "active" || "${backend_state}" != "active" || "${endpoint_status}" != "pass" ]]; then
+domain_ctx_ok="$(python3 - "${endpoint_tmp}" "${APP_DOMAIN}" "${BACKEND_DOMAIN}" <<'PY'
+import json, sys
+data = json.loads(open(sys.argv[1], encoding="utf-8").read())
+app_domain, backend_domain = sys.argv[2], sys.argv[3]
+ctx = data.get("domain_context", {})
+ok = ctx.get("myapp.service") == app_domain and ctx.get("myapp-backend.service") == backend_domain
+print("yes" if ok else "no")
+PY
+)"
+if [[ "${myapp_state}" != "active" || "${backend_state}" != "active" || "${endpoint_status}" != "pass" || "${domain_ctx_ok}" != "yes" ]]; then
     overall_status="fail"
 fi
 
@@ -126,15 +140,18 @@ report = {
     "selinux_mode": "${selinux_mode}",
     "domain": "${DOMAIN}",
     "domain_permissive": domain_permissive,
+    "domain_context": endpoint_data.get("domain_context", {}),
+    "domain_context_verified": (
+        endpoint_data.get("domain_context", {}).get("myapp.service") == "${APP_DOMAIN}"
+        and endpoint_data.get("domain_context", {}).get("myapp-backend.service") == "${BACKEND_DOMAIN}"
+    ),
     "services": {
         "myapp": "${myapp_state}",
         "myapp-backend": "${backend_state}",
     },
     "endpoints": endpoint_data.get("endpoints", {}),
     "endpoints_exercised": endpoint_data.get("status") == "pass",
-    "endpoints_all_passed": all(
-        v.get("status") == "pass" for v in endpoint_data.get("endpoints", {}).values()
-    ) if endpoint_data.get("endpoints") else False,
+    "endpoints_all_passed": endpoint_data.get("status") == "pass",
     "avc_count_since_marker": int("${avc_count}"),
     "soak_days_elapsed": int("${soak_days}"),
     "status": "${overall_status}",

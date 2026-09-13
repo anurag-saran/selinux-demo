@@ -17,6 +17,7 @@ APP_NAME="${POLICY_APP:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 USE_VM=0
 APPLY=0
+ENFORCE_CHECK=0
 SKIP_EXPORT=0
 OPEN_PR=0
 STAGING_HOST="${STAGING_HOST:-Podman VM / native staging host}"
@@ -40,6 +41,7 @@ Developer self-service: export AVCs → AI generate → diff → optional promot
 
 Options:
   --apply          Copy policy_out/{app}.te/.fc into selinux/ after generation
+  --enforce-check  Load candidate policy enforcing and run endpoint + domain checks
   --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
   --use-vm         Export AVCs via scripts/run_on_podman_vm.sh (macOS Podman VM)
   --skip-export    Use existing policy_out/avc.log (must be non-empty)
@@ -63,6 +65,7 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --apply) APPLY=1; shift ;;
+        --enforce-check) ENFORCE_CHECK=1; shift ;;
         --open-pr) OPEN_PR=1; APPLY=1; shift ;;
         --use-vm) USE_VM=1; shift ;;
         --skip-export) SKIP_EXPORT=1; shift ;;
@@ -185,6 +188,48 @@ open_pr() {
         --label pending-admin-review
 }
 
+run_enforce_check() {
+    local te_src fc_src pp_path
+    if [[ "${APPLY}" -eq 1 ]]; then
+        te_src="${SELINUX_DIR}/${APP_NAME}.te"
+        fc_src="${SELINUX_DIR}/${APP_NAME}.fc"
+    else
+        te_src="${POLICY_OUT}/${APP_NAME}.te"
+        fc_src="${POLICY_OUT}/${APP_NAME}.fc"
+    fi
+
+    pp_path="${POLICY_OUT}/${APP_NAME}.pp"
+    log_info "Compiling candidate policy for enforce-check..."
+    # shellcheck source=lib/compile_policy.sh
+    source "${SCRIPT_DIR}/lib/compile_policy.sh"
+    compile_policy_module "$(dirname "${te_src}")" "${APP_NAME}" "${pp_path}"
+
+    if [[ "${USE_VM}" -eq 1 ]]; then
+        log_info "Running enforce-check on Podman VM..."
+        bash "${SCRIPT_DIR}/run_on_podman_vm.sh" enforce-check "${pp_path}"
+        return $?
+    fi
+
+    if [[ "${EUID}" -ne 0 ]]; then
+        log_error "enforce-check requires root on host (or use --use-vm)"
+        return 1
+    fi
+
+    semodule -i "${pp_path}"
+    semanage permissive -d "${DOMAIN}" 2>/dev/null || true
+    restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp 2>/dev/null || true
+    systemctl restart myapp-backend.service myapp.service
+    if bash "${SCRIPT_DIR}/wait_for_endpoints.sh" --host 127.0.0.1 --retries 10 --delay 2; then
+        log_info "enforce-check passed under enforcing ${DOMAIN}"
+        return 0
+    fi
+
+    log_error "enforce-check failed — recent AVCs:"
+    bash "${SCRIPT_DIR}/monitor_avc.sh" --domain "${DOMAIN}" --since recent --max-avc -1 --show-lines 5 || true
+    semanage permissive -a "${DOMAIN}" 2>/dev/null || true
+    return 1
+}
+
 print_pr_steps() {
     cat <<EOF
 
@@ -231,6 +276,10 @@ main() {
     fi
 
     assemble_pr_body
+
+    if [[ "${ENFORCE_CHECK}" -eq 1 ]]; then
+        run_enforce_check || exit 1
+    fi
 
     if [[ "${OPEN_PR}" -eq 1 ]]; then
         open_pr

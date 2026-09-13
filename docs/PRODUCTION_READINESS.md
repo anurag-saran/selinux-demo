@@ -164,6 +164,10 @@ myapp_t
 
 The canary playbook records a deploy timestamp at `/var/lib/myapp/selinux_canary_deployed_at` (epoch seconds), runs **`semodule -DB`** so dontaudit rules do not hide soak AVCs, and installs policy with **`semodule -i`** (in-place upgrade — no `semodule -r`). Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
 
+**Admin sign-off — host-level `semodule -DB`:** disabling dontaudit affects the **entire host**, not just `myapp_t`. If canary fails or rollback runs, playbooks call **`semodule -B`** to restore the baseline. If enforce never runs after a successful canary, `-DB` stays active until enforce — document this in the change ticket. Failed canary and rollback paths always restore `-B`.
+
+**Admin sign-off — domain context verification:** deploy reports and soak gates require `wait_for_endpoints.sh` to confirm `myapp.service` runs as **`myapp_t`** and `myapp-backend.service` as **`myapp_backend_t`**. Without this check, a mislabeled entrypoint (`init_t`) can pass all HTTP gates with zero AVCs while the custom policy was never applied.
+
 **Canary AVC gate:** `deploy_canary.yml` counts recent `myapp_t` AVC lines and **fails** if the count exceeds `canary_max_avc` (default **`0`**). Override only with explicit approval:
 
 ```bash
@@ -369,12 +373,12 @@ Workshop demo shows these commands in [DEMO_GUIDE.md § Act 10](DEMO_GUIDE.md).
 
 `enforce_production.yml` runs before removing permissive:
 
-1. **`check_soak_ready.sh`** — minimum soak days + AVC count threshold + passing deploy report at `/var/lib/myapp/selinux_deploy_report.json`
-2. **`verify_file_contexts.sh`** — labeling dry-run (`restorecon` + `.fc` is source of truth)
+1. **`check_soak_ready.sh`** — minimum soak days (optional **`--auto-tier`** via `sediff` blast radius) + AVC count threshold + passing deploy report with verified domain context at `/var/lib/myapp/selinux_deploy_report.json`
+2. **`verify_file_contexts.sh`** — labeling dry-run (`restorecon` + `.fc` is source of truth; includes `/var/log/myapp`)
 3. **Remove stale `/run/myapp/notify.sock`** — avoids false-positive socket checks after restarts
 4. **`systemctl restart`** — `myapp-backend.service` then `myapp.service`
-5. **Unified readiness** — `bash scripts/wait_for_endpoints.sh` (systemd + all six HTTP endpoints)
-6. **Deploy report** — `bash scripts/post_deploy_report.sh` writes `/var/lib/myapp/selinux_deploy_report.json`
+5. **Unified readiness** — `bash scripts/wait_for_endpoints.sh` (systemd + domain context + all six HTTP endpoints)
+6. **Deploy report** — `bash scripts/post_deploy_report.sh` writes `/var/lib/myapp/selinux_deploy_report.json` including `domain_context`
 
 Enforce runs inside an Ansible **block/rescue**: if smoke tests or the deploy report fail, the playbook restores **`myapp_t` to permissive**, restarts services, re-checks endpoints, then fails with guidance to inspect AVCs and the deploy report.
 

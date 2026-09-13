@@ -1,7 +1,9 @@
-/var/lib/myapp/*.log {
+/var/log/myapp/*.log {
     daily
     rotate 3
     missingok
     notifempty
-    copytruncate
+    compress
+    delaycompress
+    create 0640 myapp myapp
 }

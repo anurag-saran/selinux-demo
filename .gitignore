@@ -1,5 +1,7 @@
 policy_out/*.pp
 policy_out/*.mod
+selinux/*.pp
+selinux/*.mod
 policy_out/avc.log
 policy_out/avc_summary.txt
 policy_out/container_build/

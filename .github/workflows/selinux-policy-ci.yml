@@ -90,17 +90,27 @@ jobs:
           SELINUX_COMPILE_IMAGE: ${{ matrix.image }}
         run: bash scripts/compile_and_validate.sh selinux
 
-      - name: Verify committed .pp matches sources
-        env:
-          SELINUX_COMPILE_IMAGE: ${{ matrix.image }}
-        run: bash scripts/verify_pp_drift.sh selinux
-
       - name: Upload compiled policy package
         uses: actions/upload-artifact@v4
         with:
           name: selinux-myapp-pp-${{ matrix.image }}
           path: selinux/myapp.pp
           if-no-files-found: error
+
+  ansible-lint:
+    name: ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ansible-lint
+        run: pip install ansible-lint
+
+      - name: Install Ansible collections
+        run: ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Lint Ansible playbooks
+        run: ansible-lint ansible/*.yml
 
   policy-semantics:
     name: policy-semantics

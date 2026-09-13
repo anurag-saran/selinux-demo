@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/myapp}"
 VAR_DIR="${VAR_DIR:-/var/lib/myapp}"
+LOG_DIR="${LOG_DIR:-/var/log/myapp}"
 RUNTIME_DIR="${RUNTIME_DIR:-/run/myapp}"
 APP_NAME="${POLICY_APP:-myapp}"
 BIN_DIR="${BIN_DIR:-${INSTALL_ROOT}/bin}"
@@ -29,6 +30,7 @@ Exits non-zero if paths would be relabeled or tools are missing (unless --skip-i
 Options:
   --install-root PATH   Application root (default: /opt/myapp)
   --var-dir PATH        Data directory (default: /var/lib/myapp)
+  --log-dir PATH        Log directory (default: /var/log/myapp)
   --runtime-dir PATH    Runtime directory (default: /run/myapp)
   --app-name NAME       Module name (default: myapp)
   --skip-if-unavailable Exit 0 when SELinux tools or paths absent (for CI smoke)
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --install-root) INSTALL_ROOT="$2"; shift 2 ;;
         --var-dir) VAR_DIR="$2"; shift 2 ;;
+        --log-dir) LOG_DIR="$2"; shift 2 ;;
         --runtime-dir) RUNTIME_DIR="$2"; shift 2 ;;
         --app-name) APP_NAME="$2"; shift 2 ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
@@ -100,6 +103,9 @@ fi
 if [[ -d "${VAR_DIR}" ]]; then
     check_path "${VAR_DIR}"
 fi
+if [[ -d "${LOG_DIR}" ]]; then
+    check_path "${LOG_DIR}"
+fi
 if [[ -d "${RUNTIME_DIR}" ]]; then
     check_path "${RUNTIME_DIR}"
 fi
@@ -144,6 +150,9 @@ check_labeled_dir() {
 
 # Narrow restorecon scope: data dir + app entrypoints (skip venv tree — FCOS relabel risk)
 check_labeled_dir "${VAR_DIR}"
+if [[ -d "${LOG_DIR}" ]]; then
+    restorecon_dry "${LOG_DIR}"
+fi
 restorecon_dry "${INSTALL_ROOT}/app.py"
 if [[ -d "${BIN_DIR}" ]]; then
     restorecon_dry "${BIN_DIR}"

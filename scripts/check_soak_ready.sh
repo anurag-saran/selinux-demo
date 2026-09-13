@@ -14,6 +14,10 @@ REPORT_FILE="${DEPLOY_REPORT_FILE:-/var/lib/myapp/selinux_deploy_report.json}"
 MIN_DAYS="${SOAK_MIN_DAYS:-7}"
 MAX_AVC="${SOAK_MAX_AVC:-0}"
 SKIP_SELINUX="${SKIP_SELINUX:-0}"
+AUTO_TIER="${SOAK_AUTO_TIER:-0}"
+APP_DOMAIN="${SELINUX_APP_DOMAIN:-myapp_t}"
+BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}"
+POLICY_HISTORY_DIR="${POLICY_HISTORY_DIR:-/var/lib/myapp/policy-history}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -33,8 +37,9 @@ Options:
   --domain NAME         SELinux domain (default: myapp_t)
   --marker-file PATH    Canary deploy timestamp file (epoch seconds)
   --report-file PATH    Deploy report JSON (default: /var/lib/myapp/selinux_deploy_report.json)
-  --min-days N          Minimum soak days (default: 7)
-  --max-avc N           Maximum allowed events since canary (default: 0)
+  --min-days N          Minimum soak days (default: 7, or auto-tier when SOAK_AUTO_TIER=1)
+  --max-avc N           Maximum allowed AVC events since canary (default: 0)
+  --auto-tier           Compute min-days from sediff blast radius vs policy-history
   --skip-if-unavailable Exit 0 when marker or audit tools missing (CI smoke)
   -h, --help            Show help
 EOF
@@ -49,6 +54,7 @@ while [[ $# -gt 0 ]]; do
         --report-file) REPORT_FILE="$2"; shift 2 ;;
         --min-days) MIN_DAYS="$2"; shift 2 ;;
         --max-avc) MAX_AVC="$2"; shift 2 ;;
+        --auto-tier) AUTO_TIER=1; shift ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
@@ -67,6 +73,19 @@ if [[ ! -f "${MARKER_FILE}" ]]; then
     fi
     log_error "Canary marker not found: ${MARKER_FILE} (run deploy_canary.yml first)"
     exit 1
+fi
+
+if [[ "${AUTO_TIER}" == "1" || "${SOAK_AUTO_TIER}" == "1" ]]; then
+    mapfile -t history_pps < <(ls -1t "${POLICY_HISTORY_DIR}"/*.pp 2>/dev/null || true)
+    candidate_pp="${history_pps[0]:-}"
+    base_pp="${history_pps[1]:-}"
+    if [[ -n "${candidate_pp}" && -f "${candidate_pp}" && -n "${base_pp}" && -f "${base_pp}" ]]; then
+        tier_json="$(bash "${SCRIPT_DIR}/classify_policy_blast_radius.sh" "${base_pp}" "${candidate_pp}" 2>/dev/null || true)"
+        if [[ -n "${tier_json}" ]]; then
+            MIN_DAYS="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("min_days",7))' <<< "${tier_json}")"
+            log_info "Auto-tier soak: ${MIN_DAYS} day(s) — $(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("reason",""))' <<< "${tier_json}")"
+        fi
+    fi
 fi
 
 deploy_epoch="$(tr -d '[:space:]' < "${MARKER_FILE}")"
@@ -104,20 +123,31 @@ if [[ "${avc_count}" -gt "${MAX_AVC}" ]]; then
 fi
 
 if [[ -f "${REPORT_FILE}" ]]; then
-    report_ok="$(python3 - "${REPORT_FILE}" <<'PY'
+    report_ok="$(python3 - "${REPORT_FILE}" "${APP_DOMAIN}" "${BACKEND_DOMAIN}" <<'PY'
 import json, sys
 report = json.loads(open(sys.argv[1], encoding="utf-8").read())
-status = report.get("status") == "pass"
-endpoints = report.get("endpoints", {})
-all_passed = all(v.get("status") == "pass" for v in endpoints.values()) if endpoints else False
-print("yes" if status and all_passed else "no")
+app_domain, backend_domain = sys.argv[2], sys.argv[3]
+if report.get("status") != "pass":
+    print("no")
+    raise SystemExit
+if not report.get("endpoints_exercised"):
+    print("no")
+    raise SystemExit
+ctx = report.get("domain_context", {})
+if ctx.get("myapp.service") != app_domain:
+    print("no")
+    raise SystemExit
+if ctx.get("myapp-backend.service") != backend_domain:
+    print("no")
+    raise SystemExit
+print("yes")
 PY
 )"
     if [[ "${report_ok}" != "yes" ]]; then
-        log_error "Deploy report ${REPORT_FILE} missing pass status or endpoint coverage"
+        log_error "Deploy report ${REPORT_FILE} missing pass status, endpoint coverage, or domain context (${APP_DOMAIN}/${BACKEND_DOMAIN})"
         exit 1
     fi
-    log_info "Deploy report confirms endpoint coverage"
+    log_info "Deploy report confirms endpoint coverage and domain context"
 else
     log_error "Deploy report not found: ${REPORT_FILE}"
     exit 1

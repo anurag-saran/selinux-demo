@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-BACKUP_LOG="/var/lib/myapp/backup.log"
+BACKUP_LOG="/var/log/myapp/backup.log"
 TIMESTAMP="$(printf '%(%Y-%m-%dT%H:%M:%SZ)T' -1)"
 
 # /var/lib/myapp is created at install time; append only (no bin_t helpers).

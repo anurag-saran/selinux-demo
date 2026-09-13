@@ -15,6 +15,7 @@ STUB_DIR="${PROJECT_ROOT}/selinux/stub"
 INSTALL_ROOT="/opt/myapp"
 BIN_DIR="${INSTALL_ROOT}/bin"
 VAR_DIR="/var/lib/myapp"
+LOG_DIR="/var/log/myapp"
 RUNTIME_DIR="/run/myapp"
 SERVICE_NAME="myapp.service"
 SERVICE_USER="myapp"
@@ -109,7 +110,7 @@ create_service_user() {
 install_application() {
     log_info "Installing application to ${INSTALL_ROOT}"
 
-    mkdir -p "${INSTALL_ROOT}" "${BIN_DIR}" "${VAR_DIR}"
+    mkdir -p "${INSTALL_ROOT}" "${BIN_DIR}" "${VAR_DIR}" "${LOG_DIR}"
     install -m 0644 "${APP_SRC}/app.py" "${INSTALL_ROOT}/app.py"
     install -m 0755 "${APP_SRC}/backend_stub.py" "${INSTALL_ROOT}/backend_stub.py"
     install -m 0755 "${APP_SRC}/backup.sh" "${BIN_DIR}/backup.sh"
@@ -120,10 +121,10 @@ install_application() {
         install -m 0644 "${APP_SRC}/logrotate.d/myapp" "/etc/logrotate.d/myapp"
     fi
 
-    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${VAR_DIR}"
+    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${VAR_DIR}" "${LOG_DIR}"
     chmod 0750 "${VAR_DIR}"
+    chmod 0750 "${LOG_DIR}"
     chown -R root:root "${INSTALL_ROOT}"
-    chown "${SERVICE_USER}:${SERVICE_USER}" "${VAR_DIR}"
 
     # Flask runs from a venv under /opt/myapp (FCOS-friendly install path)
 }
@@ -220,8 +221,8 @@ set_permissive_domain() {
 }
 
 restore_contexts() {
-    log_info "Restoring SELinux contexts on ${INSTALL_ROOT}, ${VAR_DIR}, and ${RUNTIME_DIR}"
-    restorecon -Rv "${INSTALL_ROOT}" "${VAR_DIR}" "${RUNTIME_DIR}" 2>/dev/null || true
+    log_info "Restoring SELinux contexts on ${INSTALL_ROOT}, ${VAR_DIR}, ${LOG_DIR}, and ${RUNTIME_DIR}"
+    restorecon -Rv "${INSTALL_ROOT}" "${VAR_DIR}" "${LOG_DIR}" "${RUNTIME_DIR}" 2>/dev/null || true
 }
 
 wait_for_service() {

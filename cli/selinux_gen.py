@@ -628,7 +628,7 @@ def install_policy(pp_path: Path, domain: str, module_name: str) -> None:
         if domain in (result.stdout or ""):
             run_command(["semanage", "permissive", "-d", domain], check=False)
 
-    run_command(["restorecon", "-Rv", "/opt/myapp", "/var/lib/myapp", "/run/myapp", "/var/opt/myapp"], check=False)
+    run_command(["restorecon", "-Rv", "/opt/myapp", "/var/lib/myapp", "/var/log/myapp", "/run/myapp", "/var/opt/myapp"], check=False)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

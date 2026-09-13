@@ -1,4 +1,4 @@
-policy_module(myapp, 1.1.0)
+policy_module(myapp, 1.1.1)
 
 ########################################
 #
@@ -20,7 +20,7 @@ type myapp_backend_port_t;
 files_type(myapp_exec_t)
 files_type(myapp_lib_t)
 files_type(myapp_var_lib_t)
-files_type(myapp_var_run_t)
+files_pid_file(myapp_var_run_t)
 files_type(myapp_log_t)
 files_type(myapp_script_exec_t)
 files_type(myapp_backend_exec_t)
@@ -30,8 +30,38 @@ corenet_port(myapp_backend_port_t)
 
 init_daemon_domain(myapp_t, myapp_exec_t)
 init_daemon_domain(myapp_backend_t, myapp_backend_exec_t)
+init_daemon_run_dir(myapp_var_run_t, "myapp")
 
 logging_log_file(myapp_log_t)
+
+########################################
+#
+# Daemon baseline — explicit allows every Python service needs under enforce.
+# Review once as a unit; do not widen one AVC at a time via generated PRs.
+#
+
+files_read_etc_files(myapp_t)
+sysnet_read_config(myapp_t)
+kernel_read_system_state(myapp_t)
+dev_read_rand(myapp_t)
+
+files_read_etc_files(myapp_backend_t)
+sysnet_read_config(myapp_backend_t)
+kernel_read_system_state(myapp_backend_t)
+dev_read_rand(myapp_backend_t)
+
+########################################
+#
+# Path traversal — search every directory on the way to app paths.
+#
+
+files_search_var_lib(myapp_t)
+files_search_pids(myapp_t)
+files_search_usr(myapp_t)
+
+files_search_var_lib(myapp_backend_t)
+files_search_pids(myapp_backend_t)
+files_search_usr(myapp_backend_t)
 
 ########################################
 #
@@ -48,6 +78,8 @@ allow myapp_t myapp_exec_t:lnk_file read;
 allow myapp_t myapp_var_lib_t:dir { create write add_name remove_name search getattr open rmdir rename unlink };
 allow myapp_t myapp_var_lib_t:file { create write append open getattr lock ioctl rename unlink };
 
+logging_log_filetrans(myapp_t, myapp_log_t, file)
+logging_log_filetrans(myapp_t, myapp_log_t, dir)
 allow myapp_t myapp_log_t:dir { search getattr open read write add_name remove_name };
 allow myapp_t myapp_log_t:file { create write append open getattr lock rename unlink ioctl };
 

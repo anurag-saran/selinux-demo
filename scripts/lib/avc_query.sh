@@ -27,6 +27,6 @@ count_domain_events_since() {
         -m AVC,USER_AVC,SELINUX_ERR,USER_SELINUX_ERR \
         -ts "${since_ts}" \
         --subject "${domain}" \
-        --format raw 2>/dev/null | grep -c '^type=' || true)"
+        --format raw 2>/dev/null | grep -c '^type=AVC' || true)"
     echo "${count:-0}"
 }

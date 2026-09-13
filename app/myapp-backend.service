@@ -1,7 +1,7 @@
 [Unit]
 Description=Order Processor backend stub (Tier 6 outbound/Unix demo)
 Documentation=file:///opt/myapp/backend_stub.py
-After=network.target
+After=network.target myapp.service
 
 [Service]
 Type=simple
@@ -11,10 +11,17 @@ Group=myapp
 WorkingDirectory=/opt/myapp
 Environment=MYAPP_NOTIFY_SOCK=/run/myapp/notify.sock
 RuntimeDirectory=myapp
+RuntimeDirectoryPreserve=yes
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=10
 KillMode=mixed
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/myapp
 
 [Install]
 WantedBy=multi-user.target

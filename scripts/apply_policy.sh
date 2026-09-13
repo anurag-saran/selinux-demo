@@ -41,6 +41,7 @@ MODULE_NAME="${POLICY_MODULE:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 INSTALL_ROOT="/opt/myapp"
 VAR_DIR="/var/lib/myapp"
+LOG_DIR="/var/log/myapp"
 RUNTIME_DIR="/run/myapp"
 SOAK_MARKER="${VAR_DIR}/selinux_canary_deployed_at"
 
@@ -61,8 +62,8 @@ require_root() {
 }
 
 restore_contexts() {
-    log_info "Restoring contexts on ${INSTALL_ROOT}, ${VAR_DIR}, and ${RUNTIME_DIR}"
-    restorecon -Rv "${INSTALL_ROOT}" "${VAR_DIR}" "${RUNTIME_DIR}" 2>/dev/null || true
+    log_info "Restoring contexts on ${INSTALL_ROOT}, ${VAR_DIR}, ${LOG_DIR}, and ${RUNTIME_DIR}"
+    restorecon -Rv "${INSTALL_ROOT}" "${VAR_DIR}" "${LOG_DIR}" "${RUNTIME_DIR}" 2>/dev/null || true
 }
 
 write_soak_marker() {

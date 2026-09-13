@@ -13,6 +13,7 @@
     gen_script: "{{ project_root }}/cli/selinux_gen.py"
     stub_policy_dir: "{{ project_root }}/selinux/stub"
     notify_sock: "{{ (runtime_dir | default('/run/myapp')) }}/notify.sock"
+    log_dir: "{{ log_dir | default('/var/log/myapp') }}"
     policy_history_dir: "{{ var_dir }}/policy-history"
     rollback_pp_path: "{{ policy_history_dir }}/{{ app_name }}-{{ rollback_target_version }}.pp"
 
@@ -42,8 +43,14 @@
       when: not semanage_bin.stat.exists
       changed_when: true
 
+    - name: Restore dontaudit baseline after rollback
+      ansible.builtin.command: semodule -B
+      changed_when: true
+
     - name: Restore file contexts after rollback
-      ansible.builtin.command: "restorecon -Rv {{ install_root }} {{ var_dir }} {{ runtime_dir | default('/run/myapp') }}"
+      ansible.builtin.command: >-
+        restorecon -Rv {{ install_root }} {{ var_dir }} {{ log_dir }}
+        {{ runtime_dir | default('/run/myapp') }}
       changed_when: true
 
     - name: Restart application services after rollback

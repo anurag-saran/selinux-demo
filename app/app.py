@@ -30,7 +30,7 @@ APP_HOST = "0.0.0.0"
 # binding to 8888 triggers a network AVC denial (tcp_socket name_bind).
 APP_PORT = 8888
 
-DATA_LOG_PATH = Path("/var/lib/myapp/data.log")
+DATA_LOG_PATH = Path("/var/log/myapp/data.log")
 BACKUP_SCRIPT = Path("/opt/myapp/bin/backup.sh")
 BACKEND_HEALTH_URL = os.environ.get("MYAPP_BACKEND_URL", "http://127.0.0.1:8889/health")
 NOTIFY_SOCK = Path(os.environ.get("MYAPP_NOTIFY_SOCK", "/run/myapp/notify.sock"))
@@ -125,7 +125,7 @@ def health_check():
 @app.route("/save-log", methods=["GET"])
 def save_log():
     """
-    Attempt to append a timestamp to /var/lib/myapp/data.log.
+    Attempt to append a timestamp to /var/log/myapp/data.log.
 
     SELinux denial (before policy):
       - Source domain: myapp_t (Flask/python3 process)
@@ -151,7 +151,7 @@ def save_log():
                         "path": str(DATA_LOG_PATH),
                         "error": str(exc),
                         "selinux_hint": (
-                            "Expected AVC: myapp_t -> file write on /var/lib/myapp/data.log. "
+                            "Expected AVC: myapp_t -> file write on /var/log/myapp/data.log. "
                             "Policy needs allow myapp_t myapp_var_lib_t:file { write append open };"
                         ),
                     },

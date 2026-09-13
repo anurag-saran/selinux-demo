@@ -12,6 +12,7 @@
   vars:
     bin_dir: "{{ install_root }}/bin"
     notify_sock: "{{ (runtime_dir | default('/run/myapp')) }}/notify.sock"
+    log_dir: "{{ log_dir | default('/var/log/myapp') }}"
     policy_history_dir: "{{ var_dir }}/policy-history"
 
   tasks:
@@ -23,6 +24,7 @@
         --report-file {{ var_dir }}/selinux_deploy_report.json
         --min-days {{ soak_min_days | default(7) }}
         --max-avc {{ soak_max_avc | default(0) }}
+        {{ '--auto-tier' if soak_auto_tier | default(false) | bool else '' }}
       when: not (force_enforce | default(false) | bool)
       changed_when: false
 
@@ -68,7 +70,9 @@
           when: semanage_bin.stat.exists
 
         - name: Restore file contexts on application paths
-          ansible.builtin.command: "restorecon -Rv {{ install_root }} {{ var_dir }} {{ runtime_dir | default('/run/myapp') }}"
+          ansible.builtin.command: >-
+            restorecon -Rv {{ install_root }} {{ var_dir }} {{ log_dir }}
+            {{ runtime_dir | default('/run/myapp') }}
           changed_when: true
 
         - name: Verify file contexts before service restart
@@ -76,6 +80,7 @@
             bash {{ project_root }}/scripts/verify_file_contexts.sh
             --install-root {{ install_root }}
             --var-dir {{ var_dir }}
+            --log-dir {{ log_dir }}
             --app-name {{ app_name }}
           changed_when: false
 
