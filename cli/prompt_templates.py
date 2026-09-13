@@ -65,7 +65,7 @@ PR_SUMMARY FORMAT (pr_summary field — required headings):
 - myapp_port_t TCP 8888; myapp_backend_port_t TCP 8889; Unix /run/myapp/notify.sock
 
 ### File System Access
-- /var/lib/myapp state (myapp_var_lib_t); logs (myapp_log_t); /run/myapp (myapp_var_run_t)
+- /var/lib/myapp state (myapp_var_lib_t); logs (myapp_log_t) under /var/log/myapp; /run/myapp (myapp_var_run_t)
 
 ### Process Execution
 - init_daemon_domain transitions; backup.sh via execute_no_trans on myapp_script_exec_t
@@ -74,14 +74,15 @@ PR_SUMMARY FORMAT (pr_summary field — required headings):
 - no shadow_t, unconfined_t, sysadm_t, wildcard allows, bin_t execute, unreserved_port_t bind
 
 FILE CONTEXTS (fc_content) — FHS paths, NO `--` file-type suffix on directories:
+/opt/myapp                                 gen_context(system_u:object_r:myapp_exec_t,s0)
 /opt/myapp/app\\.py                         gen_context(system_u:object_r:myapp_exec_t,s0)
 /opt/myapp/backend_stub\\.py                gen_context(system_u:object_r:myapp_backend_exec_t,s0)
-/opt/myapp/bin/.*                           gen_context(system_u:object_r:myapp_script_exec_t,s0)
+/opt/myapp/bin(/.*)?                       gen_context(system_u:object_r:myapp_script_exec_t,s0)
 /opt/myapp/venv/bin/python[0-9.]*           gen_context(system_u:object_r:myapp_exec_t,s0)
 /opt/myapp/venv(/.*)?                       gen_context(system_u:object_r:myapp_lib_t,s0)
 /var/lib/myapp(/.*)?                        gen_context(system_u:object_r:myapp_var_lib_t,s0)
-/var/lib/myapp/.*\\.log                     gen_context(system_u:object_r:myapp_log_t,s0)
-/var/lib/myapp/data\\.log                   gen_context(system_u:object_r:myapp_log_t,s0)
+/var/log/myapp(/.*)?                        gen_context(system_u:object_r:myapp_log_t,s0)
+/var/log/myapp/.*\\.log(\\.[0-9]+)?(\\.gz)? gen_context(system_u:object_r:myapp_log_t,s0)
 /run/myapp(/.*)?                            gen_context(system_u:object_r:myapp_var_run_t,s0)
 """
 
@@ -93,15 +94,16 @@ USER_PROMPT_TEMPLATE = """Update the SELinux policy module for this application.
 - User: myapp
 - Install: /opt/myapp (venv at /opt/myapp/venv)
 - Data: /var/lib/myapp (StateDirectory=myapp)
-- Runtime socket: /run/myapp/notify.sock (RuntimeDirectory=myapp)
+- Logs: /var/log/myapp (LogsDirectory=myapp; myapp_log_t + logging_log_filetrans)
+- Runtime socket: /run/myapp/notify.sock (RuntimeDirectory=myapp; RuntimeDirectoryPreserve=yes)
 - Script: /opt/myapp/bin/backup.sh (bash builtins only — no /usr/bin/* helpers)
 - Backend: myapp-backend.service on 127.0.0.1:8889 + /run/myapp/notify.sock (domain myapp_backend_t)
 - Listen: 0.0.0.0:8888 via myapp_port_t (semanage port -a -t myapp_port_t -p tcp 8888)
 
 ## Endpoints / triggers
-- GET /save-log — append /var/lib/myapp/data.log (myapp_log_t)
+- GET /save-log — append /var/log/myapp/data.log (myapp_log_t)
 - GET /run-script — execute backup.sh
-- GET /rotate-log — simulate logrotate (rename/create under /var/lib/myapp)
+- GET /rotate-log — simulate logrotate (rename/create under myapp_log_t)
 - GET /probe-backend — outbound TCP client to 127.0.0.1:8889
 - GET /notify-socket — Unix stream client to /run/myapp/notify.sock
 - Process start — bind TCP 8888

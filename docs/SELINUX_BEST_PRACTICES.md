@@ -9,7 +9,7 @@ This guide captures **design principles and anti-patterns** enforced in this rep
 | **RHEL admin running deploy** | Step-by-step rollout | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) |
 | **New to SELinux concepts** | Labels, soak, permissive domains | [SELINUX_BASICS.md](SELINUX_BASICS.md) |
 
-Current module version: **`selinux/policy_version.txt`** (1.1.0+).
+Current module version: **`selinux/policy_version.txt`** (1.1.1+).
 
 ---
 
@@ -19,9 +19,10 @@ Current module version: **`selinux/policy_version.txt`** (1.1.0+).
 
 | Practice | Why | In this repo |
 |----------|-----|--------------|
-| Use **refpolicy interfaces** | Survives base-policy churn; reviewers recognize intent | `logging_send_syslog_msg`, `corecmd_exec_shell`, `miscfiles_read_generic_certs`, `corenet_tcp_bind_generic_node`, `init_daemon_domain`, `logging_log_file` |
+| Use **refpolicy interfaces** | Survives base-policy churn; reviewers recognize intent | `logging_send_syslog_msg`, `corecmd_exec_shell`, `files_search_*`, `logging_log_filetrans`, `init_daemon_run_dir`, `init_daemon_domain` |
 | Declare **dedicated port types** | Least privilege — not every unreserved port | `myapp_port_t` (8888), `myapp_backend_port_t` (8889) + `semanage port` in canary/RPM `%post` |
-| Use **dedicated log type** | logrotate and app writes without over-broad `var_lib_t` | `myapp_log_t` under `/var/lib/myapp/*.log` |
+| Use **dedicated log type** | logrotate and app writes without over-broad `var_lib_t` | `myapp_log_t` under `/var/log/myapp`; systemd `LogsDirectory=myapp` |
+| **Daemon baseline block** | Explicit once-reviewed allows every Python service needs | `files_read_etc_files`, `sysnet_read_config`, `kernel_read_system_state`, `dev_read_rand` |
 | TCP client to backend | Correct permission class | `allow myapp_t myapp_backend_port_t:tcp_socket name_connect` |
 | Unix socket to backend | Peer connection | `allow myapp_t myapp_backend_t:unix_stream_socket connectto` |
 | `policy_module()` syntax | Required for refpolicy Makefile compile | Top of every `.te` |
@@ -57,14 +58,15 @@ Build target OS: **CentOS Stream 9** headers (`SELINUX_COMPILE_IMAGE=quay.io/cen
 | Practice | Example |
 |----------|---------|
 | FHS data path | `/var/lib/myapp(/.*)?` → `myapp_var_lib_t` |
-| FHS runtime socket | `/run/myapp(/.*)?` → `myapp_var_run_t` |
+| FHS log path | `/var/log/myapp(/.*)?` → `myapp_log_t` |
+| FHS runtime socket | `/run/myapp(/.*)?` → `myapp_var_run_t` (`files_pid_file`) |
 | Narrow venv entrypoint | `/opt/myapp/venv/bin/python[0-9.]*` → `myapp_exec_t`; rest → `myapp_lib_t` |
 | Directory patterns **without** `--` | `--` means regular file only — breaks dir/socket labeling |
 | `restorecon` after install | Labels persist across relabel; survives policy upgrade |
 
 ```bash
-restorecon -Rv /opt/myapp /var/lib/myapp /run/myapp
-bash scripts/verify_file_contexts.sh   # uses matchpathcon -V
+restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp
+bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpathcon -V
 ```
 
 ### Don’t
@@ -76,7 +78,7 @@ bash scripts/verify_file_contexts.sh   # uses matchpathcon -V
 | Data under non-FHS `/var/myapp` | Harder to relabel; non-standard for RHEL admins |
 | Skipping venv in verify | Misses mislabeled Python entrypoint |
 
-**systemd:** `StateDirectory=myapp` and `RuntimeDirectory=myapp` create `/var/lib/myapp` and `/run/myapp` with correct ownership before the app starts.
+**systemd:** `StateDirectory=myapp`, `LogsDirectory=myapp`, and `RuntimeDirectory=myapp` create `/var/lib/myapp`, `/var/log/myapp`, and `/run/myapp` with correct ownership before the app starts. App unit `ReadWritePaths` must include `/run/myapp` when `ProtectSystem=strict` is set.
 
 ---
 
@@ -89,6 +91,7 @@ bash scripts/verify_file_contexts.sh   # uses matchpathcon -V
 2. refpolicy Makefile compile  →  compile-policy job (artifact upload)
 3. semantic sesearch checks    →  validate_policy_semantics.sh (what policy *means*)
 4. staging canary + smoke      →  selinux-staging-canary.yml
+5. ansible-lint                  →  pinned collection versions
 ```
 
 ### Do
@@ -97,9 +100,11 @@ bash scripts/verify_file_contexts.sh   # uses matchpathcon -V
 |----------|--------------|
 | Rebuild `.pp` from `.te`/`.fc` in CI | `compile-policy` |
 | CI builds `.pp` as artifact only | `compile-policy` job upload (not committed) |
-| Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` |
+| Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` (container-only; `--direct`) |
+| Verify service runs in expected domain | `wait_for_endpoints.sh` domain-context check |
+| Tier soak by blast radius | `classify_policy_blast_radius.sh` + `check_soak_ready.sh --auto-tier` |
 | Include policy diff in PR body | `assemble_pr_body.sh` + `sediff` |
-| Lint shell and YAML | `shellcheck`, `yamllint` in CI |
+| Lint shell and YAML | `shellcheck`, `yamllint`, `ansible-lint` in CI |
 
 ### Don’t
 
@@ -120,9 +125,9 @@ bash scripts/verify_file_contexts.sh   # uses matchpathcon -V
 | **`semodule -i` in-place upgrade** | `deploy_canary.yml`, `apply_policy.sh` — no remove-then-install gap |
 | **Per-domain permissive only** during soak | `semanage permissive -a myapp_t`; OS stays Enforcing |
 | **`semodule -DB` at canary start** | Surfaces dontaudit-hidden denials during soak |
-| **`semodule -B` before enforce** | Restores dontaudit baseline for production |
+| **`semodule -B` on canary failure / rollback / before enforce** | Restores dontaudit baseline — host-wide change |
 | Register ports at deploy | `community.general.seport` in canary playbook |
-| Unified endpoint smoke | `wait_for_endpoints.sh` (6 HTTP paths + backend) |
+| Unified endpoint smoke | `wait_for_endpoints.sh` (6 HTTP paths + backend + **domain context**) |
 | Deploy feedback JSON | `/var/lib/myapp/selinux_deploy_report.json` |
 | Archive policy for rollback | `/var/lib/myapp/policy-history/myapp-{version}.pp` |
 | Enforce **block/rescue** | Auto-restore permissive if smoke fails mid-enforce |
@@ -208,10 +213,11 @@ Use with the [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_revie
 - [ ] `.te` uses refpolicy interfaces, not audit2allow-style raw allows
 - [ ] Port 8888 / 8889 use `myapp_port_t` / `myapp_backend_port_t`, not `unreserved_port_t`
 - [ ] `.fc` uses FHS paths; no `--` on directory patterns; venv split exec/lib
-- [ ] CI: `forbidden-patterns`, `compile-policy`, `policy-semantics`, `.pp` drift check pass
-- [ ] `verify_file_contexts.sh` passes after `restorecon` (no `chcon` dependency)
-- [ ] Canary plan: `semodule -DB`, endpoint smoke, deploy report, soak marker
-- [ ] Enforce plan: `check_soak_ready.sh`, `semodule -B`, block/rescue tested or briefed
+- [ ] CI: `forbidden-patterns`, `compile-policy`, `policy-semantics`, `ansible-lint` pass
+- [ ] `verify_file_contexts.sh` passes after `restorecon` (includes `/var/log/myapp`)
+- [ ] Canary plan: `semodule -DB`, endpoint smoke, **domain context** in deploy report, soak marker
+- [ ] Enforce plan: `check_soak_ready.sh` (optional `--auto-tier`), `semodule -B`, block/rescue tested or briefed
+- [ ] Developers can run `dev_generate_policy.sh --enforce-check` before opening PR
 - [ ] Rollback owner knows `emergency_rollback.yml` + policy-history path
 
 ---

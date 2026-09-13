@@ -124,10 +124,10 @@ system_u:object_r:myapp_exec_t:s0    /opt/myapp/app.py
 #                      ^^^^^^^^^^^^
 #                      FILE type — entrypoint the kernel executes
 
-$ ls -Z /var/lib/myapp/data.log
-system_u:object_r:myapp_var_lib_t:s0    /var/lib/myapp/data.log
-#                      ^^^^^^^^^^^^^^^
-#                      FILE type — application data
+$ ls -Z /var/log/myapp/data.log
+system_u:object_r:myapp_log_t:s0    /var/log/myapp/data.log
+#                      ^^^^^^^^^^^
+#                      FILE type — application log (dedicated log type)
 
 $ ps -eZ | grep -E 'app.py|myapp'
 system_u:system_r:myapp_t:s0    1234 ?  ... python /opt/myapp/app.py
@@ -135,7 +135,7 @@ system_u:system_r:myapp_t:s0    1234 ?  ... python /opt/myapp/app.py
 #                  PROCESS domain — the running app
 ```
 
-**Takeaway:** the same application uses **`myapp_t`** when running and **`myapp_var_lib_t`** on its data files. Policy must **explicitly allow** `myapp_t` to write to `myapp_var_lib_t`. Having Unix write permission (`chmod`) is not enough.
+**Takeaway:** the same application uses **`myapp_t`** when running, **`myapp_var_lib_t`** on state under `/var/lib/myapp`, and **`myapp_log_t`** on logs under `/var/log/myapp`. Policy must **explicitly allow** each access. Having Unix write permission (`chmod`) is not enough.
 
 **Tip:** `-Z` is SELinux (capital Z). Lowercase `-z` on `ls`/`ps` means something else — do not mix them up.
 
@@ -148,8 +148,8 @@ Policy is shipped as a **module**. In Git you edit source files; on the server y
 | File | Analogy | Answers the question… |
 |------|---------|----------------------|
 | **`myapp.te`** | Rule book | *Can `myapp_t` do X to `myapp_var_lib_t`?* |
-| **`myapp.fc`** | Address book | *What label should `/var/lib/myapp/data.log` get?* |
-| **`myapp.pp`** | Installed package | Binary loaded into the kernel with `semodule -i` |
+| **`myapp.fc`** | Address book | *What label should `/var/log/myapp/data.log` get?* |
+| **`myapp.pp`** | Installed package | Binary loaded into the kernel with `semodule -i` (CI-built artifact — not committed) |
 
 ```text
 selinux/myapp.te  ──┐
@@ -158,7 +158,7 @@ selinux/myapp.fc  ──┘
 ```
 
 - You **commit** `.te` and `.fc` to Git (source of truth).
-- CI/playbooks **compile** them to `.pp` via the refpolicy Makefile (`scripts/compile_and_validate.sh`; `checkmodule` fallback when devel Makefile is absent).
+- CI/playbooks **compile** them to `.pp` via the refpolicy Makefile (`scripts/compile_and_validate.sh`; `checkmodule` fallback when devel Makefile is absent). The compiled `.pp` is uploaded as a CI artifact — it is **not** tracked in Git.
 - CI also runs **`validate_policy_semantics.sh`** (`sesearch` assertions on the compiled module).
 - Admins **install** `.pp` on staging/production hosts (`semodule -i` upgrades in place). Packaged delivery: [`packaging/myapp-selinux.spec`](../packaging/myapp-selinux.spec).
 
@@ -212,23 +212,23 @@ Installing policy updates **rules for new files**, but **existing files on disk*
 
 ```bash
 # What policy SAYS the label should be:
-$ matchpathcon /var/lib/myapp/data.log
-/var/lib/myapp/data.log    system_u:object_r:myapp_var_lib_t:s0
+$ matchpathcon /var/log/myapp/data.log
+/var/log/myapp/data.log    system_u:object_r:myapp_log_t:s0
 
-# What is ACTUALLY on disk (wrong — e.g. still generic var_t):
-$ ls -Z /var/lib/myapp/data.log
-system_u:object_r:var_t:s0    /var/lib/myapp/data.log
+# What is ACTUALLY on disk (wrong — e.g. still generic var_log_t):
+$ ls -Z /var/log/myapp/data.log
+system_u:object_r:var_log_t:s0    /var/log/myapp/data.log
 ```
 
-The app runs as `myapp_t` and tries to write the file. Policy allows `myapp_t` → `myapp_var_lib_t`, **not** `myapp_t` → `var_t`. Result: **denial** even though `chmod` looks fine.
+The app runs as `myapp_t` and tries to write the file. Policy allows `myapp_t` → `myapp_log_t`, **not** `myapp_t` → `var_log_t`. Result: **denial** even though `chmod` looks fine.
 
 ### The fix
 
 ```bash
-$ sudo restorecon -Rv /var/lib/myapp /run/myapp
+$ sudo restorecon -Rv /var/lib/myapp /var/log/myapp /run/myapp /opt/myapp
 
-$ ls -Z /var/lib/myapp/data.log
-system_u:object_r:myapp_var_lib_t:s0    /var/lib/myapp/data.log
+$ ls -Z /var/log/myapp/data.log
+system_u:object_r:myapp_log_t:s0    /var/log/myapp/data.log
 ```
 
 **`restorecon`** = "**restore** security **con**texts" — re-apply labels from policy to files on disk.
@@ -436,7 +436,7 @@ Example: 42 raw lines may collapse to 6 merged rows, with only 2 net-new after s
 
 This ties labels, `.te`, `.fc`, AVCs, and the demo together.
 
-The Flask app ([`app/app.py`](../app/app.py)) exposes `GET /save-log`, which appends a line to `/var/lib/myapp/data.log`.
+The Flask app ([`app/app.py`](../app/app.py)) exposes `GET /save-log`, which appends a line to `/var/log/myapp/data.log` (created by systemd `LogsDirectory=myapp`).
 
 ### Step 0 — Confirm two-layer SELinux state
 
@@ -458,32 +458,33 @@ SSH and other services stay enforcing; only the Flask process domain is permissi
 $ ps -eZ | grep app.py
 system_u:system_r:myapp_t:s0    ... python /opt/myapp/app.py
 
-$ ls -Z /var/lib/myapp/data.log
-system_u:object_r:myapp_var_lib_t:s0    /var/lib/myapp/data.log
+$ ls -Z /var/log/myapp/data.log
+system_u:object_r:myapp_log_t:s0    /var/log/myapp/data.log
 ```
 
-Process is `myapp_t`. File is `myapp_var_lib_t`. Good — labels match what policy expects **if** `.fc` and `restorecon` were applied.
+Process is `myapp_t`. File is `myapp_log_t`. Good — labels match what policy expects **if** `.fc`, `logging_log_filetrans()`, and `restorecon` were applied.
 
 ### Step 2 — Policy must allow the write
 
 In [`selinux/myapp.te`](../selinux/myapp.te):
 
 ```text
-allow myapp_t myapp_var_lib_t:file { create write append open ... };
+logging_log_filetrans(myapp_t, myapp_log_t, file)
+allow myapp_t myapp_log_t:file { create write append open ... };
 ```
 
-Without this line, SELinux denies the write even when Unix permissions allow it.
+Without these rules, SELinux denies the write even when Unix permissions allow it.
 
 ### Step 3 — If rule is missing → AVC
 
 ```text
 avc: denied { write } ...
   scontext=...:myapp_t:s0
-  tcontext=...:myapp_var_lib_t:s0
+  tcontext=...:myapp_log_t:s0
   tclass=file permissive=1
 ```
 
-Read it as: **`myapp_t` tried to `write` a `file` labeled `myapp_var_lib_t` — not allowed.**
+Read it as: **`myapp_t` tried to `write` a `file` labeled `myapp_log_t` — not allowed.**
 
 During soak (`semanage permissive -a myapp_t`), the write **still succeeds**; the line is **evidence** for policy authors.
 
@@ -494,9 +495,9 @@ curl /save-log  →  AVC in audit.log  →  export to policy_out/avc.log
     →  AI merges fix into selinux/myapp.te  →  PR + CI  →  canary  →  soak  →  enforce
 ```
 
-Same pattern applies to `/run-script` (execute `myapp_script_exec_t`), `/rotate-log` (rename files under `myapp_var_lib_t`), `/probe-backend` (outbound TCP to `myapp_backend_t` on port 8889), and `/notify-socket` (Unix stream to `/run/myapp/notify.sock`).
+Same pattern applies to `/run-script` (execute `myapp_script_exec_t`), `/rotate-log` (rename/create under `myapp_log_t`), `/probe-backend` (outbound TCP to `myapp_backend_t` on port 8889), and `/notify-socket` (Unix stream to `/run/myapp/notify.sock`).
 
-### Tier 6 network endpoints (policy v1.1.0+)
+### Tier 6 network endpoints (policy v1.1.1+)
 
 These endpoints exercise **cross-domain** rules between Flask (`myapp_t`) and the backend stub (`myapp_backend_t`):
 
@@ -507,7 +508,7 @@ These endpoints exercise **cross-domain** rules between Flask (`myapp_t`) and th
 
 **Backend process:** `systemd` starts `/opt/myapp/backend_stub.py` (labeled `myapp_backend_exec_t`) → `init_daemon_domain(myapp_backend_t, ...)` → listener on `:8889` and Unix socket under `/run/myapp`.
 
-**Script pitfall:** `backup.sh` must not call `/usr/bin/date`, `mkdir`, or other **`bin_t`** helpers — CI rejects `allow ... bin_t:file execute`. Use bash builtins (e.g. `printf '%(%Y-%m-%dT%H:%M:%SZ)T' -1`) and append to `/var/lib/myapp/backup.log` only.
+**Script pitfall:** `backup.sh` must not call `/usr/bin/date`, `mkdir`, or other **`bin_t`** helpers — CI rejects `allow ... bin_t:file execute`. Use bash builtins (e.g. `printf '%(%Y-%m-%dT%H:%M:%SZ)T' -1`) and append to `/var/log/myapp/backup.log` only.
 
 ---
 
@@ -537,12 +538,14 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 |------|----------|
 | `myapp_t` | Running Flask app (process domain) |
 | `myapp_exec_t` | App binary, Python venv (entrypoint) |
-| `myapp_var_lib_t` | Data under `/var/lib/myapp` (logs, state) |
-| `myapp_var_run_t` | Runtime under `/run/myapp` (`notify.sock`) |
+| `myapp_var_lib_t` | State under `/var/lib/myapp` (soak marker, deploy report) |
+| `myapp_log_t` | Logs under `/var/log/myapp` (`data.log`, rotated files) |
+| `myapp_var_run_t` | Runtime under `/run/myapp` (`notify.sock`; `files_pid_file`) |
+| `myapp_port_t` | TCP port **8888** (Flask bind) |
+| `myapp_backend_port_t` | TCP port **8889** (backend bind) |
 | `myapp_script_exec_t` | `backup.sh` and scripts in `/opt/myapp/bin/` |
 | `myapp_backend_t` | Running backend stub (`backend_stub.py`) |
 | `myapp_backend_exec_t` | Backend entrypoint (`/opt/myapp/backend_stub.py`) |
-| `unreserved_port_t` | Binding TCP ports **8888** (Flask) and **8889** (backend) |
 
 ---
 
@@ -560,7 +563,7 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 9. Outage?                             →  emergency_rollback.yml (permissive + re-soak)
 ```
 
-**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (all six HTTP paths) and write `/var/lib/myapp/selinux_deploy_report.json`. `check_soak_ready.sh` requires that report before enforce. Enforce uses Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive before the playbook exits.
+**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (all six HTTP paths **plus domain-context check** — MainPID must be `myapp_t` / `myapp_backend_t`) and write `/var/lib/myapp/selinux_deploy_report.json`. `check_soak_ready.sh` requires that report (including verified `domain_context`) before enforce. Enforce uses Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive before the playbook exits.
 
 ### App-visible SELinux signals
 
@@ -665,8 +668,8 @@ matchpathcon /path/to/file   # label policy expects
 **Fix labels on disk**
 
 ```bash
-sudo restorecon -Rv /var/lib/myapp /run/myapp /opt/myapp
-sudo restorecon -Rv -n /var/lib/myapp    # dry run only
+sudo restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp
+sudo restorecon -Rv -n /var/log/myapp    # dry run only
 ```
 
 **Permissive domain (one app)**
@@ -691,7 +694,8 @@ If `auditd` is stopped, `policy_out/avc.log` export will be empty even when the 
 
 ```bash
 sudo semodule -l
-sudo semodule -i selinux/myapp.pp   # upgrades in place
+bash scripts/compile_and_validate.sh selinux   # build myapp.pp locally
+sudo semodule -i selinux/myapp.pp              # upgrades in place
 ```
 
 ---

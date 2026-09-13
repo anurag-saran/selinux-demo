@@ -131,13 +131,13 @@ Manual Ansible (AWX/Tower compatible) uses the same playbooks — see phases bel
 | **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` (refpolicy Makefile) | `myapp.pp` built, no errors |
 | **Semantic assertions** | Required allows present in compiled module | `bash scripts/validate_policy_semantics.sh selinux` (CI `policy-semantics` job) | `sesearch` checks pass |
 | **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` | `Forbidden-pattern checks passed` |
-| **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh` | `File context verification passed` |
-| **Staging canary** | Permissive domain + integration smoke | Merge to `main` or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.staging.yml` | All **six** endpoints return HTTP 200; `myapp_t` in `semanage permissive -l`; backend active on `:8889`; deploy report `"status": "pass"` |
+| **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp` | `File context verification passed` |
+| **Staging canary** | Permissive domain + integration smoke | Merge to `main` or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.staging.yml` | All **six** endpoints return HTTP 200; services run as `myapp_t` / `myapp_backend_t`; deploy report `"status": "pass"` with `domain_context_verified: true` |
 | **Canary AVC gate** | Block canary if denials already present | `deploy_canary.yml` (default `canary_max_avc=0`) | Playbook fails if recent `myapp_t` AVC count exceeds threshold |
 | **Post-merge staging smoke** | CI re-check after canary on runner | `staging-endpoint-smoke` job in `selinux-staging-canary.yml` | `wait_for_endpoints.sh` passes; deploy report present |
 | **Permissive soak** | Capture weekly cron, logrotate, restarts (7–14 days) | `semanage permissive -a myapp_t` + daily `monitor_avc.sh` | `count=0`, exit 0 |
 | **Production canary host** | Deploy to one node before fleet | `deploy_canary.yml --limit canary` | Marker file written, app + backend healthy |
-| **Enforce gate** | Soak elapsed, zero domain AVCs, deploy report pass | `check_soak_ready.sh` (in `enforce_production.yml`) | `Soak gate passed — safe to enforce myapp_t` |
+| **Enforce gate** | Soak elapsed, zero domain AVCs, deploy report pass | `check_soak_ready.sh` (optional `--auto-tier`) in `enforce_production.yml` | `Soak gate passed — safe to enforce myapp_t` |
 | **Production enforce** | Remove permissive domain | `ansible/enforce_production.yml` | `semanage permissive -l` empty; **six** production smoke tests pass under enforcing |
 | **Outage response** | Instant relief + AVC capture | `ansible/emergency_rollback.yml` | Domain back in permissive list; endpoints pass; deploy report written; soak marker reset |
 
@@ -160,7 +160,7 @@ $ sudo semanage permissive -l
 myapp_t
 ```
 
-**Duration:** 7 to 14 days to capture edge workloads — weekly backups, log rotation, certificate renewals, systemd restarts.
+**Duration:** 7 to 14 days by default (or shorter when `soak_auto_tier=true` / `check_soak_ready.sh --auto-tier` classifies a low blast-radius change via `sediff`).
 
 The canary playbook records a deploy timestamp at `/var/lib/myapp/selinux_canary_deployed_at` (epoch seconds), runs **`semodule -DB`** so dontaudit rules do not hide soak AVCs, and installs policy with **`semodule -i`** (in-place upgrade — no `semodule -r`). Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
 
@@ -188,6 +188,7 @@ After `semodule -i`, existing files may retain old contexts. Verify **before** r
 sudo bash scripts/verify_file_contexts.sh \
   --install-root /opt/myapp \
   --var-dir /var/lib/myapp \
+  --log-dir /var/log/myapp \
   --app-name myapp
 ```
 
@@ -200,7 +201,7 @@ sudo bash scripts/verify_file_contexts.sh \
 **Fail looks like** (would relabel on restorecon):
 
 ```text
-[ERROR] restorecon dry-run would change: /var/lib/myapp/data.log
+[ERROR] restorecon dry-run would change: /var/log/myapp/data.log
 ```
 
 This runs `matchpathcon` on key paths and fails if `restorecon -Rv -n` would relabel anything under the data directory.
@@ -495,7 +496,7 @@ Before you enforce on production, confirm:
 | Problem | What it looks like | What to do |
 |---------|-------------------|------------|
 | **Enforce fails soak gate** | `Soak period not met` or `Too many AVC denials` | Wait remaining days; fix policy from AVCs; redeploy canary — do **not** use `force_enforce` without approval |
-| **Mislabeled files after deploy** | `verify_file_contexts.sh` fails | Run `restorecon -Rv /opt/myapp /var/lib/myapp /run/myapp`; re-verify; see [Basics §6](SELINUX_BASICS.md) |
+| **Mislabeled files after deploy** | `verify_file_contexts.sh` fails | Run `restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp`; re-verify; see [Basics §6](SELINUX_BASICS.md) |
 | **AVCs spike during soak** | `monitor_avc.sh` exits non-zero | Export AVCs, extend `.te`, PR + CI, redeploy canary, **reset soak clock** |
 | **Ansible inventory missing** | `Could not match supplied host pattern` | Copy `inventory.production.example.yml` → `inventory.production.yml`; set real hostnames |
 | **Canary marker missing** | `Canary marker not found` | Run `deploy_canary.yml` first — marker is written on canary deploy |

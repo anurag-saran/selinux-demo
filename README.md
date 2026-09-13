@@ -100,6 +100,9 @@ curl http://127.0.0.1:8888/notify-socket
 # macOS: use --use-vm to export AVCs from Podman VM
 bash scripts/dev_generate_policy.sh --use-vm --apply
 
+# Optional: enforce-check before PR (compile + domain context + endpoints)
+bash scripts/dev_generate_policy.sh --use-vm --apply --enforce-check
+
 # Optional: open PR with assembled body + labels
 bash scripts/dev_generate_policy.sh --use-vm --apply --open-pr
 ```
@@ -212,9 +215,9 @@ Requires a **self-hosted runner** on a SELinux host:
 2. Choose `canary` on `staging`, monitor AVCs daily: `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0`
 3. After merge to `main`, CI runs **`staging-endpoint-smoke`** (`wait_for_endpoints.sh` + deploy report check on the staging runner)
 4. Deploy to **prod canary host**: `ansible-playbook ... deploy_canary.yml --limit canary` (fails if `canary_max_avc` exceeded, default 0)
-5. After 7+ day soak (`check_soak_ready.sh` passes — requires a passing deploy report at `/var/lib/myapp/selinux_deploy_report.json`), choose `enforce` on `production` (configure Environment required reviewers)
+5. After 7+ day soak (`check_soak_ready.sh` passes — requires deploy report with verified `domain_context`), choose `enforce` on `production` (configure Environment required reviewers). Use `-e "soak_auto_tier=true"` for blast-radius tiering (24h / 72h / 7d).
 
-Canary runs **`semodule -DB`** during soak so dontaudit rules do not hide AVCs. Canary, enforce, and rollback playbooks all run **`wait_for_endpoints.sh`** (six HTTP endpoints + backend) and write **`/var/lib/myapp/selinux_deploy_report.json`** via **`post_deploy_report.sh`**. Enforce uses an Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive and services are restarted before the playbook fails.
+Canary runs **`semodule -DB`** during soak so dontaudit rules do not hide AVCs. Canary, enforce, and rollback playbooks all run **`wait_for_endpoints.sh`** (six HTTP endpoints + backend + **SELinux domain verification**) and write **`/var/lib/myapp/selinux_deploy_report.json`** via **`post_deploy_report.sh`**. Failed canary and rollback restore **`semodule -B`**. Enforce uses an Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive and services are restarted before the playbook fails.
 
 Secrets (optional):
 
@@ -227,7 +230,7 @@ Secrets (optional):
 
 | Script | Purpose |
 |--------|---------|
-| [`scripts/wait_for_endpoints.sh`](scripts/wait_for_endpoints.sh) | Unified systemd + six HTTP endpoint readiness check |
+| [`scripts/wait_for_endpoints.sh`](scripts/wait_for_endpoints.sh) | Unified systemd + six HTTP endpoint readiness + domain-context check |
 | [`scripts/post_deploy_report.sh`](scripts/post_deploy_report.sh) | Writes `/var/lib/myapp/selinux_deploy_report.json` deploy feedback |
 | [`scripts/lib/vm_ready.sh`](scripts/lib/vm_ready.sh) | Podman VM SSH readiness and recovery hints (macOS demo path) |
 
@@ -241,7 +244,7 @@ ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
   --limit canary \
   -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
 bash scripts/monitor_avc.sh --domain myapp_t --marker-file /var/lib/myapp/selinux_canary_deployed_at
-bash scripts/verify_file_contexts.sh --install-root /opt/myapp --var-dir /var/lib/myapp
+bash scripts/verify_file_contexts.sh --install-root /opt/myapp --var-dir /var/lib/myapp --log-dir /var/log/myapp
 ```
 
 ### Enforce production
@@ -340,8 +343,8 @@ Environment: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL`, `OPENAI_TI
 
 ## Safety notes
 
-- Policy source of truth: **`selinux/`** — never commit API keys. Compiled `.pp` for `selinux/` is tracked; `policy_out/*.pp` is build output.
-- Current module version: **`selinux/policy_version.txt`** (1.1.0 — FHS paths, Tier 6 enforcing smoke tests for all six endpoints).
+- Policy source of truth: **`selinux/`** — never commit API keys. Compiled **`selinux/myapp.pp`** is a CI artifact (build with `compile_and_validate.sh` before deploy); `policy_out/*.pp` is generation output.
+- Current module version: **`selinux/policy_version.txt`** (1.1.1 — enforce-safe paths, `/var/log/myapp` logs, domain-context gates, Tier 6 endpoints).
 - Unlike blind `audit2allow`, this workflow uses **AI + forbidden-pattern CI + semantic `sesearch` checks + human review** — see [docs/SELINUX_BEST_PRACTICES.md](docs/SELINUX_BEST_PRACTICES.md).
 - **`semodule -i`** upgrades the module in place — no `semodule -r` step before install (handled in `apply_policy.sh` and Ansible).
 - Path labels come from **`myapp.fc`** — run **`restorecon`** after install; `.fc` is the source of truth (no manual `chcon`).

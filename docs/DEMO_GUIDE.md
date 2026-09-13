@@ -62,13 +62,13 @@ The **Order Processor** is a Flask app on port **8888**. Each endpoint exercises
 | Endpoint | What it does | SELinux activity |
 |----------|--------------|------------------|
 | `GET /` | Health check | Minimal — confirms app is up |
-| `GET /save-log` | Appends a line to `/var/lib/myapp/data.log` | `myapp_t` writes to `myapp_var_lib_t` file |
+| `GET /save-log` | Appends a line to `/var/log/myapp/data.log` | `myapp_t` writes to `myapp_log_t` (via `logging_log_filetrans`) |
 | `GET /run-script` | Runs `/opt/myapp/bin/backup.sh` | `myapp_t` executes `myapp_script_exec_t`; script uses **bash builtins only** (no `/usr/bin/date` or other `bin_t` helpers — forbidden by CI) |
-| `GET /rotate-log` | Renames `data.log`, creates new file | rename/create under `myapp_var_lib_t` |
+| `GET /rotate-log` | Renames `data.log`, creates new file | rename/create under `myapp_log_t` |
 | `GET /probe-backend` | HTTP client to local backend on port **8889** | outbound `tcp_socket` `connectto` `myapp_backend_t`; client needs `getopt` on `self:tcp_socket` and read-only `cert_t` access for Python `urllib` |
 | `GET /notify-socket` | Unix stream client to `/run/myapp/notify.sock` | `unix_stream_socket connectto` `myapp_backend_t`; backend (`myapp_backend_t`) creates the socket under `myapp_var_run_t` |
 
-**Backend stub:** `myapp-backend.service` runs `backend_stub.py` as user **`myapp`** in domain **`myapp_backend_t`** (separate from Flask). It listens on **`:8889/health`** and creates **`/run/myapp/notify.sock`**. The unit runs `ExecStartPre=+/bin/rm -f /run/myapp/notify.sock` so stale sockets from prior restarts do not block the listener under enforcing policy.
+**Backend stub:** `myapp-backend.service` runs `backend_stub.py` as user **`myapp`** in domain **`myapp_backend_t`** (separate from Flask). It listens on **`:8889/health`** and creates **`/run/myapp/notify.sock`**. Both units declare `RuntimeDirectory=myapp` and `RuntimeDirectoryPreserve=yes` so `/run/myapp` survives backend-only restarts.
 
 **Note:** `/rotate-log` simulates log rotation from Flask in `myapp_t`. It does **not** run system `logrotate` as `logrotate_t` — real production soak must exercise actual schedulers.
 
@@ -297,7 +297,7 @@ AVC preprocess: raw=42 merged=6 net_new=2
 Wrote policy_out/avc_summary.txt
 [INFO] Wrote policy_out/myapp.te
 [INFO] Wrote policy_out/pr_summary.md
-[INFO] Policy version bumped to 1.1.0
+[INFO] Policy version bumped to 1.1.1
 ```
 
 **SELinux concept:** `.te` allow rules — [SELINUX_BASICS.md §5](SELINUX_BASICS.md).
