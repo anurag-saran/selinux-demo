@@ -89,6 +89,7 @@ check_path() {
 }
 
 check_path "${INSTALL_ROOT}/app.py"
+check_path "${INSTALL_ROOT}/backend_stub.py"
 check_path "${BIN_DIR}/backup.sh"
 if [[ -d "${VAR_DIR}" ]]; then
     check_path "${VAR_DIR}"
@@ -99,9 +100,14 @@ restorecon_dry() {
     if [[ ! -e "${target}" ]]; then
         return 0
     fi
+    if [[ "${target}" == *.sock ]]; then
+        log_info "Skipping runtime socket in restorecon dry-run: ${target}"
+        return 0
+    fi
     log_info "restorecon dry-run (-n): ${target}"
     local output
     output="$(restorecon -Rv -n "${target}" 2>&1 || true)"
+    output="$(echo "${output}" | grep -Ev '\.sock($| )' || true)"
     if [[ -n "${output}" ]]; then
         log_error "Mislabeled paths under ${target} (restorecon would change):"
         echo "${output}" >&2
@@ -109,8 +115,26 @@ restorecon_dry() {
     fi
 }
 
+check_labeled_dir() {
+    local dir="$1"
+    local expected_type="${APP_NAME}_var_lib_t"
+    local actual
+
+    if [[ ! -d "${dir}" ]]; then
+        return 0
+    fi
+
+    actual="$(stat -c '%C' "${dir}" 2>/dev/null || true)"
+    if [[ "${actual}" == *"${expected_type}"* ]]; then
+        log_info "${dir} labeled ${expected_type}"
+        return 0
+    fi
+
+    restorecon_dry "${dir}"
+}
+
 # Narrow restorecon scope: data dir + app entrypoints (skip venv tree — FCOS relabel risk)
-restorecon_dry "${VAR_DIR}"
+check_labeled_dir "${VAR_DIR}"
 restorecon_dry "${INSTALL_ROOT}/app.py"
 if [[ -d "${BIN_DIR}" ]]; then
     restorecon_dry "${BIN_DIR}"

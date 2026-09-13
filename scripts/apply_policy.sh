@@ -103,9 +103,13 @@ restore_contexts() {
     restorecon -Rv "${VAR_DIR}" /var/opt/myapp 2>/dev/null || true
     if command -v chcon >/dev/null 2>&1; then
         chcon -t myapp_exec_t "${INSTALL_ROOT}/app.py" 2>/dev/null || true
+        chcon -t myapp_backend_exec_t "${INSTALL_ROOT}/backend_stub.py" 2>/dev/null || true
         chcon -R -t myapp_exec_t "${INSTALL_ROOT}/venv" 2>/dev/null || true
         chcon -t myapp_script_exec_t "${BIN_DIR}/backup.sh" 2>/dev/null || true
         chcon -R -t myapp_var_lib_t "${VAR_DIR}" 2>/dev/null || true
+        if [[ -S "${VAR_DIR}/notify.sock" ]]; then
+            chcon -t myapp_var_lib_t "${VAR_DIR}/notify.sock" 2>/dev/null || true
+        fi
     fi
 }
 
@@ -177,6 +181,10 @@ main() {
     install_policy
     restore_contexts
 
+    if systemctl is-active myapp-backend.service >/dev/null 2>&1; then
+        log_info "Restarting myapp-backend.service"
+        systemctl restart myapp-backend.service
+    fi
     if systemctl is-active myapp.service >/dev/null 2>&1; then
         log_info "Restarting myapp.service"
         systemctl restart myapp.service
@@ -190,6 +198,8 @@ main() {
     echo "Verify:"
     echo "  curl -v http://127.0.0.1:8888/save-log"
     echo "  curl -v http://127.0.0.1:8888/run-script"
+    echo "  curl -v http://127.0.0.1:8888/probe-backend"
+    echo "  curl -v http://127.0.0.1:8888/notify-socket"
     echo "  ausearch -m avc -ts recent | grep myapp || echo 'No recent myapp AVCs'"
 }
 

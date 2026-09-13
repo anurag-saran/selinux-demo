@@ -1,4 +1,4 @@
-policy_module(myapp, 1.0.3)
+policy_module(myapp, 1.0.6)
 
 require {
     type init_t;
@@ -14,12 +14,20 @@ type myapp_t;
 type myapp_exec_t;
 type myapp_var_lib_t;
 type myapp_script_exec_t;
+type myapp_backend_t;
+type myapp_backend_exec_t;
 
 files_type(myapp_exec_t)
 files_type(myapp_var_lib_t)
 files_type(myapp_script_exec_t)
+files_type(myapp_backend_exec_t)
 
 init_daemon_domain(myapp_t, myapp_exec_t)
+init_daemon_domain(myapp_backend_t, myapp_backend_exec_t)
+
+allow myapp_backend_t myapp_backend_exec_t:file { read open getattr execute execute_no_trans map ioctl };
+allow myapp_backend_t myapp_exec_t:dir { search getattr read open };
+allow myapp_backend_t myapp_exec_t:file { read open getattr execute execute_no_trans map ioctl };
 
 allow myapp_t myapp_exec_t:dir { search getattr read open };
 allow myapp_t myapp_exec_t:file { read open getattr execute execute_no_trans map };
@@ -27,15 +35,27 @@ allow myapp_t myapp_exec_t:lnk_file read;
 
 allow myapp_t myapp_var_lib_t:dir { create write add_name remove_name search getattr open rmdir rename unlink };
 allow myapp_t myapp_var_lib_t:file { create write append open getattr lock ioctl rename unlink };
+allow myapp_t myapp_var_lib_t:sock_file { write getattr read open };
 
-allow myapp_t myapp_script_exec_t:file { read open getattr execute execute_no_trans ioctl };
+allow myapp_t myapp_script_exec_t:file { read open getattr execute execute_no_trans ioctl map };
 # bash interpreter for backup.sh shebang only
-allow myapp_t shell_exec_t:file { read open getattr execute };
+allow myapp_t shell_exec_t:file { read open getattr execute map };
 
 domain_auto_trans(myapp_t, myapp_script_exec_t, myapp_t)
 
-allow myapp_t self:tcp_socket { create bind listen accept read write shutdown setopt name_bind node_bind getattr ioctl };
-allow myapp_t node_t:tcp_socket node_bind;
-allow myapp_t unreserved_port_t:tcp_socket name_bind;
+allow myapp_t self:tcp_socket { create bind listen accept read write shutdown setopt name_bind node_bind getattr ioctl connect };
+allow myapp_t self:udp_socket { create getattr };
+allow myapp_t node_t:tcp_socket { node_bind name_connect };
+allow myapp_t unreserved_port_t:tcp_socket { name_bind name_connect };
+allow myapp_t myapp_backend_t:tcp_socket connectto;
+
+allow myapp_t self:unix_stream_socket { create connect read write getattr setopt shutdown };
+allow myapp_t myapp_backend_t:unix_stream_socket connectto;
+
+allow myapp_backend_t self:tcp_socket { create bind listen accept read write getattr setopt shutdown };
+allow myapp_backend_t node_t:tcp_socket node_bind;
+allow myapp_backend_t unreserved_port_t:tcp_socket name_bind;
+allow myapp_backend_t myapp_var_lib_t:sock_file { create write unlink setattr getattr open };
+allow myapp_backend_t self:unix_stream_socket { create bind listen accept read write getattr setopt shutdown };
 
 allow myapp_t syslogd_t:unix_stream_socket connectto;

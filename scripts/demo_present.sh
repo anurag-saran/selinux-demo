@@ -165,7 +165,7 @@ vm_run() {
 }
 
 trigger_endpoints_native() {
-    for path in / /save-log /run-script /rotate-log; do
+    for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
         curl -sf "http://127.0.0.1:8888${path}" || log_warn "${path} non-2xx"
         echo ""
     done

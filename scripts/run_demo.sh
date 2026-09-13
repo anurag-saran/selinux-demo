@@ -37,7 +37,7 @@ require_api_key() {
 
 trigger_endpoints() {
     log_info "Triggering application endpoints..."
-    for path in / /save-log /run-script /rotate-log; do
+    for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
         curl -sf "http://127.0.0.1:8888${path}" || log_warn "${path} non-2xx"
         echo ""
     done

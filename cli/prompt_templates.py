@@ -33,7 +33,7 @@ POLICY SYNTAX (CRITICAL — compilation will fail otherwise):
    corenet_tcp_bind_all_unreserved_ports. Do NOT use logging_send_syslog() — use explicit
    `allow myapp_t syslogd_t:unix_stream_socket connectto;`
 5. Extend existing policy incrementally; preserve custom types: myapp_t, myapp_exec_t,
-   myapp_var_lib_t, myapp_script_exec_t
+   myapp_var_lib_t, myapp_script_exec_t, myapp_backend_t, myapp_backend_exec_t
 
 LEAST PRIVILEGE:
 - Grant ONLY permissions required by supplied AVC denials
@@ -68,12 +68,15 @@ PR_SUMMARY FORMAT (pr_summary field — required headings):
 
 FILE CONTEXTS (fc_content) — include FCOS /var/opt symlink paths:
 /opt/myapp/app\\.py                    -- gen_context(system_u:object_r:myapp_exec_t,s0)
+/opt/myapp/backend_stub\\.py           -- gen_context(system_u:object_r:myapp_backend_exec_t,s0)
 /opt/myapp/bin/.*                     -- gen_context(system_u:object_r:myapp_script_exec_t,s0)
 /opt/myapp/venv(/.*)?                 -- gen_context(system_u:object_r:myapp_exec_t,s0)
 /var/opt/myapp/app\\.py                -- gen_context(system_u:object_r:myapp_exec_t,s0)
 /var/opt/myapp/bin/.*                 -- gen_context(system_u:object_r:myapp_script_exec_t,s0)
 /var/opt/myapp/venv(/.*)?             -- gen_context(system_u:object_r:myapp_exec_t,s0)
+/var/myapp                              -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
 /var/myapp(/.*)?                      -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
+/var/opt/myapp                          -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
 /var/opt/myapp(/.*)?                  -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
 """
 
@@ -92,6 +95,8 @@ USER_PROMPT_TEMPLATE = """Update the SELinux policy module for this application.
 - GET /save-log — append /var/myapp/data.log
 - GET /run-script — execute backup.sh
 - GET /rotate-log — simulate logrotate (rename/create under /var/myapp)
+- GET /probe-backend — outbound TCP client to 127.0.0.1:8889 (myapp_backend_t)
+- GET /notify-socket — Unix stream client to /var/myapp/notify.sock
 - Process start — bind TCP 8888
 
 ## Target module version

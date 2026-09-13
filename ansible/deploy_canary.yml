@@ -30,19 +30,13 @@
       failed_when: semodule_remove.rc not in [0, 1]
       changed_when: semodule_remove.rc == 0
 
-    - name: Install enforcing policy module (RHEL with semanage)
+    - name: Install policy module package
       ansible.builtin.command: "semodule -i {{ policy_pp_path }}"
       changed_when: true
-      when: semanage_bin.stat.exists
 
-    - name: FCOS fallback — permissive stub module for canary
-      ansible.builtin.command: "bash {{ project_root }}/scripts/apply_policy.sh {{ stub_policy_dir }}"
-      when: not semanage_bin.stat.exists
-      changed_when: true
-
-    - name: Note FCOS canary fallback
+    - name: Note FCOS permissive limitation
       ansible.builtin.debug:
-        msg: "semanage unavailable; using permissive stub from {{ stub_policy_dir }} (install policycoreutils-python-utils on RHEL for full canary)"
+        msg: "semanage unavailable — domain stays enforcing unless policy declares permissive {{ domain }}; install policycoreutils-python-utils for production canary soak"
       when: not semanage_bin.stat.exists
 
     - name: Enable permissive domain for canary (semanage)
@@ -52,6 +46,11 @@
       changed_when: semanage_add.rc == 0
       when: semanage_bin.stat.exists
 
+    - name: Install permissive overlay for FCOS canary (no semanage)
+      ansible.builtin.command: "semodule -i {{ project_root }}/selinux/myapp_canary.pp"
+      changed_when: true
+      when: not semanage_bin.stat.exists
+
     - name: Restore file contexts (skip destructive relabel on venv — use chcon)
       ansible.builtin.command: "restorecon -Rv {{ var_dir }}"
       changed_when: true
@@ -59,9 +58,13 @@
     - name: Explicit chcon fallback (FCOS /opt symlink paths)
       ansible.builtin.shell: |
         chcon -t {{ app_name }}_exec_t {{ install_root }}/app.py 2>/dev/null || true
+        chcon -t {{ app_name }}_backend_exec_t {{ install_root }}/backend_stub.py 2>/dev/null || true
         chcon -R -t {{ app_name }}_exec_t {{ install_root }}/venv 2>/dev/null || true
         chcon -t {{ app_name }}_script_exec_t {{ bin_dir }}/backup.sh 2>/dev/null || true
         chcon -R -t {{ app_name }}_var_lib_t {{ var_dir }} 2>/dev/null || true
+        if [[ -S {{ var_dir }}/notify.sock ]]; then
+          chcon -t {{ app_name }}_var_lib_t {{ var_dir }}/notify.sock 2>/dev/null || true
+        fi
       changed_when: true
 
     - name: Verify file contexts before service restart
@@ -76,11 +79,14 @@
       ansible.builtin.shell: "date +%s > {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}"
       changed_when: true
 
-    - name: Restart application service via systemd
+    - name: Restart application services via systemd
       ansible.builtin.systemd:
-        name: "{{ service_name }}"
+        name: "{{ item }}"
         state: restarted
         enabled: true
+      loop:
+        - myapp-backend.service
+        - "{{ service_name }}"
 
     - name: Verify systemd active after restart
       ansible.builtin.command: systemctl is-active {{ service_name }}
@@ -107,6 +113,8 @@
         - /save-log
         - /run-script
         - /rotate-log
+        - /probe-backend
+        - /notify-socket
 
     - name: Check for new AVC denials
       ansible.builtin.shell: |

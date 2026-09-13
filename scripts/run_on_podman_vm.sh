@@ -88,11 +88,11 @@ apply_policy_on_vm() {
     sync_project
     vm_exec "sudo bash scripts/apply_policy.sh ${VM_PROJECT}/policy_out"
     sleep 2
-    vm_exec "curl -sf http://127.0.0.1:8888/save-log; echo; curl -sf http://127.0.0.1:8888/run-script; echo; curl -sf http://127.0.0.1:8888/rotate-log; echo"
+    vm_exec "curl -sf http://127.0.0.1:8888/save-log; echo; curl -sf http://127.0.0.1:8888/run-script; echo; curl -sf http://127.0.0.1:8888/rotate-log; echo; curl -sf http://127.0.0.1:8888/probe-backend; echo; curl -sf http://127.0.0.1:8888/notify-socket; echo"
 }
 
 trigger_curls() {
-    vm_exec "curl -sf http://127.0.0.1:8888/; echo; curl -sf http://127.0.0.1:8888/save-log; echo; curl -sf http://127.0.0.1:8888/run-script; echo; curl -sf http://127.0.0.1:8888/rotate-log; echo"
+    vm_exec "curl -sf http://127.0.0.1:8888/; echo; curl -sf http://127.0.0.1:8888/save-log; echo; curl -sf http://127.0.0.1:8888/run-script; echo; curl -sf http://127.0.0.1:8888/rotate-log; echo; curl -sf http://127.0.0.1:8888/probe-backend; echo; curl -sf http://127.0.0.1:8888/notify-socket; echo"
 }
 
 cmd="${1:-}"

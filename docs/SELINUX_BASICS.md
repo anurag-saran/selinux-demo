@@ -490,7 +490,7 @@ curl /save-log  →  AVC in audit.log  →  export to policy_out/avc.log
     →  AI merges fix into selinux/myapp.te  →  PR + CI  →  canary  →  soak  →  enforce
 ```
 
-Same pattern applies to `/run-script` (execute `myapp_script_exec_t`) and `/rotate-log` (rename files under `myapp_var_lib_t`).
+Same pattern applies to `/run-script` (execute `myapp_script_exec_t`), `/rotate-log` (rename files under `myapp_var_lib_t`), `/probe-backend` (outbound TCP to `myapp_backend_t` on port 8889), and `/notify-socket` (Unix stream to `/var/myapp/notify.sock`).
 
 ---
 

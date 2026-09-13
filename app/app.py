@@ -10,9 +10,13 @@ these endpoints should work without new AVC denials.
 from __future__ import annotations
 
 import logging
+import os
+import socket
 import subprocess
 import sys
 import shutil
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +32,8 @@ APP_PORT = 8888
 
 DATA_LOG_PATH = Path("/var/myapp/data.log")
 BACKUP_SCRIPT = Path("/opt/myapp/bin/backup.sh")
+BACKEND_HEALTH_URL = os.environ.get("MYAPP_BACKEND_URL", "http://127.0.0.1:8889/health")
+NOTIFY_SOCK = Path(os.environ.get("MYAPP_NOTIFY_SOCK", "/var/myapp/notify.sock"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -169,6 +175,105 @@ def run_script():
             "endpoint": "/run-script",
             "path": str(BACKUP_SCRIPT),
             "stdout": result.stdout.strip(),
+        }
+    )
+
+
+@app.route("/probe-backend", methods=["GET"])
+def probe_backend():
+    """
+    Outbound TCP client to the local backend on port 8889.
+
+    SELinux denial (before policy):
+      - Source domain: myapp_t
+      - Permissions: tcp_socket connect, name_connect on unreserved_port_t / node_t
+    """
+    try:
+        with urllib.request.urlopen(BACKEND_HEALTH_URL, timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+    except (OSError, urllib.error.URLError) as exc:
+        logger.exception("Backend probe failed for %s", BACKEND_HEALTH_URL)
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "endpoint": "/probe-backend",
+                    "url": BACKEND_HEALTH_URL,
+                    "error": str(exc),
+                    "selinux_hint": (
+                        "Expected AVC: myapp_t outbound tcp_socket connect/name_connect "
+                        "to 127.0.0.1:8889."
+                    ),
+                }
+            ),
+            500,
+        )
+
+    logger.info("Backend probe succeeded")
+    return jsonify(
+        {
+            "status": "ok",
+            "endpoint": "/probe-backend",
+            "url": BACKEND_HEALTH_URL,
+            "backend_response": body.strip(),
+        }
+    )
+
+
+@app.route("/notify-socket", methods=["GET"])
+def notify_socket():
+    """
+    Unix stream client to /var/myapp/notify.sock (backend stub listener).
+
+    SELinux denial (before policy):
+      - Source domain: myapp_t
+      - Target: myapp_var_lib_t sock_file + unconfined_t unix_stream_socket peer
+    """
+    if not NOTIFY_SOCK.exists():
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "endpoint": "/notify-socket",
+                    "path": str(NOTIFY_SOCK),
+                    "error": "notify socket not found (is myapp-backend.service running?)",
+                }
+            ),
+            503,
+        )
+
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(5)
+        client.connect(str(NOTIFY_SOCK))
+        client.sendall(b"ping\n")
+        payload = client.recv(1024).decode("utf-8")
+        client.close()
+    except OSError as exc:
+        logger.exception("Notify socket call failed for %s", NOTIFY_SOCK)
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "endpoint": "/notify-socket",
+                    "path": str(NOTIFY_SOCK),
+                    "error": str(exc),
+                    "selinux_hint": (
+                        "Expected AVC: myapp_t -> myapp_var_lib_t:sock_file write and "
+                        "unix_stream_socket connectto to backend peer."
+                    ),
+                }
+            ),
+            500,
+        )
+
+    logger.info("Notify socket call succeeded")
+    return jsonify(
+        {
+            "status": "ok",
+            "endpoint": "/notify-socket",
+            "path": str(NOTIFY_SOCK),
+            "backend_response": payload.strip(),
         }
     )
 

@@ -110,6 +110,7 @@ install_application() {
 
     mkdir -p "${INSTALL_ROOT}" "${BIN_DIR}" "${VAR_DIR}"
     install -m 0644 "${APP_SRC}/app.py" "${INSTALL_ROOT}/app.py"
+    install -m 0755 "${APP_SRC}/backend_stub.py" "${INSTALL_ROOT}/backend_stub.py"
     install -m 0755 "${APP_SRC}/backup.sh" "${BIN_DIR}/backup.sh"
     chmod 0755 "${INSTALL_ROOT}/app.py"
 
@@ -216,10 +217,13 @@ install_python_deps() {
 }
 
 install_systemd_service() {
-    log_info "Installing systemd unit: ${SERVICE_NAME}"
+    log_info "Installing systemd units: myapp-backend.service, ${SERVICE_NAME}"
+    install -m 0644 "${APP_SRC}/myapp-backend.service" "/etc/systemd/system/myapp-backend.service"
     install -m 0644 "${APP_SRC}/myapp.service" "/etc/systemd/system/${SERVICE_NAME}"
     systemctl daemon-reload
+    systemctl enable myapp-backend.service
     systemctl enable "${SERVICE_NAME}"
+    systemctl restart myapp-backend.service
     systemctl restart "${SERVICE_NAME}"
 }
 
@@ -242,6 +246,8 @@ restore_contexts() {
     # FCOS may leave default var_t on /opt paths; enforce PoC labels explicitly.
     if command -v chcon >/dev/null 2>&1; then
         chcon -t myapp_exec_t "${INSTALL_ROOT}/app.py" 2>/dev/null || true
+        chcon -t myapp_backend_exec_t "${INSTALL_ROOT}/backend_stub.py" 2>/dev/null \
+            || chcon -t myapp_exec_t "${INSTALL_ROOT}/backend_stub.py" 2>/dev/null || true
         chcon -R -t myapp_exec_t "${INSTALL_ROOT}/venv" 2>/dev/null || true
         chcon -t myapp_script_exec_t "${BIN_DIR}/backup.sh" 2>/dev/null || true
         chcon -R -t myapp_var_lib_t "${VAR_DIR}" 2>/dev/null || true
@@ -252,13 +258,14 @@ wait_for_service() {
     local retries=15
     local i
     for ((i = 1; i <= retries; i++)); do
-        if curl -sf "http://127.0.0.1:8888/" >/dev/null 2>&1; then
-            log_info "Service is responding on port 8888"
+        if curl -sf "http://127.0.0.1:8888/" >/dev/null 2>&1 \
+            && curl -sf "http://127.0.0.1:8889/health" >/dev/null 2>&1; then
+            log_info "Services responding on ports 8888 and 8889"
             return 0
         fi
         sleep 1
     done
-    log_warn "Service did not respond on port 8888 yet. Check: systemctl status ${SERVICE_NAME}"
+    log_warn "Services did not respond yet. Check: systemctl status myapp-backend ${SERVICE_NAME}"
     return 0
 }
 
@@ -273,6 +280,8 @@ Trigger SELinux AVC denials (permissive mode — requests may still succeed):
   curl -v http://127.0.0.1:8888/save-log
   curl -v http://127.0.0.1:8888/run-script
   curl -v http://127.0.0.1:8888/rotate-log
+  curl -v http://127.0.0.1:8888/probe-backend
+  curl -v http://127.0.0.1:8888/notify-socket
 
 View recent AVC denials:
 

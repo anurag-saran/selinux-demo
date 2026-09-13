@@ -1,8 +1,8 @@
 [Unit]
 Description=Order Processor App (SELinux PoC)
 Documentation=file:///opt/myapp/app.py
-After=network.target auditd.service
-Wants=auditd.service
+After=network.target auditd.service myapp-backend.service
+Wants=auditd.service myapp-backend.service
 
 [Service]
 Type=simple

@@ -86,6 +86,8 @@ sudo bash scripts/setup_staging_env.sh
 curl http://127.0.0.1:8888/save-log
 curl http://127.0.0.1:8888/run-script
 curl http://127.0.0.1:8888/rotate-log
+curl http://127.0.0.1:8888/probe-backend
+curl http://127.0.0.1:8888/notify-socket
 
 # macOS: use --use-vm to export AVCs from Podman VM
 bash scripts/dev_generate_policy.sh --use-vm --apply
@@ -103,6 +105,8 @@ sudo bash scripts/setup_staging_env.sh
 curl http://127.0.0.1:8888/save-log
 curl http://127.0.0.1:8888/run-script
 curl http://127.0.0.1:8888/rotate-log
+curl http://127.0.0.1:8888/probe-backend
+curl http://127.0.0.1:8888/notify-socket
 ```
 
 ### 2. Export AVC logs

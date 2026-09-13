@@ -1,0 +1,8 @@
+policy_module(myapp_canary, 1.0.0)
+
+require {
+    type myapp_t;
+}
+
+# FCOS / lab fallback when semanage is unavailable — remove overlay at enforce time.
+permissive myapp_t;

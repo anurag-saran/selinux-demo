@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -213,6 +214,12 @@ def test_flask_endpoints() -> None:
     var_dir = tmp / "var"
     bin_dir.mkdir()
     var_dir.mkdir()
+    notify_sock = var_dir / "notify.sock"
+    backend_port = 18889
+
+    backend_src = (PROJECT_ROOT / "app" / "backend_stub.py").read_text(encoding="utf-8")
+    backend_path = tmp / "backend_stub.py"
+    backend_path.write_text(backend_src, encoding="utf-8")
 
     app_src = (PROJECT_ROOT / "app" / "app.py").read_text(encoding="utf-8")
     app_src = app_src.replace("/var/myapp", str(var_dir))
@@ -226,29 +233,55 @@ def test_flask_endpoints() -> None:
     backup_path.write_text(backup_src, encoding="utf-8")
     backup_path.chmod(0o755)
 
-    proc = subprocess.Popen([sys.executable, str(app_path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    backend_env = {
+        **os.environ,
+        "MYAPP_NOTIFY_SOCK": str(notify_sock),
+        "MYAPP_BACKEND_PORT": str(backend_port),
+    }
+    app_env = {
+        **os.environ,
+        "MYAPP_BACKEND_URL": f"http://127.0.0.1:{backend_port}/health",
+        "MYAPP_NOTIFY_SOCK": str(notify_sock),
+    }
+
+    backend_proc = subprocess.Popen(
+        [sys.executable, str(backend_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=backend_env,
+    )
+    proc = subprocess.Popen(
+        [sys.executable, str(app_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=app_env,
+    )
     try:
         for _ in range(30):
             try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{backend_port}/health", timeout=1):
+                    pass
                 with urllib.request.urlopen("http://127.0.0.1:8888/", timeout=1) as resp:
                     assert resp.status == 200
                 break
             except (urllib.error.URLError, TimeoutError):
                 time.sleep(0.2)
         else:
-            raise AssertionError("Flask app did not become healthy")
+            raise AssertionError("Flask app or backend stub did not become healthy")
 
-        for path in ("/", "/save-log", "/run-script", "/rotate-log"):
+        for path in ("/", "/save-log", "/run-script", "/rotate-log", "/probe-backend", "/notify-socket"):
             with urllib.request.urlopen(f"http://127.0.0.1:8888{path}", timeout=3) as resp:
                 body = resp.read().decode("utf-8")
                 assert resp.status == 200
                 assert "ok" in body
     finally:
         proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        backend_proc.terminate()
+        for child in (proc, backend_proc):
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
 
 
 def test_assemble_pr_body() -> None:

@@ -65,12 +65,16 @@ The **Order Processor** is a Flask app on port **8888**. Each endpoint exercises
 | `GET /save-log` | Appends a line to `/var/myapp/data.log` | `myapp_t` writes to `myapp_var_lib_t` file |
 | `GET /run-script` | Runs `/opt/myapp/bin/backup.sh` | `myapp_t` executes `myapp_script_exec_t` |
 | `GET /rotate-log` | Renames `data.log`, creates new file | rename/create under `myapp_var_lib_t` |
+| `GET /probe-backend` | HTTP client to local backend on port **8889** | outbound `tcp_socket` connect to `myapp_backend_t` |
+| `GET /notify-socket` | Unix stream client to `/var/myapp/notify.sock` | `sock_file` write + `unix_stream_socket connectto` |
+
+**Backend stub:** `myapp-backend.service` runs `backend_stub.py` in domain **`myapp_backend_t`** (separate from Flask). This exercises cross-domain network rules without relying on `unconfined_t`.
 
 **Note:** `/rotate-log` simulates log rotation from Flask in `myapp_t`. It does **not** run system `logrotate` as `logrotate_t` — real production soak must exercise actual schedulers.
 
 Full SELinux walkthrough of `/save-log`: [SELINUX_BASICS.md §9](SELINUX_BASICS.md).
 
-During Act 1 the demo curls all four endpoints so AVCs are captured for the AI step.
+During Act 1 the demo curls all six endpoints so AVCs are captured for the AI step.
 
 ---
 

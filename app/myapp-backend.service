@@ -1,0 +1,16 @@
+[Unit]
+Description=Order Processor backend stub (Tier 6 outbound/Unix demo)
+Documentation=file:///opt/myapp/backend_stub.py
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/myapp/backend_stub.py
+User=myapp
+Group=myapp
+WorkingDirectory=/opt/myapp
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
