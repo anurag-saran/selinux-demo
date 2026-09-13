@@ -9,8 +9,9 @@ This guide is for **RHEL/Fedora admins** who reviewed the workshop demo and are 
 | **New to SELinux** | [SELINUX_BASICS.md](SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
 | **Saw the demo** | [DEMO_GUIDE.md](DEMO_GUIDE.md) acts 6–10 | This guide from section 4 onward |
 | **Running day-to-day deploys** | Section 5 (deploy paths) | Phases 1–6 as your checklist |
+| **Reviewing policy PRs** | [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) §8 | PR template + CI mapping §15 |
 
-**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → [DEMO_GUIDE.md](DEMO_GUIDE.md) (workshop) → **this guide** (admin rollout).
+**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → [DEMO_GUIDE.md](DEMO_GUIDE.md) (workshop) → [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) (principles) → **this guide** (admin rollout).
 
 ---
 
@@ -532,6 +533,7 @@ Developer workflow and PR assembly: [README.md](../README.md) and [DEMO_GUIDE.md
 | Guide | Sections to read | Audience |
 |-------|------------------|----------|
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | §7 two-layer model; §7.5 soak timeline; §8 avc.log filter | New to SELinux |
+| [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Acts 1–2 discovery; Acts 6–10 admin soak/enforce | Workshop observers |
 | **This file** | §3.5 soak; §5–14 phases and checklist | RHEL admins |
 | [README.md](../README.md) | Deploy paths + GitHub Actions | Day-to-day commands |

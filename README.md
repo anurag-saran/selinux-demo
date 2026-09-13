@@ -342,7 +342,7 @@ Environment: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL`, `OPENAI_TI
 
 - Policy source of truth: **`selinux/`** — never commit API keys. Compiled `.pp` for `selinux/` is tracked; `policy_out/*.pp` is build output.
 - Current module version: **`selinux/policy_version.txt`** (1.1.0 — FHS paths, Tier 6 enforcing smoke tests for all six endpoints).
-- Unlike blind `audit2allow`, this workflow uses **AI + forbidden-pattern CI + human review**.
+- Unlike blind `audit2allow`, this workflow uses **AI + forbidden-pattern CI + semantic `sesearch` checks + human review** — see [docs/SELINUX_BEST_PRACTICES.md](docs/SELINUX_BEST_PRACTICES.md).
 - **`semodule -i`** upgrades the module in place — no `semodule -r` step before install (handled in `apply_policy.sh` and Ansible).
 - Path labels come from **`myapp.fc`** — run **`restorecon`** after install; `.fc` is the source of truth (no manual `chcon`).
 - AI-generated `.te` files must use **`policy_module()`** syntax; the CLI includes compile-retry.
@@ -358,3 +358,4 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 | [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Workshop demo for newbies — 10 acts, example output, observer vs presenter paths |
 | [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Post-demo admin runbook — soak, canary hosts, enforce gates, deploy report JSON, incident card §12.5, pass/fail examples |
+| [docs/SELINUX_BEST_PRACTICES.md](docs/SELINUX_BEST_PRACTICES.md) | **Policy-as-Code principles** — refpolicy interfaces, labeling, CI gates, soak/enforce anti-patterns (admin + reviewer checklist) |

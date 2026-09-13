@@ -1,0 +1,226 @@
+# SELinux Policy-as-Code — Best Practices
+
+This guide captures **design principles and anti-patterns** enforced in this repository after production-readiness review. It answers: *what does “correct” look like here, and why?*
+
+| You are… | Read this for… | Then use… |
+|----------|----------------|-----------|
+| **Policy author / app developer** | How to write `.te`/`.fc` and pass CI | [README.md](../README.md), [cli/prompt_templates.py](../cli/prompt_templates.py) |
+| **Security / admin reviewer** | PR review checklist and gates | [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md), §Review checklist below |
+| **RHEL admin running deploy** | Step-by-step rollout | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) |
+| **New to SELinux concepts** | Labels, soak, permissive domains | [SELINUX_BASICS.md](SELINUX_BASICS.md) |
+
+Current module version: **`selinux/policy_version.txt`** (1.1.0+).
+
+---
+
+## 1. Policy authoring
+
+### Do
+
+| Practice | Why | In this repo |
+|----------|-----|--------------|
+| Use **refpolicy interfaces** | Survives base-policy churn; reviewers recognize intent | `logging_send_syslog_msg`, `corecmd_exec_shell`, `miscfiles_read_generic_certs`, `corenet_tcp_bind_generic_node`, `init_daemon_domain`, `logging_log_file` |
+| Declare **dedicated port types** | Least privilege — not every unreserved port | `myapp_port_t` (8888), `myapp_backend_port_t` (8889) + `semanage port` in canary/RPM `%post` |
+| Use **dedicated log type** | logrotate and app writes without over-broad `var_lib_t` | `myapp_log_t` under `/var/lib/myapp/*.log` |
+| TCP client to backend | Correct permission class | `allow myapp_t myapp_backend_port_t:tcp_socket name_connect` |
+| Unix socket to backend | Peer connection | `allow myapp_t myapp_backend_t:unix_stream_socket connectto` |
+| `policy_module()` syntax | Required for refpolicy Makefile compile | Top of every `.te` |
+| Incremental allows from AVCs | Least privilege | AI prompt: net-new rows only |
+
+### Don’t
+
+| Anti-pattern | Why it fails |
+|--------------|--------------|
+| Raw `allow myapp_t syslogd_t:unix_stream_socket connectto` | Incomplete vs `logging_send_syslog_msg`; misses `devlog_t` / dgram paths |
+| `allow myapp_t unreserved_port_t:tcp_socket name_bind` | Binds **any** high port — not just 8888 |
+| `allow myapp_t myapp_backend_t:tcp_socket connectto` | **`connectto` is not valid on `tcp_socket`** — use `name_connect` to port type |
+| `allow myapp_t *:*` or `self:*` | CI forbidden; unbounded blast radius |
+| `allow … bin_t:file execute` | CI forbidden; label app binaries with dedicated exec types |
+| `audit2allow` output pasted verbatim | Wildcards, wrong classes, no interfaces |
+| `domain_auto_trans(myapp_t, script_t, myapp_t)` | Self-transition no-op; use `execute_no_trans` or separate helper domain |
+
+**Compile rule:** build with the refpolicy devel **Makefile**, not raw `checkmodule` on macro `.te` files:
+
+```bash
+bash scripts/compile_and_validate.sh selinux
+# Uses scripts/lib/compile_policy.sh → make -f /usr/share/selinux/devel/Makefile
+```
+
+Build target OS: **CentOS Stream 9** headers (`SELINUX_COMPILE_IMAGE=quay.io/centos/centos:stream9`) to match RHEL 9 deploys.
+
+---
+
+## 2. File labeling (`.fc`)
+
+### Do
+
+| Practice | Example |
+|----------|---------|
+| FHS data path | `/var/lib/myapp(/.*)?` → `myapp_var_lib_t` |
+| FHS runtime socket | `/run/myapp(/.*)?` → `myapp_var_run_t` |
+| Narrow venv entrypoint | `/opt/myapp/venv/bin/python[0-9.]*` → `myapp_exec_t`; rest → `myapp_lib_t` |
+| Directory patterns **without** `--` | `--` means regular file only — breaks dir/socket labeling |
+| `restorecon` after install | Labels persist across relabel; survives policy upgrade |
+
+```bash
+restorecon -Rv /opt/myapp /var/lib/myapp /run/myapp
+bash scripts/verify_file_contexts.sh   # uses matchpathcon -V
+```
+
+### Don’t
+
+| Anti-pattern | Why it fails |
+|--------------|--------------|
+| `chcon` in playbooks or setup scripts | Lost on `restorecon`, relabel, or `/.autorelabel` boot |
+| Entire venv as `myapp_exec_t` | Every `.so` becomes entrypoint-capable |
+| Data under non-FHS `/var/myapp` | Harder to relabel; non-standard for RHEL admins |
+| Skipping venv in verify | Misses mislabeled Python entrypoint |
+
+**systemd:** `StateDirectory=myapp` and `RuntimeDirectory=myapp` create `/var/lib/myapp` and `/run/myapp` with correct ownership before the app starts.
+
+---
+
+## 3. Build, CI, and PR review
+
+### Layered gates
+
+```text
+1. grep forbidden patterns     →  validate_forbidden_patterns.sh (fast pre-filter)
+2. refpolicy Makefile compile  →  compile-policy job + verify_pp_drift.sh
+3. semantic sesearch checks    →  validate_policy_semantics.sh (what policy *means*)
+4. staging canary + smoke      →  selinux-staging-canary.yml
+```
+
+### Do
+
+| Practice | Script / job |
+|----------|--------------|
+| Rebuild `.pp` from `.te`/`.fc` in CI | `compile-policy` |
+| Fail if committed `.pp` drifts | `verify_pp_drift.sh` |
+| Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` |
+| Include policy diff in PR body | `assemble_pr_body.sh` + `sediff` |
+| Lint shell and YAML | `shellcheck`, `yamllint` in CI |
+
+### Don’t
+
+| Anti-pattern | Gap |
+|--------------|-----|
+| Grep-only security boundary | Misses `files_read_all_files()`, spaced colons, interface-expanded allows |
+| Committing `.te` without recompiling `.pp` | Drift — invalid rules can hide in stale binary |
+| Compiling on Fedora for RHEL deploy | Module version / libsepol mismatch at `semodule -i` |
+
+---
+
+## 4. Deploy and module lifecycle
+
+### Do
+
+| Practice | Where |
+|----------|-------|
+| **`semodule -i` in-place upgrade** | `deploy_canary.yml`, `apply_policy.sh` — no remove-then-install gap |
+| **Per-domain permissive only** during soak | `semanage permissive -a myapp_t`; OS stays Enforcing |
+| **`semodule -DB` at canary start** | Surfaces dontaudit-hidden denials during soak |
+| **`semodule -B` before enforce** | Restores dontaudit baseline for production |
+| Register ports at deploy | `community.general.seport` in canary playbook |
+| Unified endpoint smoke | `wait_for_endpoints.sh` (6 HTTP paths + backend) |
+| Deploy feedback JSON | `/var/lib/myapp/selinux_deploy_report.json` |
+| Archive policy for rollback | `/var/lib/myapp/policy-history/myapp-{version}.pp` |
+| Enforce **block/rescue** | Auto-restore permissive if smoke fails mid-enforce |
+
+### Don’t
+
+| Anti-pattern | Why it fails |
+|--------------|--------------|
+| `semodule -r` before every upgrade | Window where domain/types missing; running process contexts invalid |
+| `setenforce 0` for app outages | Disables OS-wide protection — use `semanage permissive -a myapp_t` |
+| `force_enforce=true` without approval | Skips soak gate |
+| Manual `python app.py` for staging tests | Wrong domain transition vs systemd |
+| Enforce without prior canary on host | `enforce_production.yml` assumes policy already installed |
+
+**Packaging path (production-grade):** [`packaging/myapp-selinux.spec`](../packaging/myapp-selinux.spec) — RPM with `%selinux_modules_install`, relabel macros, port registration in `%post`.
+
+---
+
+## 5. Soak, monitoring, and enforce gates
+
+### Do
+
+| Practice | Detail |
+|----------|--------|
+| **7–14 day soak** after canary | Capture cron, logrotate, cert renewals |
+| **`ausearch --input-logs --subject myapp_t`** | Counts rotated logs; filters by subject domain |
+| Include **`SELINUX_ERR`** events | Not just `-m avc` — constraint / invalid context failures |
+| Daily **`monitor_avc.sh --max-avc 0`** | During soak |
+| **`check_soak_ready.sh`** before enforce | Soak days + event count + deploy report endpoint pass |
+| Canary AVC gate | `canary_max_avc: 0` default in `deploy_canary.yml` |
+| Reset soak clock on policy change | New marker after redeploy or rollback |
+
+### Don’t
+
+| Anti-pattern | Why it fails |
+|--------------|--------------|
+| Substring grep `myapp_t` in audit.log | False positives (`myapp_tmp_t`); misses multiline events |
+| `ausearch` without `--input-logs` on 7-day soak | Rotated logs drop early denials → false “zero AVCs” |
+| Zero AVCs without endpoint coverage | Low traffic ≠ safe policy — require deploy report pass |
+| `ausearch -ts recent` for soak | ~10 minutes — fine post-canary only, not for soak gate |
+
+---
+
+## 6. Rollback and incident response
+
+### Do
+
+| Practice | Command / artifact |
+|----------|-------------------|
+| Immediate relief | `semanage permissive -a myapp_t` (via `emergency_rollback.yml`) |
+| Version rollback | `-e rollback_target_version=1.0.9` + policy history `.pp` |
+| Export AVCs after outage | `/tmp/emergency_avc.log` in rollback playbook |
+| App team triage | [PRODUCTION_READINESS.md §12.5](PRODUCTION_READINESS.md) — health JSON, deploy report |
+| Full recovery loop | permissive → policy PR → canary → soak → enforce |
+
+### Don’t
+
+| Anti-pattern | Why it fails |
+|--------------|--------------|
+| Rollback = permissive only | Mitigation, not module revert — keep prior `.pp` in policy-history |
+| Re-deploy app code alone | SELinux denial needs policy fix |
+| Broad local `allow` rules | Bypasses review; reintroduces audit2allow anti-patterns |
+
+---
+
+## 7. AI policy generation
+
+The CLI follows the same rules as hand-written policy. See [`cli/prompt_templates.py`](../cli/prompt_templates.py):
+
+- Prefer refpolicy **interfaces** (embedded allowlist in system prompt)
+- Ban raw syslog / `unreserved_port_t` / `bin_t` patterns
+- FHS `.fc` template without `--` on directories
+- Compile-retry on `policy_module()` / macro errors
+
+**Human review is mandatory** — AI output passes CI but does not replace admin sign-off.
+
+---
+
+## 8. Review checklist (admins)
+
+Use with the [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md):
+
+- [ ] `.te` uses refpolicy interfaces, not audit2allow-style raw allows
+- [ ] Port 8888 / 8889 use `myapp_port_t` / `myapp_backend_port_t`, not `unreserved_port_t`
+- [ ] `.fc` uses FHS paths; no `--` on directory patterns; venv split exec/lib
+- [ ] CI: `forbidden-patterns`, `compile-policy`, `policy-semantics`, `.pp` drift check pass
+- [ ] `verify_file_contexts.sh` passes after `restorecon` (no `chcon` dependency)
+- [ ] Canary plan: `semodule -DB`, endpoint smoke, deploy report, soak marker
+- [ ] Enforce plan: `check_soak_ready.sh`, `semodule -B`, block/rescue tested or briefed
+- [ ] Rollback owner knows `emergency_rollback.yml` + policy-history path
+
+---
+
+## 9. Related docs
+
+| Guide | Role |
+|-------|------|
+| [SELINUX_BASICS.md](SELINUX_BASICS.md) | Concepts and beginner mistakes |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Workshop acts 1–10 |
+| [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
+| [README.md](../README.md) | Commands, CI, GitHub Actions |

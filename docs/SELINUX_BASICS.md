@@ -571,7 +571,7 @@ The demo app exposes SELinux state so app teams can distinguish policy issues fr
 
 Full triage steps for app teams: [PRODUCTION_READINESS.md §12.5](PRODUCTION_READINESS.md).
 
-Presenter steps: [DEMO_GUIDE.md](DEMO_GUIDE.md). Admin gates: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+Presenter steps: [DEMO_GUIDE.md](DEMO_GUIDE.md). Admin gates: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Principles and anti-patterns: [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md).
 
 ---
 

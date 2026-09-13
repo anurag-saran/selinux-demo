@@ -612,6 +612,7 @@ bash scripts/demo_present.sh --help
 | Guide | Sections to read | Audience |
 |-------|------------------|----------|
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | §1–7 concepts; §9 worked example | New to SELinux |
+| [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) | §1–4 policy + CI principles | Authors and reviewers |
 | **This file** | §1–4 before demo; §9 during demo | Presenters and observers |
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | §1–14 after demo | RHEL admins |
 | [README.md](../README.md) | Self-service table | Day-to-day commands |

@@ -58,17 +58,20 @@ labels:
 - [ ] `smoke-tests`
 - [ ] `forbidden-patterns`
 - [ ] `compile-policy` (artifact: `selinux-myapp-pp`)
+- [ ] `policy-semantics` (`validate_policy_semantics.sh`)
 
 ---
 
 ### 6. Security and Sysadmin Checklist (Admin Team Review)
 
+> Full principles and anti-patterns: [`docs/SELINUX_BEST_PRACTICES.md`](../docs/SELINUX_BEST_PRACTICES.md) (§8 review checklist).
+
 | Security Check | Status | Notes / Approver Initials |
 | --- | --- | --- |
-| **No Over-Permissive Grants** | ⬜ Pass / ⬜ Reject | CI `forbidden-patterns`; no `shadow_t`, `unconfined_t`, `sysadm_t`, or broad `var_t:file write` |
-| **Custom Labels Enforced** | ⬜ Pass / ⬜ Reject | Dedicated types: `myapp_exec_t`, `myapp_var_lib_t`, `myapp_script_exec_t`; FCOS `/var/opt/myapp/*` paths |
-| **Port Assignments Validated** | ⬜ Pass / ⬜ Reject | Port **8888** uses `unreserved_port_t` (not `http_port_t` or generic `port_t`) |
-| **Compilation Test** | ⬜ Pass / ⬜ Reject | CI `compile-policy` built `.pp` without errors |
+| **No Over-Permissive Grants** | ⬜ Pass / ⬜ Reject | CI `forbidden-patterns` + `policy-semantics`; no `shadow_t`, `unconfined_t`, `sysadm_t`, or broad `var_t:file write` |
+| **Custom Labels Enforced** | ⬜ Pass / ⬜ Reject | FHS paths `/var/lib/myapp`, `/run/myapp`; dedicated types; `.fc` without `--` on dirs |
+| **Port Assignments Validated** | ⬜ Pass / ⬜ Reject | `myapp_port_t` TCP 8888, `myapp_backend_port_t` TCP 8889 (not blanket `unreserved_port_t`) |
+| **Compilation Test** | ⬜ Pass / ⬜ Reject | CI `compile-policy` + `.pp` drift check; refpolicy Makefile build |
 | **Path Labeling (restorecon -n)** | ⬜ Pass / ⬜ Reject | `scripts/verify_file_contexts.sh` passes after canary deploy |
 | **Soak Period (7–14 days)** | ⬜ Pass / ⬜ Reject | `scripts/check_soak_ready.sh` + daily `scripts/monitor_avc.sh` on staging/prod canary |
 | **Systemd-Only Restart** | ⬜ Pass / ⬜ Reject | Service started via `systemctl restart`, not manual `python app.py` |
