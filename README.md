@@ -189,12 +189,12 @@ bash scripts/compile_and_validate.sh policy_out   # after AI generation
 | When | Who | How |
 |------|-----|-----|
 | PR open | CI (automatic) | `smoke-tests`, `forbidden-patterns`, `compile-policy` |
-| Merge to `main` | Pipeline (automatic) | [`.github/workflows/selinux-staging-canary.yml`](.github/workflows/selinux-staging-canary.yml) → staging canary |
+| Merge to `main` | Pipeline (automatic) | [`.github/workflows/selinux-staging-canary.yml`](.github/workflows/selinux-staging-canary.yml) → `staging-canary` + `staging-endpoint-smoke` |
 | Production cutover | Admin (manual) | **SELinux Policy Deploy** → `enforce` + GitHub `production` Environment approval |
 
 Production is **never** auto-enforced on merge.
 
-Full admin runbook: [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) — soak, canary hosts, enforce gates, pass/fail examples, and admin sign-off checklist.
+Full admin runbook: [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) — soak, canary hosts, enforce gates, deploy report JSON, app team incident card (§12.5), pass/fail examples, and admin sign-off checklist.
 
 ### GitHub Actions deploy (recommended)
 
@@ -207,10 +207,26 @@ Requires a **self-hosted runner** on a SELinux host:
 
 1. GitHub → **Actions** → **SELinux Policy Deploy** → **Run workflow**
 2. Choose `canary` on `staging`, monitor AVCs daily: `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0`
-3. Deploy to **prod canary host**: `ansible-playbook ... deploy_canary.yml --limit canary`
-4. After 7+ day soak (`check_soak_ready.sh` passes), choose `enforce` on `production` (configure Environment required reviewers)
+3. After merge to `main`, CI runs **`staging-endpoint-smoke`** (`wait_for_endpoints.sh` + deploy report check on the staging runner)
+4. Deploy to **prod canary host**: `ansible-playbook ... deploy_canary.yml --limit canary` (fails if `canary_max_avc` exceeded, default 0)
+5. After 7+ day soak (`check_soak_ready.sh` passes), choose `enforce` on `production` (configure Environment required reviewers)
 
-Secrets (optional, for emergency rollback AI patch): `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL`
+Canary, enforce, and rollback playbooks all run **`wait_for_endpoints.sh`** (six HTTP endpoints + backend) and write **`/var/myapp/selinux_deploy_report.json`** via **`post_deploy_report.sh`**.
+
+Secrets (optional):
+
+| Secret | Purpose |
+|--------|---------|
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL` | Emergency rollback AI patch generation |
+| `INCIDENT_WEBHOOK_URL` | Pass/fail notification from **SELinux Policy Deploy** workflow |
+
+### Reliability scripts (canary / enforce / rollback)
+
+| Script | Purpose |
+|--------|---------|
+| [`scripts/wait_for_endpoints.sh`](scripts/wait_for_endpoints.sh) | Unified systemd + six HTTP endpoint readiness check |
+| [`scripts/post_deploy_report.sh`](scripts/post_deploy_report.sh) | Writes `/var/myapp/selinux_deploy_report.json` deploy feedback |
+| [`scripts/lib/vm_ready.sh`](scripts/lib/vm_ready.sh) | Podman VM SSH readiness and recovery hints (macOS demo path) |
 
 ### Manual Ansible (AWX/Tower compatible)
 
@@ -338,4 +354,4 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 |-------|-----|
 | [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Workshop demo for newbies — 10 acts, example output, observer vs presenter paths |
-| [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Post-demo admin runbook — soak, canary hosts, enforce gates, with pass/fail examples |
+| [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Post-demo admin runbook — soak, canary hosts, enforce gates, deploy report JSON, incident card §12.5, pass/fail examples |

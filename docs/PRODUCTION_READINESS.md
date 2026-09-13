@@ -111,10 +111,12 @@ Full timeline for beginners: [SELINUX_BASICS.md §7.5](SELINUX_BASICS.md).
 | When | Who | How |
 |------|-----|-----|
 | **PR open** | CI (automatic) | `smoke-tests`, `forbidden-patterns`, `compile-policy` |
-| **Merge to `main`** | Pipeline (automatic) | [`.github/workflows/selinux-staging-canary.yml`](../.github/workflows/selinux-staging-canary.yml) → staging canary |
+| **Merge to `main`** | Pipeline (automatic) | [`.github/workflows/selinux-staging-canary.yml`](../.github/workflows/selinux-staging-canary.yml) → `staging-canary` deploy + `staging-endpoint-smoke` job |
 | **Production cutover** | Admin (manual) | **SELinux Policy Deploy** workflow → `enforce` + GitHub `production` Environment approval |
 
 Manual Ansible (AWX/Tower compatible) uses the same playbooks — see phases below and [README.md § Admins](../README.md).
+
+**Merge pipeline:** after `staging-canary` installs policy on the self-hosted staging runner, the **`staging-endpoint-smoke`** job runs `wait_for_endpoints.sh` and verifies `/var/myapp/selinux_deploy_report.json` exists. This catches regressions before an admin starts prod canary.
 
 **Staging soak is manual:** merge to `main` triggers staging canary automatically, but there is **no timer** before production — admins must run daily `monitor_avc.sh` and wait 7–14 days before prod canary/enforce.
 
@@ -127,12 +129,14 @@ Manual Ansible (AWX/Tower compatible) uses the same playbooks — see phases bel
 | **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` | `myapp.pp` built, no errors |
 | **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` | `Forbidden-pattern checks passed` |
 | **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh` | `File context verification passed` |
-| **Staging canary** | Permissive domain + integration smoke | Merge to `main` or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.staging.yml` | All **six** endpoints return HTTP 200; `myapp_t` in `semanage permissive -l`; backend active on `:8889` |
+| **Staging canary** | Permissive domain + integration smoke | Merge to `main` or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.staging.yml` | All **six** endpoints return HTTP 200; `myapp_t` in `semanage permissive -l`; backend active on `:8889`; deploy report `"status": "pass"` |
+| **Canary AVC gate** | Block canary if denials already present | `deploy_canary.yml` (default `canary_max_avc=0`) | Playbook fails if recent `myapp_t` AVC count exceeds threshold |
+| **Post-merge staging smoke** | CI re-check after canary on runner | `staging-endpoint-smoke` job in `selinux-staging-canary.yml` | `wait_for_endpoints.sh` passes; deploy report present |
 | **Permissive soak** | Capture weekly cron, logrotate, restarts (7–14 days) | `semanage permissive -a myapp_t` + daily `monitor_avc.sh` | `count=0`, exit 0 |
 | **Production canary host** | Deploy to one node before fleet | `deploy_canary.yml --limit canary` | Marker file written, app + backend healthy |
 | **Enforce gate** | Soak elapsed and zero domain AVCs | `check_soak_ready.sh` (in `enforce_production.yml`) | `Soak gate passed — safe to enforce myapp_t` |
 | **Production enforce** | Remove permissive domain | `ansible/enforce_production.yml` | `semanage permissive -l` empty; **six** production smoke tests pass under enforcing |
-| **Outage response** | Instant relief + AVC capture | `ansible/emergency_rollback.yml` | Domain back in permissive list |
+| **Outage response** | Instant relief + AVC capture | `ansible/emergency_rollback.yml` | Domain back in permissive list; endpoints pass; deploy report written; soak marker reset |
 
 ---
 
@@ -156,6 +160,14 @@ myapp_t
 **Duration:** 7 to 14 days to capture edge workloads — weekly backups, log rotation, certificate renewals, systemd restarts.
 
 The canary playbook records a deploy timestamp at `/var/myapp/selinux_canary_deployed_at` (epoch seconds). Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
+
+**Canary AVC gate:** `deploy_canary.yml` counts recent `myapp_t` AVC lines and **fails** if the count exceeds `canary_max_avc` (default **`0`**). Override only with explicit approval:
+
+```bash
+ansible-playbook ... ansible/deploy_canary.yml -e "canary_max_avc=2"
+```
+
+Do not raise the threshold to bypass missing policy — fix `.te`, redeploy, and re-soak instead.
 
 **List vs add:** `semanage permissive -l` lists domains; `-a` adds, `-d` removes. See [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
 
@@ -259,6 +271,17 @@ type=AVC ... scontext=...:myapp_t:s0 ...
 
 Investigate new AVCs before enforce — extend policy and redeploy canary if needed.
 
+**Optional automation flags:**
+
+```bash
+# JSON output for metrics / log aggregation
+bash scripts/monitor_avc.sh --domain myapp_t --format json --max-avc 0
+
+# Page on-call when threshold exceeded (Slack/PagerDuty-compatible webhook)
+bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0 \
+  --notify-webhook "https://hooks.example.com/selinux-avc"
+```
+
 ---
 
 ## 10. Phase 5 — Production canary host groups
@@ -308,11 +331,15 @@ ansible-playbook ... enforce_production.yml -e "force_enforce=true"
 
 ## 11. Phase 6 — Emergency rollback
 
-If enforce causes an outage:
+If enforce causes an outage, run **`ansible-playbook ... ansible/emergency_rollback.yml`** (or GitHub Actions → **SELinux Policy Deploy** → `rollback`). The playbook performs:
 
-1. **`semanage permissive -a myapp_t`** (via `emergency_rollback.yml`) — instant relief, no reboot
-2. **Export AVCs:** `ausearch -m avc -ts recent > /tmp/prod_outage_denials.log`
-3. **Feed log to AI generator:** `ansible-playbook ansible/emergency_rollback.yml`
+1. **`semanage permissive -a myapp_t`** — instant relief, no reboot
+2. **Remove stale `/var/myapp/notify.sock`**
+3. **Restart** `myapp-backend.service` and `myapp.service`
+4. **`wait_for_endpoints.sh`** — all six HTTP endpoints must return HTTP 200
+5. **Reset soak marker** — writes a new timestamp to `/var/myapp/selinux_canary_deployed_at` (full re-soak required before next enforce)
+6. **`post_deploy_report.sh --phase rollback`** → `/var/myapp/selinux_deploy_report.json`
+7. **Export AVCs** to `/tmp/emergency_avc.log` and optionally run AI patch generation (when `OPENAI_API_KEY` is set)
 
 **Expected relief:**
 
@@ -320,9 +347,14 @@ If enforce causes an outage:
 $ sudo semanage permissive -l
 myapp_t
 
-$ curl -sf http://127.0.0.1:8888/save-log
-{"status":"ok",...}
+$ bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 3 --delay 2
+[INFO] All endpoints ready
+
+$ cat /var/myapp/selinux_deploy_report.json
+{"status":"pass","phase":"rollback",...}
 ```
+
+**After rollback:** export AVCs, extend policy, open a PR, redeploy canary, and **wait the full soak period again** — the marker was reset.
 
 See [`ansible/emergency_rollback.yml`](../ansible/emergency_rollback.yml).
 
@@ -473,7 +505,16 @@ Before you enforce on production, confirm:
 | --- | --- |
 | No over-permissive grants | `forbidden-patterns` |
 | Compilation test | `compile-policy` |
-| Canary readiness | staging canary on merge |
+| Canary readiness | `staging-canary` on merge to `main` |
+| Post-canary endpoint smoke | `staging-endpoint-smoke` (`wait_for_endpoints.sh` + deploy report) |
+| Canary AVC gate at deploy | `deploy_canary.yml` (`canary_max_avc`, default 0) |
+
+**GitHub Actions secrets (optional):**
+
+| Secret | Used by | Purpose |
+|--------|---------|---------|
+| `OPENAI_API_KEY` | `emergency_rollback.yml`, deploy workflow | Emergency policy patch generation |
+| `INCIDENT_WEBHOOK_URL` | [`.github/workflows/selinux-deploy.yml`](../.github/workflows/selinux-deploy.yml) | POST pass/fail notification; Ansible logs uploaded as artifact on failure |
 
 Developer workflow and PR assembly: [README.md](../README.md) and [DEMO_GUIDE.md acts 3–5](DEMO_GUIDE.md).
 

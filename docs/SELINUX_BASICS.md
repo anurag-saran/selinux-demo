@@ -551,8 +551,20 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 5. Canary deploy                       →  semodule -i + semanage permissive -a
 6. Soak + monitor                      →  check_soak_ready.sh, monitor_avc.sh
 7. Enforce                             →  semanage permissive -d myapp_t
-8. Outage?                             →  semanage permissive -a (rollback playbook)
+8. Deploy verification                 →  wait_for_endpoints.sh + selinux_deploy_report.json
+9. Outage?                             →  emergency_rollback.yml (permissive + re-soak)
 ```
+
+**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (all six HTTP paths) and write `/var/myapp/selinux_deploy_report.json`. A failed check blocks the playbook before the fleet is left in a broken state.
+
+### App-visible SELinux signals
+
+The demo app exposes SELinux state so app teams can distinguish policy issues from application bugs:
+
+- **`GET /`** health JSON includes `"selinux": { "mode", "domain", "domain_permissive", "policy_version" }`
+- Permission errors may include `"selinux_context"` alongside `"Permission denied"`
+
+Full triage steps for app teams: [PRODUCTION_READINESS.md §12.5](PRODUCTION_READINESS.md).
 
 Presenter steps: [DEMO_GUIDE.md](DEMO_GUIDE.md). Admin gates: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
 

@@ -443,7 +443,11 @@ Soak marker written: `/var/myapp/selinux_canary_deployed_at` (soak clock starts 
 $ sudo semanage permissive -l
 # (empty — myapp_t not listed)
 
-# enforce_production.yml runs all six production smoke tests:
+# enforce_production.yml runs scripts/wait_for_endpoints.sh (checks systemd + all six endpoints):
+$ bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 15 --delay 2
+[INFO] All endpoints ready
+
+# Equivalent manual curls (what the script checks):
 $ curl -sf http://127.0.0.1:8888/
 $ curl -sf http://127.0.0.1:8888/save-log
 $ curl -sf http://127.0.0.1:8888/run-script
@@ -451,9 +455,12 @@ $ curl -sf http://127.0.0.1:8888/rotate-log
 $ curl -sf http://127.0.0.1:8888/probe-backend
 $ curl -sf http://127.0.0.1:8888/notify-socket
 {"status":"ok",...}
+
+$ cat /var/myapp/selinux_deploy_report.json
+{"status":"pass","phase":"enforce",...}
 ```
 
-Playbook output should show `failed=0` on the **Production smoke tests** task (all six endpoints).
+Playbook output should show `failed=0` on **Production smoke tests (unified endpoint wait)** and **Write enforce deploy report**.
 
 **SELinux concept:** `semanage permissive -d` — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
 
@@ -526,6 +533,9 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `ansible/deploy_canary.yml` | Permissive canary deploy |
 | `ansible/enforce_production.yml` | Remove permissive + enforce |
 | `ansible/emergency_rollback.yml` | Outage response |
+| `scripts/wait_for_endpoints.sh` | Unified systemd + six HTTP endpoint readiness |
+| `scripts/post_deploy_report.sh` | JSON deploy feedback → `/var/myapp/selinux_deploy_report.json` |
+| `scripts/lib/vm_ready.sh` | Podman VM SSH readiness + recovery hints |
 | `.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md` | Admin review template |
 
 ---
