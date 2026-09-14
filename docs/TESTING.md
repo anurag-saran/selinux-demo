@@ -122,7 +122,7 @@ Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selin
 
 | Job | Script / action | Pass criteria |
 |-----|-----------------|---------------|
-| `smoke-tests` | `python3 scripts/smoke_test.py` | All 18 tests pass |
+| `smoke-tests` | `python3 scripts/smoke_test.py` | All smoke tests pass (incl. deterministic fixtures) |
 | `app-manifest` | `scripts/validate_app_manifest.sh` | Demo + onboarding example manifests validate |
 | `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, shadow_t, bin_t execute, etc. |
 | `shellcheck` | `shellcheck scripts/*.sh scripts/lib/*.sh` | No shellcheck errors |

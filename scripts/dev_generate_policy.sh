@@ -10,11 +10,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 GEN="${PROJECT_ROOT}/cli/selinux_gen.py"
+DETERMINISTIC="${PROJECT_ROOT}/cli/deterministic_gen.py"
+VERIFY_AVC="${PROJECT_ROOT}/cli/verify_avc_coverage.py"
+MANIFEST="${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml"
+[[ -f "${MANIFEST}" ]] || MANIFEST="${PROJECT_ROOT}/config/myapp.manifest.yml"
 SELINUX_DIR="${PROJECT_ROOT}/selinux"
 POLICY_OUT="${PROJECT_ROOT}/policy_out"
 AVC_LOG="${POLICY_OUT}/avc.log"
 APP_NAME="${POLICY_APP:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
+ENGINE="${POLICY_ENGINE:-llm}"
 USE_VM=0
 APPLY=0
 ENFORCE_CHECK=0
@@ -37,9 +42,10 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [options]
 
-Developer self-service: export AVCs → AI generate → diff → optional promote to selinux/
+Developer self-service: export AVCs → generate policy → diff → optional promote to selinux/
 
 Options:
+  --engine MODE    llm (default) or deterministic (offline house rules + optional sepolgen)
   --apply          Copy policy_out/{app}.te/.fc into selinux/ after generation
   --enforce-check  Load candidate policy enforcing and run endpoint + domain checks
   --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
@@ -51,7 +57,8 @@ Options:
   -h, --help       Show this help
 
 Environment:
-  OPENAI_API_KEY   Required for AI generation
+  OPENAI_API_KEY   Required for --engine llm
+  POLICY_ENGINE    Default engine if --engine omitted (llm|deterministic)
   OPENAI_BASE_URL  Optional LiteLLM endpoint
   OPENAI_API_MODEL Optional model override
 
@@ -69,6 +76,7 @@ while [[ $# -gt 0 ]]; do
         --open-pr) OPEN_PR=1; APPLY=1; shift ;;
         --use-vm) USE_VM=1; shift ;;
         --skip-export) SKIP_EXPORT=1; shift ;;
+        --engine) ENGINE="$2"; shift 2 ;;
         --app-name) APP_NAME="$2"; DOMAIN="${APP_NAME}_t"; shift 2 ;;
         --staging-host) STAGING_HOST="$2"; shift 2 ;;
         --test-suite) TEST_SUITE="$2"; shift 2 ;;
@@ -78,8 +86,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 require_api_key() {
+    [[ "${ENGINE}" == deterministic ]] && return 0
     [[ -n "${OPENAI_API_KEY:-}" ]] || {
-        log_error "Set OPENAI_API_KEY before running dev_generate_policy.sh"
+        log_error "Set OPENAI_API_KEY or use --engine deterministic"
         exit 1
     }
 }
@@ -120,6 +129,23 @@ export_avcs() {
 }
 
 generate_policy() {
+    if [[ "${ENGINE}" == deterministic ]]; then
+        log_info "Running cli/deterministic_gen.py (offline)..."
+        mkdir -p "${POLICY_OUT}"
+        cp "${SELINUX_DIR}/policy_version.txt" "${POLICY_OUT}/policy_version.txt"
+        python3 "${DETERMINISTIC}" \
+            --avc-log "${AVC_LOG}" \
+            --manifest "${MANIFEST}" \
+            --existing-te "${SELINUX_DIR}/${APP_NAME}.te" \
+            --existing-fc "${SELINUX_DIR}/${APP_NAME}.fc" \
+            --out-dir "${POLICY_OUT}" \
+            --app-name "${APP_NAME}" \
+            --version-file "${POLICY_OUT}/policy_version.txt" \
+            --bump-version
+        bash "${SCRIPT_DIR}/validate_forbidden_patterns.sh" "${POLICY_OUT}"
+        bash "${SCRIPT_DIR}/compile_and_validate.sh" "${POLICY_OUT}"
+        return 0
+    fi
     log_info "Running cli/selinux_gen.py..."
     python3 "${GEN}" \
         --app-name "${APP_NAME}" \
@@ -150,12 +176,22 @@ promote_to_selinux() {
     log_info "Promoting policy_out → selinux/"
     cp "${POLICY_OUT}/${APP_NAME}.te" "${SELINUX_DIR}/${APP_NAME}.te"
     cp "${POLICY_OUT}/${APP_NAME}.fc" "${SELINUX_DIR}/${APP_NAME}.fc"
-    if [[ -f "${SELINUX_DIR}/policy_version.txt" ]]; then
+    if [[ -f "${POLICY_OUT}/policy_version.txt" ]]; then
+        cp "${POLICY_OUT}/policy_version.txt" "${SELINUX_DIR}/policy_version.txt"
+    elif [[ -f "${SELINUX_DIR}/policy_version.txt" ]]; then
         match="$(grep -oE 'policy_module\([^,]+,\s*[0-9.]+\)' "${SELINUX_DIR}/${APP_NAME}.te" \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
         [[ -n "${match}" ]] && echo "${match}" > "${SELINUX_DIR}/policy_version.txt"
     fi
     log_info "Updated ${SELINUX_DIR}/${APP_NAME}.{te,fc} and policy_version.txt"
+}
+
+verify_avc_coverage() {
+    log_info "Verifying AVC log coverage in policy_out/${APP_NAME}.te..."
+    python3 "${VERIFY_AVC}" \
+        --avc-log "${AVC_LOG}" \
+        --te "${POLICY_OUT}/${APP_NAME}.te" \
+        --manifest "${MANIFEST}"
 }
 
 assemble_pr_body() {
@@ -276,6 +312,7 @@ main() {
 
     generate_policy
     show_diff
+    verify_avc_coverage || exit 1
 
     if [[ "${ENFORCE_CHECK}" -eq 1 ]]; then
         run_enforce_check || exit 1

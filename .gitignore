@@ -8,7 +8,7 @@ selinux/*.mod
 policy_out/avc.log
 policy_out/avc_summary.txt
 policy_out/container_build/
-dist/
+docs/examples/fixtures/deterministic/**/_out/
 packaging/rpmbuild/
 cli/.env
 ansible/inventory.staging.yml

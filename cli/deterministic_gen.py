@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+"""
+deterministic_gen.py — Offline, reproducible AVC → policy updates (house rules + optional sepolgen).
+
+Requires PyYAML. Optional RHEL sepolgen: policycoreutils-devel + sepolgen-ifgen.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import yaml  # noqa: E402
+from avc_preprocess import AccessNeed, merge_avc_entries, parse_existing_allows, subtract_covered  # noqa: E402
+from policy_rules import (  # noqa: E402
+    FORBIDDEN_TARGET_TYPES,
+    GENERIC_FILE_TYPES,
+    GENERIC_PORT_TYPES,
+    PATTERN_MACROS,
+    VERDICT_BASELINE,
+    VERDICT_DIRECT,
+    VERDICT_FC,
+    VERDICT_FORBIDDEN,
+    VERDICT_INTERFACE,
+    VERDICT_PORT,
+)
+from selinux_gen import (  # noqa: E402
+    domain_for_app,
+    format_version,
+    parse_avc_line,
+    parse_version,
+    read_policy_version,
+    SELINUX_DIR,
+)
+
+PATH_FIELD_RE = re.compile(r'path="([^"]+)"')
+POLICY_MODULE_RE = re.compile(r"policy_module\(\s*(\w+)\s*,\s*([\d.]+)\s*\)")
+
+
+@dataclass(frozen=True)
+class Finding:
+    need: AccessNeed
+    verdict: str
+    rendered: str
+    note: str
+    paths: tuple[str, ...] = ()
+
+
+def load_manifest(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def domains_from_manifest(manifest: dict) -> set[str]:
+    out = {manifest["domain"]}
+    for svc in manifest.get("services", {}).values():
+        if isinstance(svc, dict) and svc.get("domain"):
+            out.add(str(svc["domain"]))
+    return out
+
+
+def private_types(manifest: dict) -> set[str]:
+    app = manifest["app_name"]
+    return {
+        f"{app}_t",
+        f"{app}_backend_t",
+        f"{app}_exec_t",
+        f"{app}_lib_t",
+        f"{app}_var_lib_t",
+        f"{app}_var_run_t",
+        f"{app}_log_t",
+        f"{app}_script_exec_t",
+        f"{app}_backend_exec_t",
+        f"{app}_port_t",
+        f"{app}_backend_port_t",
+    }
+
+
+def suggest_fc_type(path: str, manifest: dict) -> str | None:
+    app = manifest["app_name"]
+    paths = manifest.get("paths", {})
+    rules = (
+        ("log_dir", "log_t"),
+        ("var_dir", "var_lib_t"),
+        ("runtime_dir", "var_run_t"),
+        ("install_root", "exec_t"),
+    )
+    for key, suffix in rules:
+        root = paths.get(key)
+        if not root:
+            continue
+        base = root.rstrip("/")
+        if path == base or path.startswith(base + "/"):
+            return f"{app}_{suffix}"
+    return None
+
+
+def collapse_to_pattern(perms: frozenset[str]) -> str | None:
+    perm_set = set(perms)
+    for required, macro in PATTERN_MACROS:
+        if required <= perm_set:
+            return macro
+    return None
+
+
+def parse_avc_file(avc_path: Path, domains: set[str]) -> tuple[list, dict[tuple[str, str, str], set[str]]]:
+    from selinux_gen import AvcEntry
+
+    entries: list[AvcEntry] = []
+    paths: dict[tuple[str, str, str], set[str]] = {}
+    for line in avc_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if "type=AVC" not in line:
+            continue
+        entry = parse_avc_line(line)
+        src = entry.scontext.split(":")[2] if entry.scontext.count(":") >= 2 else ""
+        tgt = entry.tcontext.split(":")[2] if entry.tcontext.count(":") >= 2 else ""
+        if src not in domains:
+            continue
+        entries.append(entry)
+        pm = PATH_FIELD_RE.search(line)
+        if pm and tgt and entry.tclass:
+            key = (src, tgt, entry.tclass)
+            paths.setdefault(key, set()).add(pm.group(1))
+    return entries, paths
+
+
+def try_sepolgen_interface(
+    src: str, tgt: str, tclass: str, perms: frozenset[str]
+) -> tuple[str, str] | None:
+    try:
+        import sepolgen.access as access_mod
+        import sepolgen.defaults as defaults
+        import sepolgen.interfaces as interfaces
+        import sepolgen.matching as matching
+    except ImportError:
+        return None
+
+    if_path = defaults.interface_info()
+    try:
+        with open(if_path, encoding="utf-8") as fd:
+            ifset = interfaces.InterfaceSet()
+            ifset.from_file(fd)
+    except OSError:
+        return None
+
+    try:
+        av = access_mod.AccessVector([src, tgt, tclass, *sorted(perms)])
+        matcher = matching.Match()
+        candidates = matcher.search(ifset, av)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if not candidates:
+        return None
+    best = sorted(candidates, key=lambda m: (-getattr(m, "dist", 0), m.interface.name))[0]
+    return f"{best.interface.name}({src})", f"Matched refpolicy interface (distance {getattr(best, 'dist', '?')})."
+
+
+def classify(
+    need: AccessNeed,
+    manifest: dict,
+    paths: tuple[str, ...],
+    existing_te: str,
+) -> Finding:
+    src, tgt, tclass = need.src_type, need.tgt_type, need.tclass
+    perms = need.perms
+
+    if tgt in FORBIDDEN_TARGET_TYPES:
+        return Finding(
+            need,
+            VERDICT_FORBIDDEN,
+            "",
+            f"Refusing to grant {src} access to {tgt}. Denied paths: {', '.join(paths) or 'n/a'}",
+            paths,
+        )
+
+    if tgt in GENERIC_FILE_TYPES:
+        for path in paths:
+            want = suggest_fc_type(path, manifest)
+            if want:
+                fc = f"{re.escape(path)}    gen_context(system_u:object_r:{want},s0)"
+                return Finding(
+                    need,
+                    VERDICT_FC,
+                    fc,
+                    f"{path} is under an app-owned directory but labeled {tgt}. "
+                    f"Fix labeling (.fc + restorecon), do not allow {tgt}.",
+                    paths,
+                )
+
+    if tgt in GENERIC_PORT_TYPES and "name_bind" in perms:
+        app = manifest["app_name"]
+        ptype = f"{app}_port_t"
+        return Finding(
+            need,
+            VERDICT_PORT,
+            f"allow {src} {ptype}:{tclass} name_bind;",
+            f"Use private port type {ptype} and semanage port — not {tgt}.",
+            paths,
+        )
+
+    existing = parse_existing_allows(existing_te)
+    uncovered = need.perms - existing.get(need.key, frozenset())
+    if not uncovered:
+        return Finding(
+            need,
+            VERDICT_BASELINE,
+            "",
+            "Already allowed in existing .te",
+            paths,
+        )
+
+    if tgt in private_types(manifest):
+        macro = collapse_to_pattern(need.perms)
+        if macro and tclass in ("file", "dir"):
+            rendered = f"{macro}({src}, {tgt}, {tgt})"
+        else:
+            perm_list = " ".join(sorted(need.perms))
+            rendered = (
+                f"allow {src} {tgt}:{tclass} {{ {perm_list} }};"
+                if len(need.perms) > 1
+                else f"allow {src} {tgt}:{tclass} {perm_list};"
+            )
+        return Finding(need, VERDICT_DIRECT, rendered, "Module-private type.", paths)
+
+    iface = try_sepolgen_interface(src, tgt, tclass, need.perms)
+    if iface:
+        rendered, note = iface
+        return Finding(need, VERDICT_INTERFACE, rendered, note, paths)
+
+    perm_list = " ".join(sorted(need.perms))
+    rendered = f"allow {src} {tgt}:{tclass} {{ {perm_list} }};"
+    return Finding(
+        need,
+        VERDICT_DIRECT,
+        rendered,
+        "No refpolicy interface matched — review carefully (raw allow on base type).",
+        paths,
+    )
+
+
+def render_fragment(findings: list[Finding], meta: dict) -> str:
+    lines = [
+        "########################################",
+        "# Generated by deterministic_gen.py (reproducible for identical inputs).",
+        f"# avc-sha256-prefix: {meta.get('avc_sha', 'unknown')}",
+        f"# refpolicy-devel:     {meta.get('refpolicy', 'unknown')}",
+        "########################################",
+        "",
+    ]
+    for verdict, heading in (
+        (VERDICT_INTERFACE, "# Refpolicy interfaces"),
+        (VERDICT_DIRECT, "# Module-private / direct access"),
+        (VERDICT_PORT, "# Private port binding"),
+    ):
+        rows = sorted({f.rendered for f in findings if f.verdict == verdict and f.rendered})
+        if rows:
+            lines.append(heading)
+            lines.extend(rows)
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def merge_te(existing_te: str, app_name: str, new_version: str, fragment: str) -> str:
+    te = existing_te
+    if POLICY_MODULE_RE.search(te):
+        te = POLICY_MODULE_RE.sub(f"policy_module({app_name}, {new_version})", te, count=1)
+    if fragment.strip():
+        te = te.rstrip() + "\n\n" + fragment
+    return te if te.endswith("\n") else te + "\n"
+
+
+def merge_fc(existing_fc: str, fc_lines: list[str]) -> str:
+    if not fc_lines:
+        return existing_fc if existing_fc.endswith("\n") else existing_fc + "\n"
+    block = "\n".join(sorted(set(fc_lines))) + "\n"
+    return existing_fc.rstrip() + "\n\n# deterministic_gen labeling fixes\n" + block
+
+
+def write_pr_summary(findings: list[Finding], app_name: str) -> str:
+    lines = [
+        "### Network Bindings",
+        "- See generated port / interface rules below",
+        "",
+        "### File System Access",
+    ]
+    for f in findings:
+        if f.verdict in (VERDICT_DIRECT, VERDICT_FC, VERDICT_INTERFACE):
+            lines.append(f"- {f.need.src_type} → {f.need.tgt_type}:{f.need.tclass} ({f.verdict})")
+    lines.extend(
+        [
+            "",
+            "### Process Execution",
+            f"- {app_name}_exec_t entrypoints unchanged unless .fc fixes applied",
+            "",
+            "### Explicit Denials Maintained",
+            "- No wildcard allows; forbidden targets refused at generation time",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def tool_versions() -> dict[str, str]:
+    def rpm_q(pkg: str) -> str:
+        try:
+            return subprocess.run(
+                ["rpm", "-q", pkg],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return "unknown"
+
+    return {"refpolicy": rpm_q("selinux-policy-devel")}
+
+
+def run(args: argparse.Namespace) -> int:
+    manifest = load_manifest(args.manifest)
+    app_name = manifest.get("app_name", args.app_name)
+    domains = domains_from_manifest(manifest)
+    existing_te = args.existing_te.read_text(encoding="utf-8")
+    existing_fc = args.existing_fc.read_text(encoding="utf-8")
+
+    entries, path_map = parse_avc_file(args.avc_log, domains)
+    merged = merge_avc_entries(entries)
+    net_new, _covered = subtract_covered(merged, parse_existing_allows(existing_te))
+
+    findings: list[Finding] = []
+    for need in net_new:
+        paths = tuple(sorted(path_map.get(need.key, set())))
+        findings.append(classify(need, manifest, paths, existing_te))
+
+    meta = tool_versions()
+    meta["avc_sha"] = hashlib.sha256(args.avc_log.read_bytes()).hexdigest()[:16]
+
+    blockers = [f for f in findings if f.verdict == VERDICT_FORBIDDEN]
+
+    if args.explain:
+        for f in findings:
+            perms = " ".join(sorted(f.need.perms))
+            print(
+                f"[{f.verdict:>12}] {f.need.src_type} → {f.need.tgt_type}:"
+                f"{f.need.tclass} {{{perms}}}"
+            )
+            print(f"               {f.note}")
+            if f.rendered:
+                print(f"               → {f.rendered}")
+        return 1 if blockers else 0
+
+    if blockers:
+        for f in blockers:
+            print(f"REFUSED: {f.note}", file=sys.stderr)
+        return 1
+
+    version_file = args.version_file
+    if args.bump_version:
+        major, minor, patch = parse_version(read_policy_version(version_file))
+        new_version = format_version(major, minor, patch + 1)
+    else:
+        new_version = read_policy_version(version_file)
+        m = POLICY_MODULE_RE.search(existing_te)
+        if m:
+            new_version = m.group(2)
+
+    fragment = render_fragment(findings, meta)
+    fc_fixes = sorted({f.rendered for f in findings if f.verdict == VERDICT_FC and f.rendered})
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    out_te = merge_te(existing_te, app_name, new_version, fragment)
+    out_fc = merge_fc(existing_fc, list(fc_fixes))
+
+    (args.out_dir / f"{app_name}.te").write_text(out_te, encoding="utf-8")
+    (args.out_dir / f"{app_name}.fc").write_text(out_fc, encoding="utf-8")
+    (args.out_dir / "findings.json").write_text(
+        json.dumps(
+            [
+                {
+                    "src": f.need.src_type,
+                    "tgt": f.need.tgt_type,
+                    "class": f.need.tclass,
+                    "perms": sorted(f.need.perms),
+                    "verdict": f.verdict,
+                    "rendered": f.rendered,
+                    "note": f.note,
+                }
+                for f in findings
+            ],
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (args.out_dir / "pr_summary.md").write_text(
+        write_pr_summary(findings, app_name),
+        encoding="utf-8",
+    )
+    if args.bump_version:
+        (args.out_dir / "policy_version.txt").write_text(new_version + "\n", encoding="utf-8")
+
+    if fc_fixes:
+        print("\nLABELING FIXES (.fc — restorecon, do not grant generic types):")
+        for line in fc_fixes:
+            print(f"  {line}")
+
+    print(f"\nWrote {args.out_dir}/{app_name}.{{te,fc}} ({len(findings)} net-new denial(s) classified)")
+    return 0
+
+
+def main() -> int:
+    project_root = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser(description="Deterministic AVC → policy generator")
+    parser.add_argument("--avc-log", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--existing-te", type=Path, required=True)
+    parser.add_argument("--existing-fc", type=Path, required=True)
+    parser.add_argument("--out-dir", type=Path, default=Path("policy_out"))
+    parser.add_argument("--app-name", default="myapp")
+    parser.add_argument("--bump-version", action="store_true")
+    parser.add_argument(
+        "--version-file",
+        type=Path,
+        default=SELINUX_DIR / "policy_version.txt",
+    )
+    parser.add_argument("--explain", action="store_true")
+    args = parser.parse_args()
+    return run(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

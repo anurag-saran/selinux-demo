@@ -492,6 +492,70 @@ def test_skip_ai_fixture_sync() -> None:
         ).read_text(encoding="utf-8"), f"Drift in skip_ai/generated/{name} — run refresh_skip_ai_fixture.sh"
 
 
+def test_deterministic_fixture_classify() -> None:
+    """Golden verdict checks for deterministic_gen --explain (no sepolgen required)."""
+    root = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "deterministic"
+    manifest = PROJECT_ROOT / "config" / "myapp.manifest.yml"
+    te = PROJECT_ROOT / "selinux" / "myapp.te"
+    fc = PROJECT_ROOT / "selinux" / "myapp.fc"
+    gen = PROJECT_ROOT / "cli" / "deterministic_gen.py"
+
+    for case in ("01-mislabeled-var-lib", "03-shadow-read"):
+        case_dir = root / case
+        expected = json.loads((case_dir / "expected.json").read_text(encoding="utf-8"))
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(gen),
+                "--explain",
+                "--avc-log",
+                str(case_dir / "avc.log"),
+                "--manifest",
+                str(manifest),
+                "--existing-te",
+                str(te),
+                "--existing-fc",
+                str(fc),
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if case == "03-shadow-read":
+            assert result.returncode == 1, result.stdout + result.stderr
+        else:
+            assert result.returncode == 0, result.stderr + result.stdout
+        findings = subprocess.run(
+            [
+                sys.executable,
+                str(gen),
+                "--avc-log",
+                str(case_dir / "avc.log"),
+                "--manifest",
+                str(manifest),
+                "--existing-te",
+                str(te),
+                "--existing-fc",
+                str(fc),
+                "--out-dir",
+                str(case_dir / "_out"),
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if case == "03-shadow-read":
+            assert findings.returncode == 1
+            continue
+        assert findings.returncode == 0, findings.stderr
+        payload = json.loads((case_dir / "_out" / "findings.json").read_text(encoding="utf-8"))
+        for want in expected:
+            assert any(
+                row.get("verdict") == want["verdict"] and row.get("tgt") == want["tgt"]
+                for row in payload
+            ), f"{case}: missing {want} in {payload}"
+
+
 def main() -> int:
     import argparse
 
@@ -532,6 +596,7 @@ def main() -> int:
         ("rpm_ops_parity", test_rpm_ops_parity),
         ("classify_fail_closed_json", test_classify_fail_closed_json),
         ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
+        ("deterministic_fixture_classify", test_deterministic_fixture_classify),
     ]
     for name, fn in tests:
         fn()
