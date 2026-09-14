@@ -214,9 +214,10 @@ Python deps (`openai`, `pyyaml`, etc.) for the CLI.
 | Script | What it does | Core logic |
 |--------|----------------|------------|
 | **`compile_and_validate.sh`** | Wrapper: compile module + basic checks. | Sources **`lib/compile_policy.sh`**. |
-| **`lib/compile_policy.sh`** | **`compile_policy_module`**: refpolicy Makefile **natively or in Podman**. Pull-first **`docker.io/asaran/selinux-demo-selinux-build:ubi9`** (UBI 9); local build fallback. Slow path: `dnf` on UBI base. |
+| **`lib/compile_policy.sh`** | **`compile_policy_module`**: refpolicy Makefile **natively or in Podman**. Pull-first **`docker.io/asaran/selinux-demo-selinux-build:stream9`** (Stream 9 build). |
 | **`lib/selinux_build_image.sh`** | Defaults, **`pull_selinux_build_image`**, **`ensure_selinux_build_image`**. |
-| **`build_selinux_compile_image.sh`** | Builds [`packaging/Containerfile.selinux-build`](../packaging/Containerfile.selinux-build) (UBI 9 + devel + setools). |
+| **`build_selinux_compile_image.sh`** | Builds [`packaging/Containerfile.selinux-build`](../packaging/Containerfile.selinux-build) (Stream 9 or RHEL 9 base). |
+| **`repair_podman_machine.sh`** | macOS: reset Podman Machine + `vfs` storage workaround. |
 | **`publish_selinux_compile_image.sh`** | Push to Docker Hub (`asaran/selinux-demo-selinux-build`) for Red Hat demos. |
 | **`compile_module.sh`** | CLI wrapper used by **`selinux_gen.py`** and local compiles. |
 | **`validate_forbidden_patterns.sh`** | Fast grep + Python checks on `.te`. | Fails on wildcards, `bin_t` execute, `require { type myapp_* }`, privileged targets, broad `var_t` write. |
@@ -330,7 +331,7 @@ Inventories (`inventory.*.example.yml`) show lab vs production variable patterns
 
 | File | Purpose |
 |------|---------|
-| **`Containerfile.selinux-build`** | Pre-baked **UBI 9** image (`selinux-policy-devel`, setools, targeted policy) for fast Podman compiles. See [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md). |
+| **`Containerfile.selinux-build`** | Pre-baked **CentOS Stream 9** image (`selinux-policy-devel`, setools, targeted policy) for fast Podman compiles. See [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md). |
 | **`build_rpms.sh`** | Reads version from **`version.sh`**, runs `rpmbuild` with `modver` define. |
 | **`myapp-selinux.spec`** | Packages `.pp`, `%selinux_modules_install`, relabel macros, `%post` port registration. **`Version: %{modver}`** — not hardcoded. |
 | **`selinux-policy-ops.spec`** | Ships operational scripts to `/usr/libexec` for production hosts without git. |
@@ -341,7 +342,7 @@ Inventories (`inventory.*.example.yml`) show lab vs production variable patterns
 
 | Workflow | When | Main jobs |
 |----------|------|-----------|
-| **`selinux-policy-ci.yml`** | PR / push | `smoke`, `app-manifest`, `forbidden-patterns`, **`version-consistency`**, **`blast-radius`**, `compile` (pull/ensure UBI compile image), `policy-semantics`, **`policy-diff-comment`**, `ansible-lint`, etc. |
+| **`selinux-policy-ci.yml`** | PR / push | `smoke`, `app-manifest`, `forbidden-patterns`, **`version-consistency`**, **`blast-radius`**, `compile` (pull/ensure Stream compile image), `policy-semantics`, **`policy-diff-comment`**, `ansible-lint`, etc. |
 | **`selinux-staging-canary.yml`** | Merge to main | Self-hosted staging canary + endpoint smoke. |
 | **`selinux-deploy.yml`** | Manual dispatch | Admin canary / enforce / rollback on environments. |
 
@@ -371,7 +372,7 @@ These fixtures **lock in** soak tier logic — change classifier only with fixtu
 | **[SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md)** | Do/don’t for policy authors |
 | **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Live presentation script |
 | **[DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md)** | Default offline engine, sepolgen banners, `findings.json`, fixture index |
-| **[DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md)** | UBI 9 compile image on Docker Hub, pull-first, publish |
+| **[DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md)** | CentOS Stream 9 compile image on Docker Hub, pull-first, publish |
 | **`examples/fixtures/deterministic/`** | Golden AVC → verdict fixtures (smoke-tested) |
 | **`examples/`** | Static PR body samples when you cannot run assemble live |
 

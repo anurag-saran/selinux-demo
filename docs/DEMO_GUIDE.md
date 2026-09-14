@@ -557,7 +557,7 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `connection refused` before compile | Podman machine stopped | `compile_and_validate.sh` now waits for VM — retry; run `bash scripts/fix_podman.sh` |
 | No AVC lines exported | `wc -l` shows 0 | Re-run Act 1; check `systemctl status auditd` |
 | AI generation fails | HTTP/timeout errors | Check `OPENAI_BASE_URL`; use `--skip-ai` |
-| Compile fails on macOS | Podman/checkmodule error | `bash scripts/lib/selinux_build_image.sh pull` (UBI 9 image); use `--use-vm`; see [`DOCKER_HUB_COMPILE_IMAGE.md`](DOCKER_HUB_COMPILE_IMAGE.md) |
+| Compile fails on macOS | Podman/checkmodule error | `bash scripts/lib/selinux_build_image.sh pull` (CentOS Stream 9 image); use `--use-vm`; see [`DOCKER_HUB_COMPILE_IMAGE.md`](DOCKER_HUB_COMPILE_IMAGE.md) |
 | Enforce fails (no demo mode) | `Soak period not met` | Use `--demo-mode` for workshops |
 | `/notify-socket` fails after enforce | Stale socket or backend not listening | Check `journalctl -u myapp-backend`; Ansible removes stale socket before restart |
 | `/probe-backend` Permission denied | Missing TCP `getopt` or backend down | Confirm `:8889/health`; check AVC for `tcp_socket getopt` |

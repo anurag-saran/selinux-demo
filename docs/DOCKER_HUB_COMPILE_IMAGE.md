@@ -1,30 +1,42 @@
-# SELinux compile image (Docker Hub / UBI 9)
+# SELinux compile image (CentOS Stream 9 / Docker Hub)
 
-Red Hat demo hosts pull a pre-baked **UBI 9** image with `selinux-policy-devel`, `setools`, and targeted policy — no per-run `dnf`.
+Pre-baked **CentOS Stream 9** image with `selinux-policy-devel`, `setools-console`, and targeted policy. Matches **RHEL 9 deploys** (Stream is RHEL upstream). No per-run `dnf` on compile.
 
-Related: [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) (default generator), [TESTING.md](TESTING.md) §4 CI compile jobs, [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md) (`lib/selinux_build_image.sh`).
-
-## Default image
+## Default image (pull-first)
 
 ```text
-docker.io/asaran/selinux-demo-selinux-build:ubi9
+docker.io/asaran/selinux-demo-selinux-build:stream9
 ```
 
-Also tagged `:latest` when published with `SELINUX_BUILD_IMAGE_PUSH_LATEST=1` (default).
+Also tagged `:latest` when published (`SELINUX_BUILD_IMAGE_PUSH_LATEST=1`, default).
 
-## Demo laptop / CI
+## Quick use
 
 ```bash
-export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:ubi9
-bash scripts/lib/selinux_build_image.sh pull   # or ensure (pull → local build)
-bash scripts/dev_generate_policy.sh --skip-export
+export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:stream9
+bash scripts/lib/selinux_build_image.sh pull    # or ensure
+bash scripts/compile_and_validate.sh selinux
 ```
 
-`ensure_selinux_build_image` (used by compile scripts) runs **pull-first** when `SELINUX_BUILD_IMAGE_PULL=1` (default).
+`ensure_selinux_build_image` runs before compiles when `SELINUX_BUILD_IMAGE_PULL=1` (default).
 
-## Publish (maintainer)
+## Build locally
 
-Use a [Docker Hub access token](https://hub.docker.com/settings/security) — **do not commit passwords or tokens**.
+Uses **`quay.io/centos/centos:stream9`** (override with `SELINUX_BUILD_BASE_IMAGE`):
+
+```bash
+bash scripts/build_selinux_compile_image.sh
+```
+
+On **macOS**, if Podman hits overlay errors:
+
+```bash
+source "${HOME}/.local/share/selinux-demo/podman/env.sh"
+bash scripts/repair_podman_machine.sh
+bash scripts/build_selinux_compile_image.sh
+```
+
+## Publish to Docker Hub
 
 ```bash
 export DOCKERHUB_USER=asaran
@@ -32,19 +44,27 @@ export DOCKERHUB_TOKEN='…'
 bash scripts/publish_selinux_compile_image.sh
 ```
 
-Builds from [`packaging/Containerfile.selinux-build`](../packaging/Containerfile.selinux-build) (`registry.access.redhat.com/ubi9/ubi:latest`). On subscription-entitled builders:
+## Later: subscribed RHEL base (optional)
+
+When you want the container `FROM` to be RHEL instead of Stream:
 
 ```bash
-export SELINUX_BUILD_BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4
 podman login registry.redhat.io
+export SELINUX_BUILD_BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4
+bash scripts/build_selinux_compile_image.sh
 bash scripts/publish_selinux_compile_image.sh
 ```
 
-## Overrides
+Same Hub tag (`:stream9`) can still be used; the image contents were built on RHEL.
+
+## Environment
 
 | Variable | Default |
 |----------|---------|
-| `SELINUX_BUILD_IMAGE` | `docker.io/asaran/selinux-demo-selinux-build:ubi9` |
+| `SELINUX_BUILD_IMAGE` | `docker.io/asaran/selinux-demo-selinux-build:stream9` |
+| `SELINUX_BUILD_BASE_IMAGE` | `quay.io/centos/centos:stream9` |
+| `SELINUX_COMPILE_IMAGE` | `quay.io/centos/centos:stream9` (slow path) |
 | `SELINUX_BUILD_IMAGE_PULL` | `1` |
-| `SELINUX_BUILD_IMAGE_AUTO` | `1` (local build if pull fails) |
-| `SELINUX_COMPILE_IMAGE` | `registry.access.redhat.com/ubi9/ubi:latest` (slow path) |
+| `SELINUX_BUILD_IMAGE_AUTO` | `1` |
+
+Related: [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [TESTING.md](TESTING.md).

@@ -111,7 +111,7 @@ SMOKE_REQUIRE_BACKEND=0 python3 scripts/smoke_test.py
 |------|---------|---------------------|
 | CLI + flask smoke | `python3 scripts/smoke_test.py` | No |
 | Forbidden patterns | `bash scripts/validate_forbidden_patterns.sh selinux` | No |
-| Compile | `bash scripts/lib/selinux_build_image.sh ensure` then `bash scripts/compile_and_validate.sh selinux` | Podman (UBI 9 compile image; pull-first) or RHEL devel |
+| Compile | `bash scripts/lib/selinux_build_image.sh ensure` then `bash scripts/compile_and_validate.sh selinux` | Podman (CentOS Stream 9 compile image; pull-first) or RHEL devel |
 | Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Podman |
 | Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes |
 | AI / deterministic generate | `bash scripts/dev_generate_policy.sh --use-vm --apply` (default engine: deterministic) | Yes (or `--use-vm`) |
@@ -136,7 +136,7 @@ Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selin
 | `blast-radius` | `scripts/lib/selinux_build_image.sh ensure` + `scripts/run_blast_radius_fixtures.sh` | All [`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/) tiers match; corrupt input fail-closed |
 | `policy-diff-comment` | `scripts/ci/post_pr_policy_diff_comment.sh` | PR comment with merge-base sesearch access delta (PRs only) |
 | `yamllint` | `yamllint ansible/ .github/workflows/` | YAML style clean |
-| `compile-policy` | `selinux_build_image.sh ensure` + `scripts/compile_and_validate.sh selinux` | `.pp` builds in **UBI 9** compile image; artifact uploaded |
+| `compile-policy` | `selinux_build_image.sh ensure` + `scripts/compile_and_validate.sh selinux` | `.pp` builds in **CentOS Stream 9** compile image; artifact uploaded |
 | `ansible-lint` | `ansible-lint ansible/*.yml` | Playbooks lint clean |
 | `policy-semantics` | `scripts/validate_policy_semantics.sh selinux` | No shadow/unlabeled/foreign entrypoint (container `--direct` sesearch) |
 

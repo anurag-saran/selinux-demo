@@ -1,24 +1,19 @@
-# Pre-baked Red Hat UBI 9 / RHEL 9 image for refpolicy Makefile builds and sesearch checks.
+# Pre-baked compile image for RHEL 9 policy ABI (refpolicy Makefile).
 #
-# Demo default: UBI 9 (Red Hat-published, RHEL-compatible userspace).
-# Subscribed build hosts may pass:
-#   podman build --build-arg BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4 …
+# Default: CentOS Stream 9 (RHEL 9 upstream; selinux-policy-devel in AppStream).
+# Optional subscribed base: SELINUX_BUILD_BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4
 #
 # Build:  bash scripts/build_selinux_compile_image.sh
 # Publish: DOCKERHUB_TOKEN=… bash scripts/publish_selinux_compile_image.sh
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:latest
+ARG BASE_IMAGE=quay.io/centos/centos:stream9
 FROM ${BASE_IMAGE}
 
-RUN dnf -y install dnf-plugins-core \
-    && dnf config-manager --enable ubi-9-appstream-rpms 2>/dev/null || true \
-    && dnf config-manager --enable ubi-9-codeready-builder-rpms 2>/dev/null || true \
-    && dnf config-manager --enable crb 2>/dev/null || true \
-    && dnf -y install \
-        selinux-policy-devel \
-        checkpolicy \
-        policycoreutils \
-        selinux-policy-targeted \
-        setools \
+RUN dnf install -y -q \
+    selinux-policy-devel \
+    checkpolicy \
+    policycoreutils \
+    setools-console \
+    selinux-policy-targeted \
     && dnf clean all
 
 WORKDIR /build

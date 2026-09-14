@@ -10,7 +10,7 @@ Shift-left DevSecOps workflow: application teams version-control SELinux policy 
 App change → staging (permissive myapp_t) → AVC logs
     → cli/deterministic_gen.py (default) or selinux_gen.py (LLM)
     → merge + version bump + pr_summary.md + findings.json
-    → PR review → compile_and_validate.sh (UBI 9 compile image, pull-first)
+    → PR review → compile_and_validate.sh (CentOS Stream 9 compile image, pull-first)
     → ansible/deploy_canary.yml → ansible/enforce_production.yml
 ```
 
@@ -91,8 +91,8 @@ Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansibl
 pip3 install -r cli/requirements.txt
 export OPENAI_API_KEY="your-key"   # only for --engine llm
 
-# macOS / laptop without native selinux-policy-devel: pull prebuilt **UBI 9** image (Red Hat demo), or build once
-export SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-docker.io/asaran/selinux-demo-selinux-build:ubi9}"
+# macOS / laptop without native selinux-policy-devel: pull prebuilt **CentOS Stream 9** image (Red Hat demo), or build once
+export SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-docker.io/asaran/selinux-demo-selinux-build:stream9}"
 # Pull-first on first compile (SELINUX_BUILD_IMAGE_PULL=1, default). See [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md).
 
 # Staging + tests (native Linux)
@@ -199,7 +199,7 @@ Local equivalents:
 ```bash
 python3 scripts/smoke_test.py
 bash scripts/validate_forbidden_patterns.sh selinux
-bash scripts/lib/selinux_build_image.sh pull    # or ensure (pull → local UBI9 build)
+bash scripts/lib/selinux_build_image.sh pull    # or ensure (pull → local CentOS Stream 9 build)
 bash scripts/compile_and_validate.sh selinux      # refpolicy Makefile in compile image
 bash scripts/validate_policy_semantics.sh selinux   # sesearch assertions (CI: policy-semantics job)
 bash scripts/validate_version_consistency.sh      # version SSOT (CI: version-consistency)
@@ -387,7 +387,7 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 | Guide | For |
 |-------|-----|
 | [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) | **Default generator** — house rules, sepolgen banners, `findings.json`, fixture catalog |
-| [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) | **Red Hat demo compiles** — UBI 9 image on Docker Hub, pull-first env vars, publish script |
+| [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) | **Red Hat demo compiles** — CentOS Stream 9 image on Docker Hub, pull-first env vars, publish script |
 | [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | **Code tour** — every major directory/file, algorithms (AVC merge, policy diff, blast radius, soak gates) |
 | [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
 | [docs/TESTING.md](docs/TESTING.md) | **All test cases** — six HTTP endpoints, `smoke_test.py`, CI jobs, soak/enforce gates |

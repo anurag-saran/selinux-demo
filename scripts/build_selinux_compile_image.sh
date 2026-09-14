@@ -27,18 +27,12 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "${SCRIPT_DIR}/lib/vm_ready.sh" ]]; 
 fi
 
 start=$(date +%s)
-if [[ -n "${SELINUX_BUILD_BASE_IMAGE:-}" ]]; then
-    podman build \
-        --build-arg "BASE_IMAGE=${SELINUX_BUILD_BASE_IMAGE}" \
-        --tag "${IMAGE}" \
-        --file "${PROJECT_ROOT}/packaging/Containerfile.selinux-build" \
-        "${PROJECT_ROOT}"
-else
-    podman build \
-        --tag "${IMAGE}" \
-        --file "${PROJECT_ROOT}/packaging/Containerfile.selinux-build" \
-        "${PROJECT_ROOT}"
-fi
+echo "[INFO] Building from BASE_IMAGE=${SELINUX_BUILD_BASE_IMAGE}" >&2
+podman build \
+    --build-arg "BASE_IMAGE=${SELINUX_BUILD_BASE_IMAGE}" \
+    --tag "${IMAGE}" \
+    --file "${PROJECT_ROOT}/packaging/Containerfile.selinux-build" \
+    "${PROJECT_ROOT}"
 elapsed=$(( $(date +%s) - start ))
 echo "Built ${IMAGE} in ${elapsed}s."
 echo "Publish for demos: DOCKERHUB_TOKEN=… bash scripts/publish_selinux_compile_image.sh"

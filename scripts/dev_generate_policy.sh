@@ -60,7 +60,7 @@ Environment:
   OPENAI_API_KEY   Required for --engine llm
   POLICY_ENGINE    Default engine if --engine omitted (deterministic|llm)
   POLICY_ALLOW_DEGRADED  Pass --allow-degraded to deterministic_gen when sepolgen missing
-  SELINUX_BUILD_IMAGE  Prebuilt UBI9 compile image (default: docker.io/asaran/selinux-demo-selinux-build:ubi9)
+  SELINUX_BUILD_IMAGE  Prebuilt compile image (default: docker.io/asaran/selinux-demo-selinux-build:stream9; built from CentOS Stream 9)
   SELINUX_BUILD_IMAGE_PULL  Pull from Docker Hub before local build (default: 1)
   SELINUX_BUILD_IMAGE_AUTO  Build image locally when pull fails (default: 1)
   OPENAI_BASE_URL  Optional LiteLLM endpoint

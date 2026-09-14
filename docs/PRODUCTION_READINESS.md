@@ -130,7 +130,7 @@ See also: [`TESTING.md`](TESTING.md) (full endpoint → policy mapping and `smok
 
 | Phase | Goal | Command / playbook | **Pass looks like** |
 | --- | --- | --- | --- |
-| **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/lib/selinux_build_image.sh ensure` + `bash scripts/compile_and_validate.sh selinux` (UBI 9 Podman image or native RHEL devel) | `myapp.pp` built, no errors |
+| **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/lib/selinux_build_image.sh ensure` + `bash scripts/compile_and_validate.sh selinux` (CentOS Stream 9 Podman image or native RHEL devel) | `myapp.pp` built, no errors |
 | **Semantic assertions** | Required allows present in compiled module | `bash scripts/validate_policy_semantics.sh selinux` (CI `policy-semantics` job) | `sesearch` checks pass |
 | **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` | `Forbidden-pattern checks passed` |
 | **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp` | `File context verification passed` |
@@ -546,6 +546,6 @@ Developer workflow and PR assembly: [README.md](../README.md) and [DEMO_GUIDE.md
 | [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Acts 1–2 discovery; Acts 6–10 admin soak/enforce | Workshop observers |
 | [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
-| [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) | UBI 9 compile image pull-first | Demo laptops / CI |
+| [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) | CentOS Stream 9 compile image pull-first | Demo laptops / CI |
 | **This file** | §3.5 soak; §5–14 phases and checklist | RHEL admins |
 | [README.md](../README.md) | Deploy paths + GitHub Actions | Day-to-day commands |

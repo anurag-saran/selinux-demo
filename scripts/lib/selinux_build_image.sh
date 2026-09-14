@@ -2,19 +2,21 @@
 #
 # selinux_build_image.sh — Defaults and pull-first helpers for the pre-baked compile image.
 #
-# Red Hat demo: UBI 9 base, published to Docker Hub (asaran/selinux-demo-selinux-build).
-# Override SELINUX_BUILD_IMAGE for a private registry or local tag.
+# Red Hat demo: compile image on Docker Hub (asaran/selinux-demo-selinux-build:stream9).
+# Default build base: CentOS Stream 9 (RHEL 9 upstream). Optional: SELINUX_BUILD_BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4
 #
 set -euo pipefail
 
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${_LIB_DIR}/../.." && pwd)"
 
-# Docker Hub pull-first (demo / CI). Podman accepts short names; pull uses fully qualified ref.
-SELINUX_BUILD_IMAGE_DEFAULT="docker.io/asaran/selinux-demo-selinux-build:ubi9"
+# Docker Hub pull-first (demo / CI).
+SELINUX_BUILD_IMAGE_DEFAULT="docker.io/asaran/selinux-demo-selinux-build:stream9"
 SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-${SELINUX_BUILD_IMAGE_DEFAULT}}"
+SELINUX_BUILD_BASE_IMAGE_DEFAULT="quay.io/centos/centos:stream9"
+SELINUX_BUILD_BASE_IMAGE="${SELINUX_BUILD_BASE_IMAGE:-${SELINUX_BUILD_BASE_IMAGE_DEFAULT}}"
 # Slow-path base when compile image is missing (dnf install each run).
-SELINUX_COMPILE_IMAGE="${SELINUX_COMPILE_IMAGE:-registry.access.redhat.com/ubi9/ubi:latest}"
+SELINUX_COMPILE_IMAGE="${SELINUX_COMPILE_IMAGE:-quay.io/centos/centos:stream9}"
 SELINUX_BUILD_IMAGE_AUTO="${SELINUX_BUILD_IMAGE_AUTO:-1}"
 # Try registry pull before local build (seconds on demo laptops).
 SELINUX_BUILD_IMAGE_PULL="${SELINUX_BUILD_IMAGE_PULL:-1}"

@@ -80,6 +80,8 @@ EOF
 #   source "${ENV_FILE}"
 export PATH="${PODMAN_HOME}/bin:\${PATH}"
 export CONTAINERS_CONF="${PODMAN_CONF}"
+# macOS Podman Machine: avoid overlay readlink bugs during image builds
+export CONTAINERS_STORAGE_DRIVER="\${CONTAINERS_STORAGE_DRIVER:-vfs}"
 EOF
 }
 
@@ -101,7 +103,7 @@ init_machine() {
 
     if ! podman machine list | grep -q "podman-machine-default"; then
         log_info "Initializing podman machine (first run may take a few minutes)..."
-        podman machine init --cpus 2 --memory 4096 --disk-size 40
+        podman machine init --rootful --cpus 2 --memory 4096 --disk-size 60
     fi
 
     if ! machine_ready; then

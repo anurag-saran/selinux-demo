@@ -30,12 +30,12 @@ Do not confuse missing ifgen with “no interface matched” — the latter is l
 
 ## Fast compiles (Podman / Red Hat demo)
 
-**Demo default:** pull pre-built **UBI 9** image from Docker Hub (seconds):
+**Demo default:** pull pre-built **CentOS Stream 9** image from Docker Hub (seconds):
 
 ```bash
 bash scripts/lib/selinux_build_image.sh pull
 # or: bash scripts/lib/selinux_build_image.sh ensure   # pull → local build if needed
-export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:ubi9   # optional override
+export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:stream9   # optional override
 ```
 
 Details: [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md). Local build (~2–4 min): `bash scripts/build_selinux_compile_image.sh`. Maintainers publish with `scripts/publish_selinux_compile_image.sh` (Hub token via env only).
