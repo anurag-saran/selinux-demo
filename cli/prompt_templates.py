@@ -74,6 +74,7 @@ PR_SUMMARY FORMAT (pr_summary field — required headings):
 - no shadow_t, unconfined_t, sysadm_t, wildcard allows, bin_t execute, unreserved_port_t bind
 
 FILE CONTEXTS (fc_content) — FHS paths, NO `--` file-type suffix on directories:
+- Prefer ONE directory regex per tree (e.g. /var/lib/myapp(/.*)? for all state files). Do NOT add a separate line per file when the directory pattern already assigns the correct type — mislabeled files need restorecon, not new .fc lines.
 /opt/myapp                                 gen_context(system_u:object_r:myapp_exec_t,s0)
 /opt/myapp/app\\.py                         gen_context(system_u:object_r:myapp_exec_t,s0)
 /opt/myapp/backend_stub\\.py                gen_context(system_u:object_r:myapp_backend_exec_t,s0)

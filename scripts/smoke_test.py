@@ -588,6 +588,11 @@ def test_deterministic_fixture_classify() -> None:
                 row.get("verdict") == want["verdict"] and row.get("tgt") == want["tgt"]
                 for row in payload
             ), f"{case}: missing {want} in {payload}"
+        if case == "01-mislabeled-var-lib":
+            out_fc = (case_dir / "_out" / "myapp.fc").read_text(encoding="utf-8")
+            assert out_fc == fc.read_text(encoding="utf-8"), (
+                f"{case}: .fc must not grow per-file lines when directory regex already covers path"
+            )
 
 
 def test_deterministic_interface_verdict() -> None:
@@ -635,6 +640,26 @@ def test_deterministic_baseline_verdict() -> None:
     assert finding.verdict == VERDICT_BASELINE
 
 
+def test_fc_labeling_drift_detection() -> None:
+    from fc_labeling import existing_fc_covers, filter_fc_fix_lines, strip_redundant_fc_lines
+
+    baseline = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
+    path = "/var/lib/myapp/data.log"
+    assert existing_fc_covers(path, "myapp_var_lib_t", baseline)
+
+    redundant_line = (
+        r"/var/lib/myapp/data\.log    gen_context(system_u:object_r:myapp_var_lib_t,s0)"
+    )
+    kept, dropped = filter_fc_fix_lines(baseline, [redundant_line], {redundant_line: path})
+    assert not kept
+    assert dropped == [redundant_line]
+
+    bloated = baseline.rstrip() + "\n" + redundant_line + "\n"
+    trimmed = strip_redundant_fc_lines(baseline, bloated)
+    assert redundant_line not in trimmed
+    assert "/var/lib/myapp(/.*)?" in trimmed
+
+
 def main() -> int:
     import argparse
 
@@ -679,6 +704,7 @@ def main() -> int:
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
         ("deterministic_interface_verdict", test_deterministic_interface_verdict),
         ("deterministic_baseline_verdict", test_deterministic_baseline_verdict),
+        ("fc_labeling_drift_detection", test_fc_labeling_drift_detection),
     ]
     if os.environ.get("SMOKE_SKIP_FLASK") == "1":
         tests = [t for t in tests if t[0] != "flask_endpoints"]

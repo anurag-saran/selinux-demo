@@ -39,7 +39,8 @@ Subsequent `compile_and_validate.sh` / `--enforce-check` runs use the cached ima
 
 | Verdict | Meaning |
 |---------|---------|
-| `fc_fix` | Path under manifest dirs but generic target type → `.fc` + `restorecon`, not `allow` |
+| `fc_fix` | Path under manifest dirs but **no** matching `.fc` regex yet → add directory/file pattern + `restorecon` |
+| `fc_drift` | Path already covered by an existing `.fc` regex but wrong label on disk → **`restorecon` only** (no new `.fc` line) |
 | `private_port` | `name_bind` on shared port type → app `_port_t` |
 | `forbidden` | Refused (`shadow_t`, etc.) — same spirit as CI forbidden patterns |
 | `baseline` | Already in existing `.te` |
@@ -55,13 +56,13 @@ python3 cli/verify_avc_coverage.py --avc-log policy_out/avc.log \
   --te policy_out/myapp.te --manifest config/myapp.manifest.yml
 ```
 
-Labeling fixes (`fc_fix`) are satisfied via `findings.json`, not allow rules.
+Labeling fixes (`fc_fix`, `fc_drift`) are satisfied via `findings.json`, not allow rules. Shared logic: **`cli/fc_labeling.py`** (also strips redundant lines from LLM `.fc` output).
 
 ## Engines
 
 | Command | Engine |
 |---------|--------|
-| `dev_generate_policy.sh` (default) | LLM (`cli/selinux_gen.py`) |
-| `dev_generate_policy.sh --engine deterministic` | `cli/deterministic_gen.py` |
+| `dev_generate_policy.sh` (default) | `cli/deterministic_gen.py` |
+| `dev_generate_policy.sh --engine llm` | LLM (`cli/selinux_gen.py`) |
 
 Fixtures: [`docs/examples/fixtures/deterministic/`](examples/fixtures/deterministic/).

@@ -33,6 +33,7 @@ from prompt_templates import (  # noqa: E402
     build_fix_prompt,
     build_user_prompt,
 )
+from fc_labeling import strip_redundant_fc_lines  # noqa: E402
 
 DEFAULT_APP_NAME = "myapp"
 DEFAULT_DOMAIN = "myapp_t"
@@ -744,6 +745,12 @@ def main() -> int:
         max_attempts=args.max_retries,
         validate_compile=validate_compile,
     )
+
+    if existing_fc.strip():
+        before = str(policy_data["fc_content"])
+        policy_data["fc_content"] = strip_redundant_fc_lines(existing_fc, before)
+        if policy_data["fc_content"].strip() != before.strip():
+            print("Stripped redundant .fc lines (label drift — use restorecon, not per-file entries).")
 
     print("\n--- Rationale ---")
     print(policy_data["rationale"])

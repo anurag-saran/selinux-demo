@@ -43,12 +43,13 @@ from selinux_gen import (  # noqa: E402
     SELINUX_DIR,
 )
 
+from fc_labeling import (  # noqa: E402
+    existing_fc_covers,
+    filter_fc_fix_lines,
+)
+
 PATH_FIELD_RE = re.compile(r'path="([^"]+)"')
 POLICY_MODULE_RE = re.compile(r"policy_module\(\s*(\w+)\s*,\s*([\d.]+)\s*\)")
-FC_LINE_RE = re.compile(
-    r"^\s*(?P<pattern>\S+)\s+gen_context\(system_u:object_r:(?P<type>\w+),",
-    re.MULTILINE,
-)
 
 SEPOLGEN_UNAVAILABLE = object()
 
@@ -109,20 +110,6 @@ def suggest_fc_type(path: str, manifest: dict) -> str | None:
         if path == base or path.startswith(base + "/"):
             return f"{app}_{suffix}"
     return None
-
-
-def existing_fc_covers(path: str, want_type: str, fc_text: str) -> bool:
-    """True when an existing .fc regex already assigns want_type to path."""
-    for match in FC_LINE_RE.finditer(fc_text):
-        if match.group("type") != want_type:
-            continue
-        pattern = match.group("pattern")
-        try:
-            if re.match(f"^{pattern}$", path):
-                return True
-        except re.error:
-            continue
-    return False
 
 
 def collapse_to_pattern(perms: frozenset[str]) -> str | None:
@@ -361,10 +348,13 @@ def merge_te(existing_te: str, app_name: str, new_version: str, fragment: str) -
     return te if te.endswith("\n") else te + "\n"
 
 
-def merge_fc(existing_fc: str, fc_lines: list[str]) -> str:
-    if not fc_lines:
+def merge_fc(existing_fc: str, fc_lines: list[str], path_hints: dict[str, str] | None = None) -> str:
+    kept, redundant = filter_fc_fix_lines(existing_fc, fc_lines, path_hints)
+    if redundant and not kept:
         return existing_fc if existing_fc.endswith("\n") else existing_fc + "\n"
-    block = "\n".join(sorted(set(fc_lines))) + "\n"
+    if not kept:
+        return existing_fc if existing_fc.endswith("\n") else existing_fc + "\n"
+    block = "\n".join(sorted(set(kept))) + "\n"
     return existing_fc.rstrip() + "\n\n# deterministic_gen labeling fixes\n" + block
 
 
@@ -469,11 +459,16 @@ def run(args: argparse.Namespace) -> int:
             new_version = m.group(2)
 
     fragment = render_fragment(findings, meta)
-    fc_fixes = sorted({f.rendered for f in findings if f.verdict == VERDICT_FC and f.rendered})
+    fc_candidates = sorted({f.rendered for f in findings if f.verdict == VERDICT_FC and f.rendered})
+    path_hints: dict[str, str] = {}
+    for f in findings:
+        if f.verdict == VERDICT_FC and f.rendered and f.paths:
+            path_hints[f.rendered] = f.paths[0]
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_te = merge_te(existing_te, app_name, new_version, fragment)
-    out_fc = merge_fc(existing_fc, list(fc_fixes))
+    out_fc = merge_fc(existing_fc, list(fc_candidates), path_hints)
+    fc_fixes, _fc_dropped = filter_fc_fix_lines(existing_fc, list(fc_candidates), path_hints)
 
     (args.out_dir / f"{app_name}.te").write_text(out_te, encoding="utf-8")
     (args.out_dir / f"{app_name}.fc").write_text(out_fc, encoding="utf-8")
