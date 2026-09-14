@@ -27,10 +27,14 @@ if [[ ! $(podman machine list 2>/dev/null | grep -c podman-machine-default) -gt 
 fi
 
 podman machine start
-sleep 5
+sleep 8
 
+# Optional: clear corrupted rootful storage inside the VM (restarts API briefly).
 if podman machine ssh -- sudo podman system reset -f 2>/dev/null; then
     echo "[INFO] Reset rootful storage inside VM." >&2
+    podman machine stop
+    podman machine start
+    sleep 10
 fi
 
 echo "[INFO] Smoke test …" >&2
