@@ -124,7 +124,7 @@ flowchart TD
 - **`OPENAI_API_KEY`** set (unless using `--skip-ai`, which stages [`docs/examples/fixtures/skip_ai/`](../examples/fixtures/skip_ai/))
 - Optional: `OPENAI_BASE_URL` / `OPENAI_API_MODEL` for LiteLLM or other OpenAI-compatible endpoints
 
-**Don't have an API key?** Use `--skip-ai` — fixtures populate `policy_out/` with a deterministic baseline→generated diff (see `docs/examples/fixtures/skip_ai/README.md`).
+**Don't have an API key?** Use `--skip-ai` — fixtures populate `policy_out/` with a deterministic baseline→generated diff (see `docs/examples/fixtures/skip_ai/README.md`). For live AVC classification without any API, the default engine is **`deterministic_gen.py`** ([`DETERMINISTIC_POLICY.md`](DETERMINISTIC_POLICY.md)).
 
 ### Native Linux (RHEL, Fedora, FCOS VM)
 
@@ -557,7 +557,7 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `connection refused` before compile | Podman machine stopped | `compile_and_validate.sh` now waits for VM — retry; run `bash scripts/fix_podman.sh` |
 | No AVC lines exported | `wc -l` shows 0 | Re-run Act 1; check `systemctl status auditd` |
 | AI generation fails | HTTP/timeout errors | Check `OPENAI_BASE_URL`; use `--skip-ai` |
-| Compile fails on macOS | Podman/checkmodule error | Use `--use-vm`; compile runs inside VM |
+| Compile fails on macOS | Podman/checkmodule error | `bash scripts/lib/selinux_build_image.sh pull` (UBI 9 image); use `--use-vm`; see [`DOCKER_HUB_COMPILE_IMAGE.md`](DOCKER_HUB_COMPILE_IMAGE.md) |
 | Enforce fails (no demo mode) | `Soak period not met` | Use `--demo-mode` for workshops |
 | `/notify-socket` fails after enforce | Stale socket or backend not listening | Check `journalctl -u myapp-backend`; Ansible removes stale socket before restart |
 | `/probe-backend` Permission denied | Missing TCP `getopt` or backend down | Confirm `:8889/health`; check AVC for `tcp_socket getopt` |

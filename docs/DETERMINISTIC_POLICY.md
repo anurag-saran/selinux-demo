@@ -1,12 +1,12 @@
 # Deterministic policy generation
 
-Offline AVC → `.te` / `.fc` updates using **house rules** and optional **sepolgen** interface matching (same stack as `audit2allow -R`).
+Offline AVC → `.te` / `.fc` updates using **house rules** and optional **sepolgen** interface matching (same stack as `audit2allow -R`). This is the **default** engine in `dev_generate_policy.sh` (no `--engine` flag required).
 
 ## Quick start
 
 ```bash
-# Export AVCs (or use policy_out/avc.log)
-bash scripts/dev_generate_policy.sh --skip-export --engine deterministic
+# Export AVCs (or use policy_out/avc.log) — deterministic is already the default
+bash scripts/dev_generate_policy.sh --skip-export
 
 # Classify only (no API, no compile) — good for demos / review
 python3 cli/deterministic_gen.py --explain \
@@ -24,18 +24,23 @@ sudo sepolgen-ifgen
 # → /var/lib/sepolgen/interface_info
 ```
 
-Without ifgen, the generator still classifies denials and emits **direct** / **fc_fix** / **fc_drift** / **private_port** rules. Base-type allows require sepolgen or **`--allow-degraded`** (recorded as `engine=degraded` in `findings.json`).
+Without ifgen, the generator prints a **stderr banner** on every run (`SEPOLGEN INTERFACE MATCHING IS NOT AVAILABLE`) and still classifies **direct** / **fc_fix** / **fc_drift** / **private_port** rules. Base-type allows require sepolgen or explicit **`--allow-degraded`** (extra degraded banner; `engine=degraded` in `findings.json`). Exit code **1** when blockers remain (`forbidden`, `toolchain_required`) unless you only used `--explain`.
 
-## Fast compiles (Podman)
+Do not confuse missing ifgen with “no interface matched” — the latter is logged when ifgen data exists but no macro fits the denial.
 
-**One-time** (~2–4 min):
+## Fast compiles (Podman / Red Hat demo)
+
+**Demo default:** pull pre-built **UBI 9** image from Docker Hub (seconds):
 
 ```bash
-bash scripts/build_selinux_compile_image.sh
-export SELINUX_BUILD_IMAGE=selinux-demo/selinux-build:stream9   # optional; this is the default
+bash scripts/lib/selinux_build_image.sh pull
+# or: bash scripts/lib/selinux_build_image.sh ensure   # pull → local build if needed
+export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:ubi9   # optional override
 ```
 
-**Automatic:** `dev_generate_policy.sh`, `compile_and_validate.sh`, and `compile_module.sh` call `ensure_selinux_build_image` when `SELINUX_BUILD_IMAGE_AUTO=1` (default) and the image is missing.
+Details: [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md). Local build (~2–4 min): `bash scripts/build_selinux_compile_image.sh`. Maintainers publish with `scripts/publish_selinux_compile_image.sh` (Hub token via env only).
+
+**Automatic:** `dev_generate_policy.sh`, `compile_and_validate.sh`, and `compile_module.sh` call **`ensure_selinux_build_image`** (`SELINUX_BUILD_IMAGE_PULL=1` by default).
 
 After the image exists, these use **make-only** container runs (no per-invocation `dnf`):
 
@@ -53,9 +58,10 @@ After the image exists, these use **make-only** container runs (no per-invocatio
 | `fc_drift` | Path already covered by an existing `.fc` regex but wrong label on disk → **`restorecon` only** (no new `.fc` line) |
 | `private_port` | `name_bind` on shared port type → app `_port_t` |
 | `forbidden` | Refused (`shadow_t`, etc.) — same spirit as CI forbidden patterns |
-| `baseline` | Already in existing `.te` |
+| `baseline` | Already covered in existing `.te` or baseline macro (e.g. `dev_read_urand` for `random_device_t`) |
 | `interface` | sepolgen refpolicy macro (when ifgen data present) |
-| `direct` | Module-private types / fallback allow |
+| `direct` | Module-private types, or sepolgen ran but no macro matched (manual review) |
+| `toolchain_required` | Base-type denial with no sepolgen and no `--allow-degraded` — generation blocked |
 
 ## Verification
 
@@ -68,6 +74,8 @@ python3 cli/verify_avc_coverage.py --avc-log policy_out/avc.log \
 
 Labeling fixes (`fc_fix`, `fc_drift`) are satisfied via `findings.json`, not allow rules. Shared logic: **`cli/fc_labeling.py`** (also strips redundant lines from LLM `.fc` output).
 
+`findings.json` is an object: `sepolgen_status`, `sepolgen_detail`, and `findings` (array of classified rows). Older list-only files still work in `verify_avc_coverage.py`.
+
 ## Engines
 
 | Command | Engine |
@@ -75,4 +83,4 @@ Labeling fixes (`fc_fix`, `fc_drift`) are satisfied via `findings.json`, not all
 | `dev_generate_policy.sh` (default) | `cli/deterministic_gen.py` |
 | `dev_generate_policy.sh --engine llm` | LLM (`cli/selinux_gen.py`) |
 
-Fixtures: [`docs/examples/fixtures/deterministic/`](examples/fixtures/deterministic/).
+Fixtures: [`docs/examples/fixtures/deterministic/`](examples/fixtures/deterministic/) — nine AVC directories; each has `avc.log` + `expected.json`. CI runs `deterministic_verdict_fixture_coverage` (all eight verdicts) and `deterministic_fixture_classify`. Cases `08`/`09` use optional `sepolgen_mock.json` so CI does not require host ifgen.

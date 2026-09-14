@@ -1,17 +1,23 @@
 # Deterministic generator fixtures
 
-Each directory has `avc.log` + `expected.json` (verdict/tgt golden rows). CI runs them via `scripts/smoke_test.py` → `deterministic_fixture_classify`.
+Each directory has `avc.log` + `expected.json` (golden `verdict` / `tgt` rows). Optional:
+
+- **`case.meta.json`** — `exit_code` (default 0), `stderr_substrings` for blocked runs
+- **`sepolgen_mock.json`** — in-process mock for CI hosts without `sepolgen-ifgen` (`behavior`: `match` | `no_match`)
+
+CI runs all cases via `scripts/smoke_test.py` (`deterministic_verdict_fixture_coverage` + `deterministic_fixture_classify`).
 
 | Case | Verdict exercised |
 |------|-------------------|
-| `01-mislabeled-var-lib` | **`fc_drift`** — path already covered by `/var/lib/myapp(/.*)?` in `.fc`; fix is `restorecon`, not a new line |
+| `01-mislabeled-var-lib` | **`fc_drift`** — path already covered by `/var/lib/myapp(/.*)?`; fix is `restorecon` |
 | `02-port-bind` | **`private_port`** — `name_bind` on generic port type |
 | `03-shadow-read` | **`forbidden`** — refuses `shadow_t` (exit 1) |
-| `04-private-getopt` | **`direct`** — allow on module-private `myapp_port_t` |
-| `05-baseline-covered` | Documents **`baseline`** — use smoke test `deterministic_baseline_verdict` (AVC fully covered → no net-new row) |
+| `04-private-getopt` | **`direct`** — module-private `myapp_port_t` |
+| `05-baseline-covered` | **`baseline`** — `dev_read_urand` macro covers `random_device_t` (no explicit allow line) |
+| `06-fc-missing-line` | **`fc_fix`** — app path under `install_root` with no matching `.fc` regex yet |
 | `07-toolchain-required` | **`toolchain_required`** — base-type allow blocked without sepolgen (exit 1) |
-
-**`interface`** verdict is covered by smoke test `deterministic_interface_verdict` (mocked sepolgen match).
+| `08-interface-match` | **`interface`** — mocked refpolicy macro (`sepolgen_mock.json`) |
+| `09-direct-no-interface` | **`direct`** — sepolgen ran but no macro matched (`no_match` mock) |
 
 Run classification without writing policy:
 
@@ -23,6 +29,6 @@ python3 cli/deterministic_gen.py --explain \
   --existing-fc selinux/myapp.fc
 ```
 
-On RHEL dev hosts, run once: **`sepolgen-ifgen`** (requires `policycoreutils-devel`) so live interface matching works. Without it, use **`--allow-degraded`** only when you accept audited raw allows (`engine=degraded` in `findings.json`).
+On RHEL dev hosts, run once: **`sepolgen-ifgen`** (requires `policycoreutils-devel`) so live interface matching works. Without it, every generator run prints a **stderr banner** (`SEPOLGEN INTERFACE MATCHING IS NOT AVAILABLE`); base-type AVCs exit **1** unless you pass **`--allow-degraded`** (extra degraded banner; `engine=degraded` in `findings.json`).
 
-**Fast compiles:** build the pre-baked image once — `bash scripts/build_selinux_compile_image.sh` — then set `SELINUX_BUILD_IMAGE=selinux-demo/selinux-build:stream9`.
+**Fast compiles:** default image is **`docker.io/asaran/selinux-demo-selinux-build:ubi9`** (Red Hat UBI 9). Pull-first on compile; or `bash scripts/build_selinux_compile_image.sh` / `scripts/publish_selinux_compile_image.sh` to publish from an entitled build host.

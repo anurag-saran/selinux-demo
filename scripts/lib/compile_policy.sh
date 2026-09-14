@@ -8,30 +8,11 @@
 set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${LIB_DIR}/../.." && pwd)"
-BUILD_IMAGE_SCRIPT="${PROJECT_ROOT}/scripts/build_selinux_compile_image.sh"
-
-SELINUX_COMPILE_IMAGE="${SELINUX_COMPILE_IMAGE:-quay.io/centos/centos:stream9}"
-SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-selinux-demo/selinux-build:stream9}"
-# Set SELINUX_BUILD_IMAGE_AUTO=0 to skip one-time local image build (use slow dnf path).
-SELINUX_BUILD_IMAGE_AUTO="${SELINUX_BUILD_IMAGE_AUTO:-1}"
+# shellcheck source=selinux_build_image.sh
+source "${LIB_DIR}/selinux_build_image.sh"
 
 has_selinux_devel() {
     [[ -f /usr/share/selinux/devel/Makefile ]]
-}
-
-selinux_build_image_ready() {
-    command -v podman >/dev/null 2>&1 \
-        && podman image inspect "${SELINUX_BUILD_IMAGE}" >/dev/null 2>&1
-}
-
-ensure_selinux_build_image() {
-    selinux_build_image_ready && return 0
-    [[ "${SELINUX_BUILD_IMAGE_AUTO}" == "1" ]] || return 1
-    [[ -x "${BUILD_IMAGE_SCRIPT}" ]] || return 1
-    echo "[INFO] Building ${SELINUX_BUILD_IMAGE} once (~2–4 min); later compiles are seconds." >&2
-    bash "${BUILD_IMAGE_SCRIPT}"
-    selinux_build_image_ready
 }
 
 selinux_container_image() {

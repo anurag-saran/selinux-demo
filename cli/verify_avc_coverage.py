@@ -28,13 +28,22 @@ from policy_rules import (  # noqa: E402
 )
 
 
+def findings_rows_from_json(data: object) -> list[dict]:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and isinstance(data.get("findings"), list):
+        return data["findings"]
+    raise ValueError("findings.json must be a list or {findings: [...]}")
+
+
 def load_findings_handling(findings_path: Path) -> tuple[set[tuple[str, str, str]], list[tuple[str, str, frozenset[str]]]]:
     if not findings_path.is_file():
         return set(), []
     data = json.loads(findings_path.read_text(encoding="utf-8"))
+    rows = findings_rows_from_json(data)
     handled_keys: set[tuple[str, str, str]] = set()
     port_handled: list[tuple[str, str, frozenset[str]]] = []
-    for row in data:
+    for row in rows:
         key = (row["src"], row["tgt"], row["class"])
         verdict = row.get("verdict")
         if verdict in (VERDICT_FC, VERDICT_FC_DRIFT, VERDICT_BASELINE):
@@ -80,7 +89,8 @@ def main() -> int:
     findings_path = args.findings or (args.te.parent / "findings.json")
     handled_keys, port_handled = load_findings_handling(findings_path)
     if findings_path.is_file():
-        for row in json.loads(findings_path.read_text(encoding="utf-8")):
+        raw = json.loads(findings_path.read_text(encoding="utf-8"))
+        for row in findings_rows_from_json(raw):
             rendered = row.get("rendered") or ""
             if rendered and rendered.strip() in te_text:
                 handled_keys.add((row["src"], row["tgt"], row["class"]))

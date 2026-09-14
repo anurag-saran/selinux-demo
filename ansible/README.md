@@ -12,7 +12,7 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 
 Playbooks delegate to role [`roles/myapp_selinux/`](roles/myapp_selinux/). Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Demo/lab sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the checkout `scripts/` tree.
 
-Testing matrix: [`docs/TESTING.md`](../docs/TESTING.md). Admin runbook: [`docs/PRODUCTION_READINESS.md`](../docs/PRODUCTION_READINESS.md).
+Testing matrix: [`docs/TESTING.md`](../docs/TESTING.md). Admin runbook: [`docs/PRODUCTION_READINESS.md`](../docs/PRODUCTION_READINESS.md). Policy compiles on admin laptops via Podman: [`docs/DOCKER_HUB_COMPILE_IMAGE.md`](../docs/DOCKER_HUB_COMPILE_IMAGE.md).
 
 ---
 
@@ -20,7 +20,7 @@ Testing matrix: [`docs/TESTING.md`](../docs/TESTING.md). Admin runbook: [`docs/P
 
 ### Host requirements
 
-- RHEL 9 / CentOS Stream 9 / FCOS with **SELinux enforcing**
+- **RHEL 9** (recommended for Red Hat demos), CentOS Stream 9, or FCOS with **SELinux enforcing**
 - Application already installed (`/opt/myapp`, systemd units, `myapp` user)
 - `auditd` running (for AVC gates)
 - `policycoreutils`, `policycoreutils-python-utils` (`semanage`, `restorecon`, `ausearch`)

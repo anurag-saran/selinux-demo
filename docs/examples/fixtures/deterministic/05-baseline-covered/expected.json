@@ -1,6 +1,6 @@
 [
   {
     "verdict": "baseline",
-    "tgt": "myapp_lib_t"
+    "tgt": "random_device_t"
   }
 ]

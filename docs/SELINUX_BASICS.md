@@ -730,6 +730,9 @@ sudo semodule -i selinux/myapp.pp              # upgrades in place
 | Guide | Audience |
 |-------|----------|
 | **This file** | New to SELinux — labels, `.te`/`.fc`, commands with examples |
+| [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, CI jobs |
+| [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) | Default offline policy generator from AVCs |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Running the live workshop demo |
+| [TESTING.md](TESTING.md) | Endpoints, smoke tests, CI matrix |
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | RHEL admins — soak, canary, enforce gates |
 | [README.md](../README.md) | Project overview and command index |

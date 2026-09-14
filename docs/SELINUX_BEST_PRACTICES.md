@@ -4,7 +4,7 @@ This guide captures **design principles and anti-patterns** enforced in this rep
 
 | You are… | Read this for… | Then use… |
 |----------|----------------|-----------|
-| **Policy author / app developer** | How to write `.te`/`.fc` and pass CI | [README.md](../README.md), [cli/prompt_templates.py](../cli/prompt_templates.py) |
+| **Policy author / app developer** | How to write `.te`/`.fc` and pass CI | [README.md](../README.md), [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [cli/prompt_templates.py](../cli/prompt_templates.py) |
 | **Security / admin reviewer** | PR review checklist and gates | [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md), §Review checklist below |
 | **RHEL admin running deploy** | Step-by-step rollout | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md), [ansible/README.md](../ansible/README.md) |
 | **Testing / CI author** | Endpoint matrix, smoke tests, gates | [TESTING.md](TESTING.md) |
@@ -44,11 +44,12 @@ Current module version: read **`selinux/policy_version.txt`** (SemVer). Keep the
 **Compile rule:** build with the refpolicy devel **Makefile**, not raw `checkmodule` on macro `.te` files:
 
 ```bash
+bash scripts/lib/selinux_build_image.sh ensure   # pull-first UBI 9 compile image
 bash scripts/compile_and_validate.sh selinux
 # Uses scripts/lib/compile_policy.sh → make -f /usr/share/selinux/devel/Makefile
 ```
 
-Build target OS: **CentOS Stream 9** headers (`SELINUX_COMPILE_IMAGE=quay.io/centos/centos:stream9`) to match RHEL 9 deploys.
+Build target OS: **RHEL 9 / UBI 9** ([`DOCKER_HUB_COMPILE_IMAGE.md`](DOCKER_HUB_COMPILE_IMAGE.md)). Default image: `docker.io/asaran/selinux-demo-selinux-build:ubi9`.
 
 ---
 

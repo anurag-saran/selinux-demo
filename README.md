@@ -8,8 +8,9 @@ Shift-left DevSecOps workflow: application teams version-control SELinux policy 
 
 ```text
 App change → staging (permissive myapp_t) → AVC logs
-    → cli/selinux_gen.py (merge + version bump + pr_summary.md)
-    → PR review → compile_and_validate.sh
+    → cli/deterministic_gen.py (default) or selinux_gen.py (LLM)
+    → merge + version bump + pr_summary.md + findings.json
+    → PR review → compile_and_validate.sh (UBI 9 compile image, pull-first)
     → ansible/deploy_canary.yml → ansible/enforce_production.yml
 ```
 
@@ -21,7 +22,7 @@ selinux-demo/
 │   ├── app.py              Six demo HTTP endpoints (incl. Tier 6 network probes)
 │   ├── backend_stub.py     Backend on :8889 + /run/myapp/notify.sock (myapp_backend_t)
 │   └── bin/backup.sh       Executed by /run-script (bash builtins only)
-├── cli/                    selinux_gen.py — AI policy CLI
+├── cli/                    deterministic_gen.py (default), selinux_gen.py (LLM), verify_avc_coverage.py
 ├── config/                 App manifests (paths, probes, deploy artifacts)
 │   ├── myapp.manifest.yml  Demo app manifest (drives readiness scripts)
 │   └── README.md           Schema + onboarding for new apps
@@ -90,9 +91,9 @@ Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansibl
 pip3 install -r cli/requirements.txt
 export OPENAI_API_KEY="your-key"   # only for --engine llm
 
-# macOS / laptop without native selinux-policy-devel: build compile image once (~3 min), then seconds per compile
-bash scripts/build_selinux_compile_image.sh
-# Or let dev_generate_policy / compile_and_validate auto-build on first run (SELINUX_BUILD_IMAGE_AUTO=1)
+# macOS / laptop without native selinux-policy-devel: pull prebuilt **UBI 9** image (Red Hat demo), or build once
+export SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-docker.io/asaran/selinux-demo-selinux-build:ubi9}"
+# Pull-first on first compile (SELINUX_BUILD_IMAGE_PULL=1, default). See [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md).
 
 # Staging + tests (native Linux)
 sudo bash scripts/setup_staging_env.sh
@@ -185,7 +186,7 @@ Runs automatically on PRs via [`.github/workflows/selinux-policy-ci.yml`](.githu
 
 | Job | Purpose |
 |-----|---------|
-| `smoke-tests` | Python unit/smoke tests (incl. `version_consistency`, blast-radius JSON fail-closed) |
+| `smoke-tests` | Python unit/smoke tests (deterministic **8-verdict** fixtures, version consistency, blast-radius fail-closed) |
 | `forbidden-patterns` | Wildcards and high-privilege denies in `.te` |
 | `version-consistency` | `policy_version.txt`, `policy_module()` in `.te`, and RPM spec wiring agree |
 | `compile-policy` / `policy-semantics` | Refpolicy build + container `sesearch` assertions |
@@ -198,13 +199,13 @@ Local equivalents:
 ```bash
 python3 scripts/smoke_test.py
 bash scripts/validate_forbidden_patterns.sh selinux
-bash scripts/compile_and_validate.sh selinux      # refpolicy Makefile (checkmodule fallback)
+bash scripts/lib/selinux_build_image.sh pull    # or ensure (pull → local UBI9 build)
+bash scripts/compile_and_validate.sh selinux      # refpolicy Makefile in compile image
 bash scripts/validate_policy_semantics.sh selinux   # sesearch assertions (CI: policy-semantics job)
 bash scripts/validate_version_consistency.sh      # version SSOT (CI: version-consistency)
-bash scripts/build_selinux_compile_image.sh       # one-time Podman image (or auto on first compile)
 bash scripts/run_blast_radius_fixtures.sh       # soak tier fixtures (CI: blast-radius; needs Podman)
 bash scripts/assemble_pr_body.sh                # PR body + merge-base policy access delta
-bash scripts/compile_and_validate.sh policy_out   # after AI generation
+bash scripts/compile_and_validate.sh policy_out   # after generation
 ```
 
 PR CI also runs **`policy-semantics`** (`sesearch` via `validate_policy_semantics.sh`). Packaged installs: [`packaging/myapp-selinux.spec`](packaging/myapp-selinux.spec) builds an RPM from `selinux/`.
@@ -385,6 +386,8 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 
 | Guide | For |
 |-------|-----|
+| [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) | **Default generator** — house rules, sepolgen banners, `findings.json`, fixture catalog |
+| [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) | **Red Hat demo compiles** — UBI 9 image on Docker Hub, pull-first env vars, publish script |
 | [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | **Code tour** — every major directory/file, algorithms (AVC merge, policy diff, blast radius, soak gates) |
 | [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
 | [docs/TESTING.md](docs/TESTING.md) | **All test cases** — six HTTP endpoints, `smoke_test.py`, CI jobs, soak/enforce gates |

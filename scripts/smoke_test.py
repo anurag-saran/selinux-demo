@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -518,56 +519,123 @@ def test_skip_ai_fixture_sync() -> None:
         ).read_text(encoding="utf-8"), f"Drift in skip_ai/generated/{name} — run refresh_skip_ai_fixture.sh"
 
 
-def test_deterministic_fixture_classify() -> None:
-    """Golden verdict checks for deterministic_gen --explain (no sepolgen required)."""
-    root = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "deterministic"
-    manifest = PROJECT_ROOT / "config" / "myapp.manifest.yml"
-    te = PROJECT_ROOT / "selinux" / "myapp.te"
-    fc = PROJECT_ROOT / "selinux" / "myapp.fc"
-    gen = PROJECT_ROOT / "cli" / "deterministic_gen.py"
+DETERMINISTIC_CLASSIFICATION_VERDICTS = frozenset(
+    {
+        "fc_fix",
+        "fc_drift",
+        "private_port",
+        "forbidden",
+        "baseline",
+        "interface",
+        "direct",
+        "toolchain_required",
+    }
+)
 
-    exit_one_cases = {"03-shadow-read", "07-toolchain-required"}
-    cases = (
-        "01-mislabeled-var-lib",
-        "02-port-bind",
-        "03-shadow-read",
-        "04-private-getopt",
-        "07-toolchain-required",
+
+def _deterministic_fixture_dirs(root: Path) -> list[Path]:
+    return sorted(
+        p
+        for p in root.iterdir()
+        if p.is_dir() and (p / "avc.log").is_file() and (p / "expected.json").is_file()
     )
 
-    for case in cases:
-        case_dir = root / case
-        expected = json.loads((case_dir / "expected.json").read_text(encoding="utf-8"))
+
+def _deterministic_case_meta(case_dir: Path) -> dict:
+    meta_path = case_dir / "case.meta.json"
+    if meta_path.is_file():
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    return {"exit_code": 0}
+
+
+def _deterministic_sepolgen_mock(case_dir: Path) -> dict | None:
+    mock_path = case_dir / "sepolgen_mock.json"
+    if not mock_path.is_file():
+        return None
+    return json.loads(mock_path.read_text(encoding="utf-8"))
+
+
+def _deterministic_run_args(
+    case_dir: Path,
+    manifest: Path,
+    te: Path,
+    fc: Path,
+    *,
+    explain: bool,
+    out_dir: Path,
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        avc_log=case_dir / "avc.log",
+        manifest=manifest,
+        existing_te=te,
+        existing_fc=fc,
+        out_dir=out_dir,
+        app_name="myapp",
+        bump_version=False,
+        version_file=PROJECT_ROOT / "selinux" / "policy_version.txt",
+        explain=explain,
+        allow_degraded=False,
+    )
+
+
+def _run_deterministic_gen(
+    case_dir: Path,
+    manifest: Path,
+    te: Path,
+    fc: Path,
+    *,
+    explain: bool,
+    out_dir: Path,
+    mock: dict | None,
+) -> tuple[int, str, str]:
+    """Run deterministic_gen; use in-process mocks when sepolgen_mock.json is present."""
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+    from unittest.mock import patch
+
+    import deterministic_gen as dg
+
+    args = _deterministic_run_args(
+        case_dir, manifest, te, fc, explain=explain, out_dir=out_dir
+    )
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    patcher = None
+    if mock:
+        behavior = mock.get("behavior")
+        if behavior == "match":
+            rendered = mock["rendered"]
+            note = mock.get("note", "mock interface")
+
+            def _fake_match(*_a, **_k):
+                return (rendered, note)
+
+            patcher = patch.object(dg, "try_sepolgen_interface", _fake_match)
+        elif behavior == "no_match":
+            patcher = patch.object(dg, "try_sepolgen_interface", return_value=None)
+        elif behavior == "unavailable":
+            patcher = patch.object(
+                dg, "try_sepolgen_interface", return_value=dg.SEPOLGEN_UNAVAILABLE
+            )
+        else:
+            raise ValueError(f"{case_dir.name}: unknown sepolgen_mock behavior {behavior!r}")
+
+    def _invoke() -> int:
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            return dg.run(args)
+
+    if patcher:
+        with patcher:
+            code = _invoke()
+    else:
+        gen = PROJECT_ROOT / "cli" / "deterministic_gen.py"
         result = subprocess.run(
             [
                 sys.executable,
                 str(gen),
-                "--explain",
+                *( ["--explain"] if explain else [] ),
                 "--avc-log",
-                str(case_dir / "avc.log"),
-                "--manifest",
-                str(manifest),
-                "--existing-te",
-                str(te),
-                "--existing-fc",
-                str(fc),
-            ],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        if case in exit_one_cases:
-            assert result.returncode == 1, result.stdout + result.stderr
-        else:
-            assert result.returncode == 0, result.stderr + result.stdout
-        if case in exit_one_cases:
-            continue
-        findings = subprocess.run(
-            [
-                sys.executable,
-                str(gen),
-                "--avc-log",
-                str(case_dir / "avc.log"),
+                str(args.avc_log),
                 "--manifest",
                 str(manifest),
                 "--existing-te",
@@ -575,69 +643,84 @@ def test_deterministic_fixture_classify() -> None:
                 "--existing-fc",
                 str(fc),
                 "--out-dir",
-                str(case_dir / "_out"),
+                str(out_dir),
             ],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
         )
-        assert findings.returncode == 0, findings.stderr
+        return result.returncode, result.stdout, result.stderr
+
+    return code, stdout.getvalue(), stderr.getvalue()
+
+
+def test_deterministic_verdict_fixture_coverage() -> None:
+    """Every classification verdict has at least one golden fixture row."""
+    root = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "deterministic"
+    seen: set[str] = set()
+    for case_dir in _deterministic_fixture_dirs(root):
+        for row in json.loads((case_dir / "expected.json").read_text(encoding="utf-8")):
+            seen.add(row["verdict"])
+    missing = DETERMINISTIC_CLASSIFICATION_VERDICTS - seen
+    assert not missing, f"Add fixtures for verdict(s): {sorted(missing)}"
+
+
+def test_deterministic_fixture_classify() -> None:
+    """Golden verdict checks for deterministic_gen --explain and full generation."""
+    root = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "deterministic"
+    manifest = PROJECT_ROOT / "config" / "myapp.manifest.yml"
+    te = PROJECT_ROOT / "selinux" / "myapp.te"
+    fc = PROJECT_ROOT / "selinux" / "myapp.fc"
+
+    for case_dir in _deterministic_fixture_dirs(root):
+        case = case_dir.name
+        meta = _deterministic_case_meta(case_dir)
+        mock = _deterministic_sepolgen_mock(case_dir)
+        expected = json.loads((case_dir / "expected.json").read_text(encoding="utf-8"))
+        want_exit = int(meta.get("exit_code", 0))
+
+        code, out, err = _run_deterministic_gen(
+            case_dir,
+            manifest,
+            te,
+            fc,
+            explain=True,
+            out_dir=case_dir / "_out",
+            mock=mock,
+        )
+        combined = out + err
+        assert code == want_exit, f"{case}: explain exit {code}, want {want_exit}\n{combined}"
+        for needle in meta.get("stderr_substrings", []):
+            assert needle in combined, f"{case}: stderr missing {needle!r}\n{combined}"
+
+        if want_exit != 0:
+            continue
+
+        gen_code, gen_out, gen_err = _run_deterministic_gen(
+            case_dir,
+            manifest,
+            te,
+            fc,
+            explain=False,
+            out_dir=case_dir / "_out",
+            mock=mock,
+        )
+        assert gen_code == 0, f"{case}: generation failed\n{gen_err}{gen_out}"
         payload = json.loads((case_dir / "_out" / "findings.json").read_text(encoding="utf-8"))
+        rows = payload["findings"] if isinstance(payload, dict) else payload
         for want in expected:
             assert any(
                 row.get("verdict") == want["verdict"] and row.get("tgt") == want["tgt"]
-                for row in payload
-            ), f"{case}: missing {want} in {payload}"
+                for row in rows
+            ), f"{case}: missing {want} in {rows}"
         if case == "01-mislabeled-var-lib":
             out_fc = (case_dir / "_out" / "myapp.fc").read_text(encoding="utf-8")
             assert out_fc == fc.read_text(encoding="utf-8"), (
                 f"{case}: .fc must not grow per-file lines when directory regex already covers path"
             )
-
-
-def test_deterministic_interface_verdict() -> None:
-    """Interface verdict is reachable when sepolgen returns a match (mocked)."""
-    from unittest.mock import patch
-
-    import yaml
-
-    import deterministic_gen as dg
-    from avc_preprocess import AccessNeed
-    from policy_rules import VERDICT_INTERFACE
-
-    need = AccessNeed("myapp_t", "var_log_t", "dir", frozenset({"search"}))
-    manifest = yaml.safe_load(
-        (PROJECT_ROOT / "config" / "myapp.manifest.yml").read_text(encoding="utf-8")
-    )
-    te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
-    fc = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
-
-    with patch.object(
-        dg,
-        "try_sepolgen_interface",
-        return_value=("list_dirs_pattern(myapp_t)", "mock interface"),
-    ):
-        finding = dg.classify(need, manifest, ("/var/log",), te, fc, allow_degraded=False)
-    assert finding.verdict == VERDICT_INTERFACE
-    assert finding.engine == "sepolgen"
-
-
-def test_deterministic_baseline_verdict() -> None:
-    """Baseline verdict when classify sees a need already covered in .te."""
-    import yaml
-
-    import deterministic_gen as dg
-    from avc_preprocess import AccessNeed
-    from policy_rules import VERDICT_BASELINE
-
-    manifest = yaml.safe_load(
-        (PROJECT_ROOT / "config" / "myapp.manifest.yml").read_text(encoding="utf-8")
-    )
-    te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
-    fc = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
-    need = AccessNeed("myapp_t", "myapp_lib_t", "file", frozenset({"read", "open", "getattr"}))
-    finding = dg.classify(need, manifest, (), te, fc, allow_degraded=False)
-    assert finding.verdict == VERDICT_BASELINE
+        if case == "06-fc-missing-line":
+            out_fc = (case_dir / "_out" / "myapp.fc").read_text(encoding="utf-8")
+            assert "/opt/myapp/cache/data" in out_fc, f"{case}: expected new .fc line for cache path"
 
 
 def test_fc_labeling_drift_detection() -> None:
@@ -701,9 +784,8 @@ def main() -> int:
         ("version_consistency", test_version_consistency),
         ("classify_fail_closed_json", test_classify_fail_closed_json),
         ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
+        ("deterministic_verdict_fixture_coverage", test_deterministic_verdict_fixture_coverage),
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
-        ("deterministic_interface_verdict", test_deterministic_interface_verdict),
-        ("deterministic_baseline_verdict", test_deterministic_baseline_verdict),
         ("fc_labeling_drift_detection", test_fc_labeling_drift_detection),
     ]
     if os.environ.get("SMOKE_SKIP_FLASK") == "1":

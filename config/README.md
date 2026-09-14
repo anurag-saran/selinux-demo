@@ -48,6 +48,7 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 | [`scripts/post_deploy_report.sh`](../scripts/post_deploy_report.sh) | Deploy JSON service/domain fields |
 | [`scripts/check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Domain context keys in deploy report; optional **`--auto-tier`** with policy pair paths |
 | Ansible role / playbooks | `app_manifest_path` inventory var (prod: RPM path under `/etc/myapp/`) |
+| [`cli/deterministic_gen.py`](../cli/deterministic_gen.py) | `--manifest` for path → `.fc` labeling rules (`fc_fix` / `fc_drift`) |
 | [`scripts/validate_app_manifest.sh`](../scripts/validate_app_manifest.sh) | CI / onboarding validation |
 
 ## Designing probes for a new app
@@ -57,7 +58,7 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
    - an entry in `http.endpoints` (synthetic probe), or
    - `integration_tests.command` (real test suite under permissive).
 3. Always include `services.primary` and real health path(s).
-4. Run staging permissive → export AVCs → generate policy (same loop as the demo).
+4. Run staging permissive → export AVCs → generate policy (`bash scripts/dev_generate_policy.sh`; default **`deterministic_gen.py`**, optional `--engine llm`).
 
 See [`docs/TESTING.md`](../docs/TESTING.md) for the full test-layer model.
 

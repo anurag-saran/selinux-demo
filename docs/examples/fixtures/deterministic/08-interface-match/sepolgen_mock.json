@@ -1,0 +1,5 @@
+{
+  "behavior": "match",
+  "rendered": "list_dirs_pattern(myapp_t)",
+  "note": "Fixture mock — refpolicy interface match without sepolgen-ifgen on host."
+}

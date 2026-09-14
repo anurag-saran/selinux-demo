@@ -100,12 +100,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y podman
 
-      - name: Build SELinux compile image
-        run: bash scripts/build_selinux_compile_image.sh
+      - name: Ensure SELinux compile image (pull-first, else build)
+        run: bash scripts/lib/selinux_build_image.sh ensure
 
       - name: Run blast-radius fixture suite
-        env:
-          SELINUX_BUILD_IMAGE: selinux-demo/selinux-build:stream9
         run: bash scripts/run_blast_radius_fixtures.sh
 
   shellcheck:
@@ -143,7 +141,7 @@ jobs:
       - name: Post policy access delta comment
         env:
           GH_TOKEN: ${{ github.token }}
-          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+          SELINUX_COMPILE_IMAGE: registry.access.redhat.com/ubi9/ubi:latest
         run: bash scripts/ci/post_pr_policy_diff_comment.sh
 
   yamllint:
@@ -163,7 +161,7 @@ jobs:
     strategy:
       matrix:
         image:
-          - quay.io/centos/centos:stream9
+          - registry.access.redhat.com/ubi9/ubi:latest
     steps:
       - uses: actions/checkout@v4
 
@@ -172,12 +170,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y podman
 
-      - name: Build SELinux compile image
-        run: bash scripts/build_selinux_compile_image.sh
+      - name: Ensure SELinux compile image
+        run: bash scripts/lib/selinux_build_image.sh ensure
 
       - name: Compile selinux/ module
-        env:
-          SELINUX_BUILD_IMAGE: selinux-demo/selinux-build:stream9
         run: bash scripts/compile_and_validate.sh selinux
 
       - name: Upload compiled policy package
@@ -216,10 +212,10 @@ jobs:
 
       - name: Compile policy for semantic checks
         env:
-          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+          SELINUX_COMPILE_IMAGE: registry.access.redhat.com/ubi9/ubi:latest
         run: bash scripts/compile_and_validate.sh selinux
 
       - name: Run sesearch semantic assertions
         env:
-          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+          SELINUX_COMPILE_IMAGE: registry.access.redhat.com/ubi9/ubi:latest
         run: bash scripts/validate_policy_semantics.sh selinux

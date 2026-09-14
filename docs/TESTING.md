@@ -99,8 +99,11 @@ SMOKE_REQUIRE_BACKEND=0 python3 scripts/smoke_test.py
 | `monitor_avc_skip` | `monitor_avc.sh --skip-if-unavailable` exits 0 |
 | `demo_present_help` | Demo presenter script `--help` works |
 | `app_manifest` | Validates demo + example manifests; `shell-export` emits expected keys |
-
----
+| `rpm_ops_parity` | Ops RPM file list matches repo scripts |
+| `skip_ai_fixture_sync` | Offline demo `skip_ai/generated/` matches committed `selinux/` |
+| `deterministic_verdict_fixture_coverage` | Every classification verdict has ≥1 golden row under `docs/examples/fixtures/deterministic/` |
+| `deterministic_fixture_classify` | Each fixture: `--explain` + generation vs `expected.json`; optional `sepolgen_mock.json` |
+| `fc_labeling_drift_detection` | `fc_labeling.py` redundant `.fc` line detection |
 
 ## 3. Developer local checks (before PR)
 
@@ -108,10 +111,10 @@ SMOKE_REQUIRE_BACKEND=0 python3 scripts/smoke_test.py
 |------|---------|---------------------|
 | CLI + flask smoke | `python3 scripts/smoke_test.py` | No |
 | Forbidden patterns | `bash scripts/validate_forbidden_patterns.sh selinux` | No |
-| Compile | `bash scripts/compile_and_validate.sh selinux` | Podman or RHEL devel |
+| Compile | `bash scripts/lib/selinux_build_image.sh ensure` then `bash scripts/compile_and_validate.sh selinux` | Podman (UBI 9 compile image; pull-first) or RHEL devel |
 | Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Podman |
 | Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes |
-| AI generate | `bash scripts/dev_generate_policy.sh --use-vm --apply` | Yes (or `--use-vm`) |
+| AI / deterministic generate | `bash scripts/dev_generate_policy.sh --use-vm --apply` (default engine: deterministic) | Yes (or `--use-vm`) |
 | **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root or `--use-vm`) |
 
 **`--enforce-check`** compiles the candidate `.pp`, removes permissive on `myapp_t`, runs `wait_for_endpoints.sh` (including domain-context verification), and prints recent AVCs on failure.
@@ -130,10 +133,10 @@ Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selin
 | `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, shadow_t, bin_t execute, etc. |
 | `version-consistency` | `scripts/validate_version_consistency.sh` | `policy_version.txt`, `policy_module()` line, and spec `Version: %{modver}` wiring agree |
 | `shellcheck` | `shellcheck scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh` | No shellcheck errors |
-| `blast-radius` | `scripts/run_blast_radius_fixtures.sh` | All [`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/) tiers match; corrupt input fail-closed |
+| `blast-radius` | `scripts/lib/selinux_build_image.sh ensure` + `scripts/run_blast_radius_fixtures.sh` | All [`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/) tiers match; corrupt input fail-closed |
 | `policy-diff-comment` | `scripts/ci/post_pr_policy_diff_comment.sh` | PR comment with merge-base sesearch access delta (PRs only) |
 | `yamllint` | `yamllint ansible/ .github/workflows/` | YAML style clean |
-| `compile-policy` | `scripts/compile_and_validate.sh selinux` | `.pp` builds on CentOS Stream 9; artifact uploaded |
+| `compile-policy` | `selinux_build_image.sh ensure` + `scripts/compile_and_validate.sh selinux` | `.pp` builds in **UBI 9** compile image; artifact uploaded |
 | `ansible-lint` | `ansible-lint ansible/*.yml` | Playbooks lint clean |
 | `policy-semantics` | `scripts/validate_policy_semantics.sh selinux` | No shadow/unlabeled/foreign entrypoint (container `--direct` sesearch) |
 
@@ -216,7 +219,7 @@ Layer 7  emergency_rollback                   outage response
 
 | Check | Command |
 |-------|---------|
-| House-rule fixtures | `python3 scripts/smoke_test.py` → `deterministic_fixture_classify` |
+| House-rule fixtures (all 8 verdicts) | `python3 scripts/smoke_test.py` → `deterministic_verdict_fixture_coverage`, `deterministic_fixture_classify` |
 | Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
-| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export --engine deterministic` |
+| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) |
 | Coverage gate | `bash scripts/verify_avc_coverage.sh` after generation |

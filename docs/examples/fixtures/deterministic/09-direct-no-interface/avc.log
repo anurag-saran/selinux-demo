@@ -1,0 +1,1 @@
+type=AVC msg=audit(1710000198.000:216): avc:  denied  { read open getattr } for  pid=1234 comm="python3" name="notes.txt" path="/usr/share/myapp/notes.txt" dev="vda4" ino=88 scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:usr_t:s0 tclass=file permissive=1

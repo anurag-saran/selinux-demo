@@ -53,6 +53,102 @@ POLICY_MODULE_RE = re.compile(r"policy_module\(\s*(\w+)\s*,\s*([\d.]+)\s*\)")
 
 SEPOLGEN_UNAVAILABLE = object()
 
+SEPOLGEN_WARN_BANNER = """\
+================================================================================
+WARNING: SEPOLGEN INTERFACE MATCHING IS NOT AVAILABLE
+================================================================================
+{detail}
+
+Impact:
+  - Base-type AVCs (e.g. var_log_t, port types) will NOT map to refpolicy macros.
+  - This generator REFUSES raw allows on base types (exit 1) unless you pass
+    --allow-degraded (audit2allow-grade output; not recommended).
+
+Fix on RHEL / CentOS Stream (with SELinux):
+  sudo dnf install -y policycoreutils-devel setools-console
+  sudo sepolgen-ifgen
+
+Do not confuse with "no interface matched" — that message only appears when
+sepolgen-ifgen data is present but your specific denial has no macro.
+================================================================================
+"""
+
+
+def sepolgen_diagnose() -> dict[str, str]:
+    """Return status: available | missing_python_modules | missing_ifgen | unreadable_ifgen."""
+    try:
+        import sepolgen.defaults as defaults
+    except ImportError:
+        return {
+            "status": "missing_python_modules",
+            "detail": (
+                "Python sepolgen is not installed. "
+                "Install policycoreutils-devel (provides sepolgen modules)."
+            ),
+            "if_path": "",
+        }
+
+    try:
+        if_path = defaults.interface_info()
+    except (OSError, AttributeError) as exc:
+        return {
+            "status": "missing_ifgen",
+            "detail": f"Cannot resolve sepolgen interface_info path: {exc}. Run: sudo sepolgen-ifgen",
+            "if_path": "",
+        }
+
+    try:
+        with open(if_path, encoding="utf-8") as fd:
+            if not fd.read(1):
+                return {
+                    "status": "unreadable_ifgen",
+                    "detail": f"interface_info at {if_path} is empty. Re-run: sudo sepolgen-ifgen",
+                    "if_path": str(if_path),
+                }
+    except OSError as exc:
+        return {
+            "status": "missing_ifgen",
+            "detail": (
+                f"interface_info missing at {if_path}: {exc}. "
+                "Run: sudo sepolgen-ifgen (after policycoreutils-devel is installed)."
+            ),
+            "if_path": str(if_path),
+        }
+
+    return {
+        "status": "available",
+        "detail": "",
+        "if_path": str(if_path),
+    }
+
+
+def sepolgen_toolchain_available() -> bool:
+    return sepolgen_diagnose()["status"] == "available"
+
+
+def emit_sepolgen_warning(diagnose: dict[str, str] | None = None) -> None:
+    diagnose = diagnose or sepolgen_diagnose()
+    if diagnose["status"] == "available":
+        return
+    print(SEPOLGEN_WARN_BANNER.format(detail=diagnose["detail"]), file=sys.stderr)
+
+
+def emit_degraded_warning(findings: list[Finding]) -> None:
+    degraded = [f for f in findings if f.engine == "degraded"]
+    if not degraded:
+        return
+    print(
+        "\n"
+        "================================================================================\n"
+        "WARNING: --allow-degraded IS ON — EMITTING RAW ALLOWS WITHOUT SEPOLGEN\n"
+        "================================================================================\n"
+        f"{len(degraded)} rule(s) use engine=degraded in findings.json. "
+        "Admin review must treat these as audit2allow output, not interface-backed policy.\n"
+        "Install sepolgen-ifgen and regenerate without --allow-degraded when possible.\n"
+        "================================================================================\n",
+        file=sys.stderr,
+    )
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -170,16 +266,6 @@ def try_sepolgen_interface(
         return None
     best = sorted(candidates, key=lambda m: (-getattr(m, "dist", 0), m.interface.name))[0]
     return f"{best.interface.name}({src})", f"Matched refpolicy interface (distance {getattr(best, 'dist', '?')})."
-
-
-def sepolgen_toolchain_available() -> bool:
-    try:
-        import sepolgen.defaults as defaults
-
-        defaults.interface_info()
-        return True
-    except (ImportError, OSError, AttributeError):
-        return False
 
 
 def baseline_macro_covers(need: AccessNeed, te_text: str) -> bool:
@@ -311,7 +397,8 @@ def classify(
         need,
         VERDICT_DIRECT,
         rendered,
-        "No refpolicy interface matched — review carefully (raw allow on base type).",
+        "sepolgen ran but no refpolicy interface matched this denial — manual review required "
+        "(not the same as sepolgen missing).",
         paths,
         engine="house_rules",
     )
@@ -404,6 +491,14 @@ def run(args: argparse.Namespace) -> int:
     existing_te = args.existing_te.read_text(encoding="utf-8")
     existing_fc = args.existing_fc.read_text(encoding="utf-8")
 
+    sepolgen_info = sepolgen_diagnose()
+    emit_sepolgen_warning(sepolgen_info)
+    if args.allow_degraded and sepolgen_info["status"] != "available":
+        print(
+            "[WARN] --allow-degraded: base-type denials may become raw allows in output.\n",
+            file=sys.stderr,
+        )
+
     entries, path_map = parse_avc_file(args.avc_log, domains)
     merged = merge_avc_entries(entries)
     net_new, _covered = subtract_covered(merged, parse_existing_allows(existing_te))
@@ -417,7 +512,9 @@ def run(args: argparse.Namespace) -> int:
 
     meta = tool_versions()
     meta["avc_sha"] = hashlib.sha256(args.avc_log.read_bytes()).hexdigest()[:16]
-    meta["sepolgen"] = "available" if sepolgen_toolchain_available() else "missing"
+    meta["sepolgen"] = sepolgen_info["status"]
+    if sepolgen_info.get("if_path"):
+        meta["sepolgen_if_path"] = sepolgen_info["if_path"]
 
     blockers = [
         f
@@ -435,12 +532,16 @@ def run(args: argparse.Namespace) -> int:
             print(f"               {f.note}")
             if f.rendered:
                 print(f"               → {f.rendered}")
+        emit_degraded_warning(findings)
         return 1 if blockers else 0
 
     if blockers:
+        print("\n*** GENERATION BLOCKED — fix sepolgen or remove base-type denials from AVC log ***\n", file=sys.stderr)
         for f in blockers:
             print(f"REFUSED: {f.note}", file=sys.stderr)
         return 1
+
+    emit_degraded_warning(findings)
 
     drift_notes = [f for f in findings if f.verdict == VERDICT_FC_DRIFT]
     if drift_notes:
@@ -474,19 +575,23 @@ def run(args: argparse.Namespace) -> int:
     (args.out_dir / f"{app_name}.fc").write_text(out_fc, encoding="utf-8")
     (args.out_dir / "findings.json").write_text(
         json.dumps(
-            [
-                {
-                    "src": f.need.src_type,
-                    "tgt": f.need.tgt_type,
-                    "class": f.need.tclass,
-                    "perms": sorted(f.need.perms),
-                    "verdict": f.verdict,
-                    "rendered": f.rendered,
-                    "note": f.note,
-                    "engine": f.engine,
-                }
-                for f in findings
-            ],
+            {
+                "sepolgen_status": sepolgen_info["status"],
+                "sepolgen_detail": sepolgen_info.get("detail", ""),
+                "findings": [
+                    {
+                        "src": f.need.src_type,
+                        "tgt": f.need.tgt_type,
+                        "class": f.need.tclass,
+                        "perms": sorted(f.need.perms),
+                        "verdict": f.verdict,
+                        "rendered": f.rendered,
+                        "note": f.note,
+                        "engine": f.engine,
+                    }
+                    for f in findings
+                ],
+            },
             indent=2,
             sort_keys=True,
         )
