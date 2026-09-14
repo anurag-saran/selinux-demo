@@ -28,12 +28,22 @@ Without ifgen, the generator still classifies denials and emits **direct** / **f
 
 ## Fast compiles (Podman)
 
+**One-time** (~2–4 min):
+
 ```bash
 bash scripts/build_selinux_compile_image.sh
-export SELINUX_BUILD_IMAGE=selinux-demo/selinux-build:stream9
+export SELINUX_BUILD_IMAGE=selinux-demo/selinux-build:stream9   # optional; this is the default
 ```
 
-Subsequent `compile_and_validate.sh` / `--enforce-check` runs use the cached image instead of `dnf install` on every invocation.
+**Automatic:** `dev_generate_policy.sh`, `compile_and_validate.sh`, and `compile_module.sh` call `ensure_selinux_build_image` when `SELINUX_BUILD_IMAGE_AUTO=1` (default) and the image is missing.
+
+After the image exists, these use **make-only** container runs (no per-invocation `dnf`):
+
+- `compile_policy_module` / `compile_and_validate.sh`
+- `validate_policy_semantics.sh`
+- `policy_module_diff.sh` (PR access delta)
+- `classify_policy_blast_radius.sh`
+- `cli/selinux_gen.py` container compile (via `compile_module.sh`)
 
 ## House rules (see `cli/policy_rules.py`)
 

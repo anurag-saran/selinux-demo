@@ -88,7 +88,11 @@ Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansibl
 
 ```bash
 pip3 install -r cli/requirements.txt
-export OPENAI_API_KEY="your-key"
+export OPENAI_API_KEY="your-key"   # only for --engine llm
+
+# macOS / laptop without native selinux-policy-devel: build compile image once (~3 min), then seconds per compile
+bash scripts/build_selinux_compile_image.sh
+# Or let dev_generate_policy / compile_and_validate auto-build on first run (SELINUX_BUILD_IMAGE_AUTO=1)
 
 # Staging + tests (native Linux)
 sudo bash scripts/setup_staging_env.sh
@@ -197,6 +201,7 @@ bash scripts/validate_forbidden_patterns.sh selinux
 bash scripts/compile_and_validate.sh selinux      # refpolicy Makefile (checkmodule fallback)
 bash scripts/validate_policy_semantics.sh selinux   # sesearch assertions (CI: policy-semantics job)
 bash scripts/validate_version_consistency.sh      # version SSOT (CI: version-consistency)
+bash scripts/build_selinux_compile_image.sh       # one-time Podman image (or auto on first compile)
 bash scripts/run_blast_radius_fixtures.sh       # soak tier fixtures (CI: blast-radius; needs Podman)
 bash scripts/assemble_pr_body.sh                # PR body + merge-base policy access delta
 bash scripts/compile_and_validate.sh policy_out   # after AI generation

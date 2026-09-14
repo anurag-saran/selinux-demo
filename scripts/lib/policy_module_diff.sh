@@ -106,12 +106,45 @@ compile_policy_module "${run_dir}/cand" "${APP_NAME}" "${run_dir}/cand/${APP_NAM
 run_container() {
     local log="${run_dir}/podman.log"
     local pod_ec=0
-    podman run --rm \
-        -v "${run_dir}:/work:Z" \
-        -e "APP_NAME=${APP_NAME}" \
-        -e "DOMAINS=${DOMAINS}" \
-        "${SELINUX_COMPILE_IMAGE}" \
-        bash -lc '
+    ensure_selinux_build_image || true
+    if selinux_build_image_ready; then
+        run_selinux_container "${run_dir}" \
+            -e "APP_NAME=${APP_NAME}" \
+            -e "DOMAINS=${DOMAINS}" \
+            bash -lc '
+set -euo pipefail
+source /work/policy_module_sesearch.sh
+base_rules="/work/base_rules.txt"
+cand_rules="/work/cand_rules.txt"
+: > "${base_rules}"
+: > "${cand_rules}"
+kern="/var/lib/selinux/targeted/active/policy.kern"
+dump_side() {
+    local pp="$1" dest="$2"
+    semodule -r "${APP_NAME}" 2>/dev/null || true
+    semodule -i "${pp}"
+    IFS="," read -r -a doms <<< "${DOMAINS}"
+    for dom in "${doms[@]}"; do
+        dom="${dom// /}"
+        [[ -n "${dom}" ]] || continue
+        append_domain_allows "${kern}" "${dom}" "${dest}"
+    done
+}
+dump_side "/work/base/${APP_NAME}.pp" "${base_rules}"
+dump_side "/work/cand/${APP_NAME}.pp" "${cand_rules}"
+semodule -r "${APP_NAME}" 2>/dev/null || true
+sort -u -o "${base_rules}" "${base_rules}"
+sort -u -o "${cand_rules}" "${cand_rules}"
+comm -23 "${cand_rules}" "${base_rules}" > /work/added.txt
+comm -13 "${cand_rules}" "${base_rules}" > /work/removed.txt
+' >"${log}" 2>&1 || pod_ec=$?
+    else
+        podman run --rm \
+            -v "${run_dir}:/work:Z" \
+            -e "APP_NAME=${APP_NAME}" \
+            -e "DOMAINS=${DOMAINS}" \
+            "${SELINUX_COMPILE_IMAGE}" \
+            bash -lc '
 set -euo pipefail
 source /work/policy_module_sesearch.sh
 dnf install -y -q setools-console policycoreutils selinux-policy-targeted selinux-policy-devel checkpolicy
@@ -139,6 +172,7 @@ sort -u -o "${cand_rules}" "${cand_rules}"
 comm -23 "${cand_rules}" "${base_rules}" > /work/added.txt
 comm -13 "${cand_rules}" "${base_rules}" > /work/removed.txt
 ' >"${log}" 2>&1 || pod_ec=$?
+    fi
     if [[ -f "${run_dir}/added.txt" && -f "${run_dir}/removed.txt" ]]; then
         return 0
     fi

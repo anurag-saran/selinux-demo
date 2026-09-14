@@ -207,7 +207,9 @@ Python deps (`openai`, `pyyaml`, etc.) for the CLI.
 | Script | What it does | Core logic |
 |--------|----------------|------------|
 | **`compile_and_validate.sh`** | Wrapper: compile module + basic checks. | Sources **`lib/compile_policy.sh`**. |
-| **`lib/compile_policy.sh`** | **`compile_policy_module`**: copy `.te`/`.fc` to temp dir → `make -f /usr/share/selinux/devel/Makefile` **natively or in Podman** (Stream 9 image). | Same compile path everywhere avoids Fedora/RHEL libsepol skew. |
+| **`lib/compile_policy.sh`** | **`compile_policy_module`**: refpolicy Makefile **natively or in Podman**. Uses prebuilt **`selinux-demo/selinux-build:stream9`** when present (`ensure_selinux_build_image` auto-builds once). Slow fallback: `dnf` in plain CentOS image. |
+| **`build_selinux_compile_image.sh`** | Builds [`packaging/Containerfile.selinux-build`](../packaging/Containerfile.selinux-build) (devel + setools + targeted policy). |
+| **`compile_module.sh`** | CLI wrapper used by **`selinux_gen.py`** and local compiles. |
 | **`validate_forbidden_patterns.sh`** | Fast grep + Python checks on `.te`. | Fails on wildcards, `bin_t` execute, `require { type myapp_* }`, privileged targets, broad `var_t` write. |
 | **`validate_policy_semantics.sh`** | Installs `.pp` in **Podman only**, runs **`sesearch --direct`** probes (no shadow read, no foreign entrypoint). | Ensures compiled policy **means** what reviewers think — not just syntax. |
 | **`validate_version_consistency.sh`** | Compares `policy_version.txt`, `policy_module()` in `.te`, and RPM spec wiring. | Uses **`lib/version.sh`**. |

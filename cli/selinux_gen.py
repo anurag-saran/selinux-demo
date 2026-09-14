@@ -521,19 +521,12 @@ def compile_policy_in_container(te_path: Path, fc_path: Path, output_dir: Path, 
     shutil.copy2(te_path, work_dir / te_path.name)
     shutil.copy2(fc_path, work_dir / fc_path.name)
 
-    image = os.environ.get("SELINUX_COMPILE_IMAGE", "quay.io/centos/centos:stream9")
+    compile_script = PROJECT_ROOT / "scripts" / "compile_module.sh"
     run_command(
-        [
-            "podman", "run", "--rm", f"-v{work_dir}:/build:Z",
-            image, "bash", "-lc",
-            "set -euo pipefail; dnf install -y -q selinux-policy-devel checkpolicy policycoreutils; "
-            f"make -C /build -f /usr/share/selinux/devel/Makefile {module_name}.pp",
-        ]
+        ["bash", str(compile_script), str(work_dir), module_name, str(pp_path)],
     )
-    built = work_dir / f"{module_name}.pp"
-    if not built.is_file():
-        raise RuntimeError(f"Container compile did not produce {built}")
-    shutil.copy2(built, pp_path)
+    if not pp_path.is_file():
+        raise RuntimeError(f"Container compile did not produce {pp_path}")
     return pp_path
 
 

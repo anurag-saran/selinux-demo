@@ -60,6 +60,8 @@ Environment:
   OPENAI_API_KEY   Required for --engine llm
   POLICY_ENGINE    Default engine if --engine omitted (deterministic|llm)
   POLICY_ALLOW_DEGRADED  Pass --allow-degraded to deterministic_gen when sepolgen missing
+  SELINUX_BUILD_IMAGE  Prebuilt compile image (default: selinux-demo/selinux-build:stream9)
+  SELINUX_BUILD_IMAGE_AUTO  Build image on first compile when missing (default: 1)
   OPENAI_BASE_URL  Optional LiteLLM endpoint
   OPENAI_API_MODEL Optional model override
 
@@ -309,6 +311,12 @@ EOF
 main() {
     require_api_key
     require_existing_policy
+
+    # shellcheck source=lib/compile_policy.sh
+    source "${SCRIPT_DIR}/lib/compile_policy.sh"
+    if ! has_selinux_devel && command -v podman >/dev/null 2>&1; then
+        ensure_selinux_build_image || log_warn "Policy compile may be slow until: bash scripts/build_selinux_compile_image.sh"
+    fi
 
     if [[ "${SKIP_EXPORT}" -eq 0 ]]; then
         export_avcs

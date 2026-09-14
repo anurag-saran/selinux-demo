@@ -13,9 +13,23 @@ if ! command -v podman >/dev/null 2>&1; then
     exit 1
 fi
 
+PODMAN_ENV="${HOME}/.local/share/selinux-demo/podman/env.sh"
+if [[ -f "${PODMAN_ENV}" ]]; then
+    # shellcheck disable=SC1090
+    source "${PODMAN_ENV}"
+fi
+
+if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "${SCRIPT_DIR}/lib/vm_ready.sh" ]]; then
+    # shellcheck source=lib/vm_ready.sh
+    source "${SCRIPT_DIR}/lib/vm_ready.sh"
+    ensure_vm_ready || exit 1
+fi
+
+start=$(date +%s)
 podman build \
     --tag "${IMAGE}" \
     --file "${PROJECT_ROOT}/packaging/Containerfile.selinux-build" \
     "${PROJECT_ROOT}"
-
-echo "Built ${IMAGE}. Export SELINUX_BUILD_IMAGE=${IMAGE} for compile scripts."
+elapsed=$(( $(date +%s) - start ))
+echo "Built ${IMAGE} in ${elapsed}s."
+echo "Subsequent compiles use this image (seconds, no dnf). Optional: export SELINUX_BUILD_IMAGE=${IMAGE}"

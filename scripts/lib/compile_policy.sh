@@ -7,8 +7,14 @@
 #
 set -euo pipefail
 
+LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${LIB_DIR}/../.." && pwd)"
+BUILD_IMAGE_SCRIPT="${PROJECT_ROOT}/scripts/build_selinux_compile_image.sh"
+
 SELINUX_COMPILE_IMAGE="${SELINUX_COMPILE_IMAGE:-quay.io/centos/centos:stream9}"
 SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-selinux-demo/selinux-build:stream9}"
+# Set SELINUX_BUILD_IMAGE_AUTO=0 to skip one-time local image build (use slow dnf path).
+SELINUX_BUILD_IMAGE_AUTO="${SELINUX_BUILD_IMAGE_AUTO:-1}"
 
 has_selinux_devel() {
     [[ -f /usr/share/selinux/devel/Makefile ]]
@@ -17,6 +23,34 @@ has_selinux_devel() {
 selinux_build_image_ready() {
     command -v podman >/dev/null 2>&1 \
         && podman image inspect "${SELINUX_BUILD_IMAGE}" >/dev/null 2>&1
+}
+
+ensure_selinux_build_image() {
+    selinux_build_image_ready && return 0
+    [[ "${SELINUX_BUILD_IMAGE_AUTO}" == "1" ]] || return 1
+    [[ -x "${BUILD_IMAGE_SCRIPT}" ]] || return 1
+    echo "[INFO] Building ${SELINUX_BUILD_IMAGE} once (~2–4 min); later compiles are seconds." >&2
+    bash "${BUILD_IMAGE_SCRIPT}"
+    selinux_build_image_ready
+}
+
+selinux_container_image() {
+    if selinux_build_image_ready; then
+        echo "${SELINUX_BUILD_IMAGE}"
+    else
+        echo "${SELINUX_COMPILE_IMAGE}"
+    fi
+}
+
+run_selinux_container() {
+    local mount_src="$1"
+    shift
+    local img
+    img="$(selinux_container_image)"
+    if [[ "${img}" == "${SELINUX_COMPILE_IMAGE}" ]]; then
+        echo "[WARN] ${SELINUX_BUILD_IMAGE} missing — slow dnf-in-container path. Fix: bash scripts/build_selinux_compile_image.sh" >&2
+    fi
+    podman run --rm -v "${mount_src}:/work:Z" "${img}" "$@"
 }
 
 compile_toolchain_available() {
@@ -47,6 +81,7 @@ compile_policy_module() {
         cp "${work_dir}/${module_name}.pp" "${output_pp}"
         rm -rf "${work_dir}"
     elif command -v podman >/dev/null 2>&1; then
+        ensure_selinux_build_image || true
         local work_dir
         work_dir="$(mktemp -d)"
         cp "${te}" "${fc}" "${work_dir}/"

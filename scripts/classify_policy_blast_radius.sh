@@ -106,11 +106,10 @@ if ! command -v podman >/dev/null 2>&1; then
 fi
 
 collect_log="${work_dir}/collect.log"
+ensure_selinux_build_image || true
 if selinux_build_image_ready; then
-    if ! podman run --rm \
-        -v "${work_dir}:/work:Z" \
+    if ! run_selinux_container "${work_dir}" \
         -e "BLAST_RADIUS_MODULE=${MODULE_NAME}" \
-        "${IMAGE}" \
         bash -lc 'set -euo pipefail; bash /work/blast_radius_collect.sh /work/base.pp /work/candidate.pp /work/out' \
         >"${collect_log}" 2>&1; then
         excerpt="$(tail -40 "${collect_log}")"
