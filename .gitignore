@@ -1,5 +1,8 @@
 policy_out/*.pp
 policy_out/*.mod
+policy_out/*.te
+policy_out/*.fc
+policy_out/policy_version.txt
 selinux/*.pp
 selinux/*.mod
 policy_out/avc.log

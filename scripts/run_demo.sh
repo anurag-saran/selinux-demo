@@ -45,13 +45,14 @@ trigger_endpoints() {
 
 export_avcs() {
     mkdir -p "${POLICY_OUT}"
-    if command -v ausearch >/dev/null 2>&1; then
-        ausearch -m avc -ts boot --raw 2>/dev/null \
-            | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp|/var/opt/myapp" > "${AVC_LOG}" || true
-    else
-        grep '^type=AVC' /var/log/audit/audit.log 2>/dev/null \
-            | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp" > "${AVC_LOG}" || true
+    # shellcheck source=lib/avc_query.sh
+    source "${SCRIPT_DIR}/lib/avc_query.sh"
+    if ! command -v ausearch >/dev/null 2>&1 && [[ ! -f /var/log/audit/audit.log ]]; then
+        log_error "No audit log tools; run on SELinux host with auditd"
+        exit 1
     fi
+    log_info "Exporting AVCs (avc_query pipeline)..."
+    export_app_avcs_to_file "${AVC_LOG}" boot "${DOMAIN}" "${APP_NAME}_backend_t"
     if [[ ! -s "${AVC_LOG}" ]]; then
         log_warn "No AVC lines exported to ${AVC_LOG}"
     else

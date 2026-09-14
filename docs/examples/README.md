@@ -15,4 +15,4 @@ bash scripts/assemble_pr_body.sh
 # → policy_out/pr_summary.md and policy_out/pr_body.md
 ```
 
-Do not edit `policy_out/` in Git — it is for local/generated artifacts. Update these examples when the PR template or policy baseline changes materially.
+Do not edit `policy_out/` in Git — `.te`, `.fc`, and `policy_version.txt` there are local build output (gitignored). Offline demos use [`fixtures/skip_ai/`](fixtures/skip_ai/) via `--skip-ai`; refresh with `bash scripts/refresh_skip_ai_fixture.sh` when `selinux/` bumps.

@@ -100,14 +100,15 @@ export_avcs() {
     if [[ "${USE_VM}" -eq 1 ]]; then
         log_info "Exporting AVCs from Podman VM..."
         bash "${SCRIPT_DIR}/run_on_podman_vm.sh" export-avcs "${AVC_LOG}"
-    elif command -v ausearch >/dev/null 2>&1; then
-        log_info "Exporting AVCs from local audit log..."
-        ausearch -m avc -ts boot --raw 2>/dev/null \
-            | grep -E "${APP_NAME}|/opt/${APP_NAME}|/var/${APP_NAME}|/var/opt/${APP_NAME}" \
-            > "${AVC_LOG}" || true
     else
-        log_error "No ausearch on host; use --use-vm or run on a SELinux Linux host"
-        exit 1
+        # shellcheck source=lib/avc_query.sh
+        source "${SCRIPT_DIR}/lib/avc_query.sh"
+        if ! command -v ausearch >/dev/null 2>&1 && [[ ! -f /var/log/audit/audit.log ]]; then
+            log_error "No ausearch on host; use --use-vm or run on a SELinux Linux host"
+            exit 1
+        fi
+        log_info "Exporting AVCs from local audit log (avc_query pipeline)..."
+        export_app_avcs_to_file "${AVC_LOG}" boot "${DOMAIN}" "${APP_NAME}_backend_t"
     fi
     [[ -s "${AVC_LOG}" ]] || {
         log_error "No AVC lines in ${AVC_LOG}. Run staging tests first:"
@@ -150,7 +151,7 @@ promote_to_selinux() {
     cp "${POLICY_OUT}/${APP_NAME}.te" "${SELINUX_DIR}/${APP_NAME}.te"
     cp "${POLICY_OUT}/${APP_NAME}.fc" "${SELINUX_DIR}/${APP_NAME}.fc"
     if [[ -f "${SELINUX_DIR}/policy_version.txt" ]]; then
-        match="$(grep -oE 'policy_module\([^,]+,\s*[\d.]+\)' "${SELINUX_DIR}/${APP_NAME}.te" \
+        match="$(grep -oE 'policy_module\([^,]+,\s*[0-9.]+\)' "${SELINUX_DIR}/${APP_NAME}.te" \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
         [[ -n "${match}" ]] && echo "${match}" > "${SELINUX_DIR}/policy_version.txt"
     fi
@@ -200,13 +201,8 @@ EOF
 
 run_enforce_check() {
     local te_src fc_src pp_path
-    if [[ "${APPLY}" -eq 1 ]]; then
-        te_src="${SELINUX_DIR}/${APP_NAME}.te"
-        fc_src="${SELINUX_DIR}/${APP_NAME}.fc"
-    else
-        te_src="${POLICY_OUT}/${APP_NAME}.te"
-        fc_src="${POLICY_OUT}/${APP_NAME}.fc"
-    fi
+    te_src="${POLICY_OUT}/${APP_NAME}.te"
+    fc_src="${POLICY_OUT}/${APP_NAME}.fc"
 
     pp_path="${POLICY_OUT}/${APP_NAME}.pp"
     log_info "Compiling candidate policy for enforce-check..."
@@ -281,6 +277,10 @@ main() {
     generate_policy
     show_diff
 
+    if [[ "${ENFORCE_CHECK}" -eq 1 ]]; then
+        run_enforce_check || exit 1
+    fi
+
     if [[ "${APPLY}" -eq 1 ]]; then
         promote_to_selinux
     else
@@ -288,10 +288,6 @@ main() {
     fi
 
     assemble_pr_body
-
-    if [[ "${ENFORCE_CHECK}" -eq 1 ]]; then
-        run_enforce_check || exit 1
-    fi
 
     if [[ "${OPEN_PR}" -eq 1 ]]; then
         open_pr

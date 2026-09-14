@@ -121,10 +121,10 @@ flowchart TD
 
 - Clone this repository
 - Python 3.9+ and `pip3 install -r cli/requirements.txt`
-- **`OPENAI_API_KEY`** set (unless using `--skip-ai` with existing `policy_out/` files)
+- **`OPENAI_API_KEY`** set (unless using `--skip-ai`, which stages [`docs/examples/fixtures/skip_ai/`](../examples/fixtures/skip_ai/))
 - Optional: `OPENAI_BASE_URL` / `OPENAI_API_MODEL` for LiteLLM or other OpenAI-compatible endpoints
 
-**Don't have an API key?** Use `--skip-ai` if `policy_out/myapp.te` and `policy_out/avc.log` already exist.
+**Don't have an API key?** Use `--skip-ai` — fixtures populate `policy_out/` with a deterministic baseline→generated diff (see `docs/examples/fixtures/skip_ai/README.md`).
 
 ### Native Linux (RHEL, Fedora, FCOS VM)
 
@@ -199,7 +199,7 @@ sudo bash scripts/demo_present.sh --demo-mode --auto --acts 6-10
 sudo bash scripts/demo_present.sh --skip-ai --demo-mode --auto
 ```
 
-Requires existing `policy_out/myapp.te`, `policy_out/myapp.fc`, and preferably `policy_out/avc.log`.
+Requires no pre-existing `policy_out/` — `--skip-ai` stages fixtures at demo start.
 
 ---
 
@@ -262,7 +262,7 @@ $ curl -sf http://127.0.0.1:8888/save-log
 
 **In plain English:** Copy **myapp-related** denial lines from the audit log into a file for the AI. This is **staging discovery** — not the production soak yet.
 
-**What runs:** Export to `policy_out/avc.log` (filtered grep — not every SELinux denial on the host).
+**What runs:** Export to `policy_out/avc.log` via `export_app_avcs_to_file` in `lib/avc_query.sh` (same `--subject` / message types as soak gates). With `--skip-ai`, Act 2 uses the fixture log staged at startup.
 
 **What you should see:**
 

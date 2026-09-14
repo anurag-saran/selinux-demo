@@ -64,15 +64,55 @@ if [[ -f "${AVC_LOG}" ]] && [[ -s "${AVC_LOG}" ]]; then
     [[ -n "${avc_excerpt}" ]] || avc_excerpt="(AVC log present but no matching lines)"
 fi
 
-BASE_PP="${PROJECT_ROOT}/selinux/myapp.pp"
+BASE_PP=""
+base_workdir=""
 NEW_PP="${PROJECT_ROOT}/policy_out/${APP_NAME}.pp"
 
+compile_policy_sources_to_pp() {
+    local src_dir="$1"
+    local out_pp="$2"
+    # shellcheck source=lib/compile_policy.sh
+    source "${SCRIPT_DIR}/lib/compile_policy.sh"
+    compile_policy_module "${src_dir}" "${APP_NAME}" "${out_pp}"
+}
+
+if git -C "${PROJECT_ROOT}" rev-parse --git-dir >/dev/null 2>&1; then
+    for ref in origin/main main HEAD; do
+        base_workdir="$(mktemp -d)"
+        if git -C "${PROJECT_ROOT}" show "${ref}:selinux/${APP_NAME}.te" > "${base_workdir}/${APP_NAME}.te" 2>/dev/null \
+            && git -C "${PROJECT_ROOT}" show "${ref}:selinux/${APP_NAME}.fc" > "${base_workdir}/${APP_NAME}.fc" 2>/dev/null \
+            && compile_policy_sources_to_pp "${base_workdir}" "${base_workdir}/${APP_NAME}.pp"; then
+            BASE_PP="${base_workdir}/${APP_NAME}.pp"
+            break
+        fi
+        rm -rf "${base_workdir}"
+        base_workdir=""
+    done
+fi
+
+if [[ -z "${BASE_PP}" && -f "${PROJECT_ROOT}/selinux/${APP_NAME}.te" && -f "${PROJECT_ROOT}/selinux/${APP_NAME}.fc" ]]; then
+    base_workdir="$(mktemp -d)"
+    cp "${PROJECT_ROOT}/selinux/${APP_NAME}.te" "${base_workdir}/${APP_NAME}.te"
+    cp "${PROJECT_ROOT}/selinux/${APP_NAME}.fc" "${base_workdir}/${APP_NAME}.fc"
+    if compile_policy_sources_to_pp "${base_workdir}" "${base_workdir}/${APP_NAME}.pp"; then
+        BASE_PP="${base_workdir}/${APP_NAME}.pp"
+    else
+        rm -rf "${base_workdir}"
+        base_workdir=""
+    fi
+fi
+
+if [[ ! -f "${NEW_PP}" ]]; then
+    compile_policy_sources_to_pp "${PROJECT_ROOT}/policy_out" "${NEW_PP}" 2>/dev/null || true
+fi
+
 sediff_file="$(mktemp)"
-if [[ -f "${BASE_PP}" && -f "${NEW_PP}" ]] && command -v sediff >/dev/null 2>&1; then
+if [[ -n "${BASE_PP}" && -f "${BASE_PP}" && -f "${NEW_PP}" ]] && command -v sediff >/dev/null 2>&1; then
     sediff "${BASE_PP}" "${NEW_PP}" > "${sediff_file}" 2>/dev/null || echo "(sediff produced no output)" > "${sediff_file}"
 else
-    echo "(sediff unavailable — install setools-console and provide base/new .pp)" > "${sediff_file}"
+    echo "(sediff unavailable — compile base/new .pp or install setools-console)" > "${sediff_file}"
 fi
+[[ -n "${base_workdir}" ]] && rm -rf "${base_workdir}"
 
 tmp="$(mktemp)"
 # Strip YAML frontmatter (--- ... ---) for body-file usage

@@ -1,0 +1,4 @@
+type=AVC msg=audit(1710000000.000:100): avc:  denied  { write } for  pid=1234 comm="python3" name="data.log" dev="vda4" ino=12345 scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:myapp_var_lib_t:s0 tclass=file permissive=1
+type=AVC msg=audit(1710000001.000:101): avc:  denied  { create } for  pid=1234 comm="python3" name="data.log" dev="vda4" ino=12346 scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:myapp_var_lib_t:s0 tclass=file permissive=1
+type=AVC msg=audit(1710000002.000:102): avc:  denied  { name_bind } for  pid=1234 comm="python3" scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=1
+type=AVC msg=audit(1710000003.000:103): avc:  denied  { read } for  pid=5678 comm="python3" name="urandom" dev="tmpfs" ino=999 scontext=system_u:system_r:myapp_backend_t:s0 tcontext=system_u:object_r:random_device_t:s0 tclass=chr_file permissive=1

@@ -59,7 +59,7 @@ Options:
   --auto           Skip "Press Enter" pauses (rehearsal / CI)
   --demo-mode      Workshop shortcuts: pre-seed soak marker; force_enforce on enforce step
   --use-vm         Run staging/canary/enforce inside Podman Machine VM (macOS)
-  --skip-ai        Use existing policy_out/ artifacts (no OPENAI_API_KEY)
+  --skip-ai        Offline demo: fixtures from docs/examples/fixtures/skip_ai/ (no OPENAI_API_KEY)
   --acts RANGE     Run subset of acts, e.g. 1-6 or 1,3,5 (default: 1-10)
   -h, --help       Show help
 
@@ -188,13 +188,9 @@ trigger_endpoints_native() {
 
 export_avcs_native() {
     mkdir -p "${POLICY_OUT}"
-    if command -v ausearch >/dev/null 2>&1; then
-        ausearch -m avc -ts boot --raw 2>/dev/null \
-            | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp|/var/opt/myapp" > "${AVC_LOG}" || true
-    else
-        grep '^type=AVC' /var/log/audit/audit.log 2>/dev/null \
-            | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp" > "${AVC_LOG}" || true
-    fi
+    # shellcheck source=lib/avc_query.sh
+    source "${SCRIPT_DIR}/lib/avc_query.sh"
+    export_app_avcs_to_file "${AVC_LOG}" boot "${DOMAIN}" "${APP_NAME}_backend_t"
     if [[ ! -s "${AVC_LOG}" ]]; then
         log_warn "No AVC lines exported to ${AVC_LOG}"
     else
@@ -237,6 +233,11 @@ act_1_staging() {
 
 act_2_export() {
     act_banner 2 "AVC Export" "Capture denials from audit log for AI policy input"
+    if [[ "${SKIP_AI}" -eq 1 ]]; then
+        log_info "Using recorded fixture AVC log (--skip-ai)"
+        pause_step
+        return 0
+    fi
     if [[ "${USE_VM}" -eq 1 ]]; then
         bash "${VM_HELPER}" export-avcs "${AVC_LOG}" || true
     else
@@ -247,9 +248,18 @@ act_2_export() {
 act_3_generate() {
     act_banner 3 "AI Generate" "Policy-as-Code CLI merges AVCs into selinux/ module"
     if [[ "${SKIP_AI}" -eq 1 ]]; then
-        log_info "Skipping AI generation (--skip-ai); using policy_out/ artifacts"
-        [[ -f "${POLICY_OUT}/${APP_NAME}.te" ]] || cp "${PROJECT_ROOT}/selinux/${APP_NAME}.te" "${POLICY_OUT}/${APP_NAME}.te"
-        [[ -f "${POLICY_OUT}/${APP_NAME}.fc" ]] || cp "${PROJECT_ROOT}/selinux/${APP_NAME}.fc" "${POLICY_OUT}/${APP_NAME}.fc"
+        bash "${SCRIPT_DIR}/lib/stage_skip_ai_fixture.sh"
+        log_info "Offline generation (--skip-ai): staged fixture → policy_out/"
+        log_info "Diff baseline (1.1.0) → generated (matches selinux/):"
+        if command -v git >/dev/null 2>&1; then
+            git -C "${PROJECT_ROOT}" diff --no-index \
+                "${PROJECT_ROOT}/docs/examples/fixtures/skip_ai/baseline/${APP_NAME}.te" \
+                "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
+        else
+            diff -u "${PROJECT_ROOT}/docs/examples/fixtures/skip_ai/baseline/${APP_NAME}.te" \
+                "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
+        fi
+        pause_step
         return 0
     fi
     python3 "${GEN}" \
@@ -412,6 +422,10 @@ main() {
 
     require_api_key
     require_root_if_native
+
+    if [[ "${SKIP_AI}" -eq 1 ]]; then
+        bash "${SCRIPT_DIR}/lib/stage_skip_ai_fixture.sh"
+    fi
 
     if [[ "${USE_VM}" -eq 1 ]]; then
         # shellcheck disable=SC1090

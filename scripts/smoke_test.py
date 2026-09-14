@@ -483,6 +483,15 @@ def test_classify_fail_closed_json() -> None:
     assert "tier" in payload
 
 
+def test_skip_ai_fixture_sync() -> None:
+    """Offline demo generated/ must match selinux/ (refresh_skip_ai_fixture.sh)."""
+    fix = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "skip_ai" / "generated"
+    for name in ("myapp.te", "myapp.fc"):
+        assert (fix / name).read_text(encoding="utf-8") == (
+            PROJECT_ROOT / "selinux" / name
+        ).read_text(encoding="utf-8"), f"Drift in skip_ai/generated/{name} — run refresh_skip_ai_fixture.sh"
+
+
 def main() -> int:
     import argparse
 
@@ -522,6 +531,7 @@ def main() -> int:
         ("app_manifest", test_app_manifest),
         ("rpm_ops_parity", test_rpm_ops_parity),
         ("classify_fail_closed_json", test_classify_fail_closed_json),
+        ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
     ]
     for name, fn in tests:
         fn()
