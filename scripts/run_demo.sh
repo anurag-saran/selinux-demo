@@ -90,7 +90,8 @@ main() {
         log_info "Step 5: Ansible canary deploy"
         ansible-playbook -i "${ANSIBLE}/inventory.example.yml" \
             "${ANSIBLE}/deploy_canary.yml" \
-            -e "policy_pp_path=${POLICY_OUT}/${APP_NAME}.pp"
+            -e "policy_pp_src=${POLICY_OUT}/${APP_NAME}.pp" \
+            -e "policy_artifact_dir=${POLICY_OUT}"
 
         log_info "Step 5b: Verify file contexts after canary"
         bash "${VERIFY}" --install-root "${INSTALL_ROOT}" --var-dir "${VAR_DIR}" --app-name "${APP_NAME}" \
@@ -99,7 +100,8 @@ main() {
         log_warn "Step 6: Enforce (demo only — force_enforce bypasses production soak gate)"
         ansible-playbook -i "${ANSIBLE}/inventory.example.yml" \
             "${ANSIBLE}/enforce_production.yml" \
-            -e "policy_pp_path=${POLICY_OUT}/${APP_NAME}.pp" \
+            -e "policy_pp_src=${POLICY_OUT}/${APP_NAME}.pp" \
+            -e "policy_artifact_dir=${POLICY_OUT}" \
             -e "force_enforce=true"
     else
         log_warn "ansible-playbook not found; applying policy directly"

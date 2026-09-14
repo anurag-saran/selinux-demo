@@ -221,7 +221,7 @@ Requires a **self-hosted runner** on a SELinux host:
 2. Choose `canary` on `staging`, monitor AVCs daily: `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0`
 3. After merge to `main`, CI runs **`staging-endpoint-smoke`** (`wait_for_endpoints.sh` + deploy report check on the staging runner)
 4. Deploy to **prod canary host**: `ansible-playbook ... deploy_canary.yml --limit canary` (fails if `canary_max_avc` exceeded, default 0)
-5. After 7+ day soak (`check_soak_ready.sh` passes — requires deploy report with verified `domain_context`), choose `enforce` on `production` (configure Environment required reviewers). **`soak_auto_tier` / `--auto-tier` is disabled** until blast-radius classification is fixed (PR 2).
+5. After 7+ day soak (enforce role **`collect_soak_facts`** gate + deploy report with verified domain context), choose `enforce` on `production`. **`--auto-tier` remains disabled** until blast-radius tiering is validated on the controller ([`classify_policy_blast_radius.sh`](scripts/classify_policy_blast_radius.sh)).
 
 Canary runs **`semodule -DB`** during soak so dontaudit rules do not hide AVCs. Canary, enforce, and rollback playbooks all run **`wait_for_endpoints.sh`** (six HTTP endpoints + backend + **SELinux domain verification**) and write **`/var/lib/myapp/selinux_deploy_report.json`** via **`post_deploy_report.sh`**. Failed canary and rollback restore **`semodule -B`**. Enforce uses an Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive and services are restarted before the playbook fails.
 
@@ -248,7 +248,8 @@ Secrets (optional):
 bash scripts/compile_and_validate.sh selinux
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
   --limit canary \
-  -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
+  -e "policy_pp_src=$(pwd)/selinux/myapp.pp" \
+  -e "policy_artifact_dir=$(pwd)"
 bash scripts/monitor_avc.sh --domain myapp_t --marker-file /var/lib/myapp/selinux_canary_deployed_at
 bash scripts/verify_file_contexts.sh --install-root /opt/myapp --var-dir /var/lib/myapp --log-dir /var/log/myapp
 ```
@@ -258,7 +259,8 @@ bash scripts/verify_file_contexts.sh --install-root /opt/myapp --var-dir /var/li
 ```bash
 bash scripts/check_soak_ready.sh --domain myapp_t --marker-file /var/lib/myapp/selinux_canary_deployed_at
 ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
-  -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
+  -e "policy_pp_src=$(pwd)/selinux/myapp.pp" \
+  -e "policy_artifact_dir=$(pwd)"
 # Break-glass only: add -e "force_enforce=true"
 ```
 

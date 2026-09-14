@@ -28,6 +28,7 @@ RUNTIME_DIR="${RUNTIME_DIR:-/run/myapp}"
 SOAK_MARKER="${VAR_DIR}/selinux_canary_deployed_at"
 VM_PROJECT="/home/core/selinux-demo"
 VM_POLICY_PP="${VM_PROJECT}/policy_out/${APP_NAME}.pp"
+VM_POLICY_DIR="${VM_PROJECT}/policy_out"
 
 AUTO=0
 DEMO_MODE=0
@@ -284,12 +285,14 @@ run_canary_playbook() {
     if [[ "${USE_VM}" -eq 1 ]]; then
         [[ "${VM_SYNCED}" -eq 1 ]] || vm_sync
         local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/deploy_canary.yml \
-            -e policy_pp_path=${VM_POLICY_PP}"
+            -e policy_pp_src=${VM_POLICY_PP} \
+            -e policy_artifact_dir=${VM_POLICY_DIR}"
         for arg in "$@"; do cmd+=" ${arg}"; done
         vm_run "${cmd}"
     else
         ansible-playbook -i "${INVENTORY}" "${ANSIBLE}/deploy_canary.yml" \
-            -e "policy_pp_path=${POLICY_OUT}/${APP_NAME}.pp" "$@"
+            -e "policy_pp_src=${POLICY_OUT}/${APP_NAME}.pp" \
+            -e "policy_artifact_dir=${POLICY_OUT}" "$@"
     fi
 }
 
@@ -297,12 +300,14 @@ run_enforce_playbook() {
     if [[ "${USE_VM}" -eq 1 ]]; then
         [[ "${VM_SYNCED}" -eq 1 ]] || vm_sync
         local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/enforce_production.yml \
-            -e policy_pp_path=${VM_POLICY_PP}"
+            -e policy_pp_src=${VM_POLICY_PP} \
+            -e policy_artifact_dir=${VM_POLICY_DIR}"
         for arg in "$@"; do cmd+=" ${arg}"; done
         vm_run "${cmd}"
     else
         ansible-playbook -i "${INVENTORY}" "${ANSIBLE}/enforce_production.yml" \
-            -e "policy_pp_path=${POLICY_OUT}/${APP_NAME}.pp" "$@"
+            -e "policy_pp_src=${POLICY_OUT}/${APP_NAME}.pp" \
+            -e "policy_artifact_dir=${POLICY_OUT}" "$@"
     fi
 }
 

@@ -103,7 +103,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | CI builds `.pp` as artifact only | `compile-policy` job upload (not committed) |
 | Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` (container-only; `--direct`) |
 | Verify service runs in expected domain | `wait_for_endpoints.sh` domain-context check |
-| Tier soak by blast radius | `classify_policy_blast_radius.sh` + `check_soak_ready.sh --auto-tier` |
+| Tier soak by blast radius | `classify_policy_blast_radius.sh` on controller (enforce uses fixed `soak_min_days`) |
 | Include policy diff in PR body | `assemble_pr_body.sh` + `sediff` |
 | Lint shell and YAML | `shellcheck`, `yamllint`, `ansible-lint` in CI |
 
@@ -179,7 +179,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | Practice | Command / artifact |
 |----------|-------------------|
 | Immediate relief | `semanage permissive -a myapp_t` (via `emergency_rollback.yml`) |
-| Version rollback | `-e rollback_target_version=1.0.9` + policy history `.pp` |
+| Version rollback | `-e rollback_dnf_version=1.1.1-1` on emergency rollback (`dnf downgrade myapp-selinux-*`) |
 | Export AVCs after outage | `/tmp/emergency_avc.log` in rollback playbook |
 | App team triage | [PRODUCTION_READINESS.md §12.5](PRODUCTION_READINESS.md) — health JSON, deploy report |
 | Full recovery loop | permissive → policy PR → canary → soak → enforce |
@@ -217,9 +217,9 @@ Use with the [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_revie
 - [ ] CI: `forbidden-patterns`, `compile-policy`, `policy-semantics`, `ansible-lint` pass
 - [ ] `verify_file_contexts.sh` passes after `restorecon` (includes `/var/log/myapp`)
 - [ ] Canary plan: `semodule -DB`, endpoint smoke, **domain context** in deploy report, soak marker
-- [ ] Enforce plan: `check_soak_ready.sh` (optional `--auto-tier`), `semodule -B`, block/rescue tested or briefed
+- [ ] Enforce plan: `collect_soak_facts.sh` gate (or manual `check_soak_ready.sh`), `semodule -B`, block/rescue tested or briefed
 - [ ] Developers can run `dev_generate_policy.sh --enforce-check` before opening PR
-- [ ] Rollback owner knows `emergency_rollback.yml` + policy-history path
+- [ ] Rollback owner knows `emergency_rollback.yml`, optional `rollback_dnf_version`, and `reset_host_state.yml` for interrupted canary
 
 ---
 

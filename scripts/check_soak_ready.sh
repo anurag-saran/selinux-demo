@@ -18,7 +18,6 @@ AUTO_TIER="${SOAK_AUTO_TIER:-0}"
 APP_DOMAIN="${SELINUX_APP_DOMAIN:-myapp_t}"
 BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}"
 MANIFEST=""
-POLICY_HISTORY_DIR="${POLICY_HISTORY_DIR:-/var/lib/myapp/policy-history}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -40,7 +39,7 @@ Options:
   --report-file PATH    Deploy report JSON (default: /var/lib/myapp/selinux_deploy_report.json)
   --min-days N          Minimum soak days (default: 7)
   --max-avc N           Maximum allowed AVC events since canary (default: 0)
-  --auto-tier           Disabled until blast-radius classifier is fixed (PR 2)
+  --auto-tier           Disabled (use fixed soak_min_days; blast radius on controller only)
   --manifest PATH       App manifest for deploy report domain verification
   --skip-if-unavailable Exit 0 when marker or audit tools missing (CI smoke)
   -h, --help            Show help
@@ -79,7 +78,7 @@ if [[ ! -f "${MARKER_FILE}" ]]; then
 fi
 
 if [[ "${AUTO_TIER}" == "1" || "${SOAK_AUTO_TIER:-0}" == "1" ]]; then
-    log_error "--auto-tier is disabled until blast-radius classification is fixed (use fixed soak_min_days, default 7)"
+    log_error "--auto-tier is disabled; enforce uses collect_soak_facts.sh with fixed soak_min_days (default 7)"
     exit 1
 fi
 

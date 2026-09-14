@@ -22,7 +22,7 @@ High-blast-radius SELinux changes need **per-domain permissive soak**, **path la
 | Topic | Workshop (`--demo-mode`) | Production |
 |-------|--------------------------|------------|
 | Soak wait | Skipped (pre-seeded 8-day marker) | **7–14 real calendar days** |
-| Enforce | `force_enforce=true` (break-glass) | `check_soak_ready.sh` **must pass** |
+| Enforce | `force_enforce=true` (break-glass) | Enforce role **`collect_soak_facts.sh`** gate (or manual `check_soak_ready.sh` on host) |
 | Goal | Teach the pipeline | **No surprise outages** |
 | Rollback | Commands shown only | Run `emergency_rollback.yml` if needed |
 
@@ -37,7 +37,7 @@ High-blast-radius SELinux changes need **per-domain permissive soak**, **path la
 | **Canary host** | One production node that gets new policy first — still permissive while you watch |
 | **Soak** | Run permissive canary for 7–14 days so weekly cron, logrotate, and restarts surface missing rules |
 | **Fleet** | All production hosts after canary proves stable |
-| **Enforce gate** | Automated check (`check_soak_ready.sh`) — soak time elapsed + AVC count within limit |
+| **Enforce gate** | Automated check (`collect_soak_facts.sh` in Ansible; manual `check_soak_ready.sh` on host) — soak time elapsed + AVC count within limit |
 | **Break-glass** | `force_enforce=true` — bypass soak gate; use only in emergencies with approval |
 | **Path labeling** | Files on disk must match `.fc` rules (`restorecon` + verify before restart) |
 | **Per-domain permissive** | Only `myapp_t` is permissive; the OS stays **Enforcing** globally |
@@ -139,7 +139,7 @@ See also: [`TESTING.md`](TESTING.md) (full endpoint → policy mapping and `smok
 | **Post-merge staging smoke** | CI re-check after canary on runner | `staging-endpoint-smoke` job in `selinux-staging-canary.yml` | `wait_for_endpoints.sh` passes; deploy report present |
 | **Permissive soak** | Capture weekly cron, logrotate, restarts (7–14 days) | `semanage permissive -a myapp_t` + daily `monitor_avc.sh` | `count=0`, exit 0 |
 | **Production canary host** | Deploy to one node before fleet | `deploy_canary.yml --limit canary` | Marker file written, app + backend healthy |
-| **Enforce gate** | Soak elapsed, zero domain AVCs, deploy report pass | `check_soak_ready.sh` (optional `--auto-tier`) in `enforce_production.yml` | `Soak gate passed — safe to enforce myapp_t` |
+| **Enforce gate** | Automated soak + AVC + deploy report | `collect_soak_facts.sh` in `enforce_production.yml` (manual: `check_soak_ready.sh` on host) | Role reports soak gate passed |
 | **Production enforce** | Remove permissive domain | `ansible/enforce_production.yml` | `semanage permissive -l` empty; **six** production smoke tests pass under enforcing |
 | **Outage response** | Instant relief + AVC capture | `ansible/emergency_rollback.yml` | Domain back in permissive list; endpoints pass; deploy report written; soak marker reset |
 
@@ -162,7 +162,7 @@ $ sudo semanage permissive -l
 myapp_t
 ```
 
-**Duration:** 7 to 14 days by default (`soak_min_days`). **`--auto-tier` is disabled** in `enforce_production.yml` and `check_soak_ready.sh` until blast-radius classification is production-safe (planned PR 2).
+**Duration:** 7 to 14 days by default (`soak_min_days`). **`--auto-tier` is disabled** in `enforce_production.yml` and `check_soak_ready.sh`; blast-radius tiering is controller-only ([`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh)).
 
 The canary playbook records a deploy timestamp at `/var/lib/myapp/selinux_canary_deployed_at` (epoch seconds), runs **`semodule -DB`** so dontaudit rules do not hide soak AVCs, and installs policy with **`semodule -i`** (in-place upgrade — no `semodule -r`). Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
 
@@ -314,7 +314,8 @@ The `canary` group is **one node** for the first production deploy. The `product
 # 1. Canary node only (permissive + policy install)
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
   --limit canary \
-  -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
+  -e "policy_pp_src=$(pwd)/selinux/myapp.pp" \
+  -e "policy_artifact_dir=$(pwd)"
 
 # 2. Daily monitoring on canary during soak
 bash scripts/monitor_avc.sh \
@@ -325,11 +326,13 @@ bash scripts/monitor_avc.sh \
 # 3. Optional: permissive rollout to full fleet before enforce
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
   --limit production \
-  -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
+  -e "policy_pp_src=$(pwd)/selinux/myapp.pp" \
+  -e "policy_artifact_dir=$(pwd)"
 
-# 4. Enforce (soak gate runs automatically)
+# 4. Enforce (soak gate runs in role via collect_soak_facts.sh)
 ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
-  -e "policy_pp_path=$(pwd)/selinux/myapp.pp"
+  -e "policy_pp_src=$(pwd)/selinux/myapp.pp" \
+  -e "policy_artifact_dir=$(pwd)"
 
 # Break-glass only:
 ansible-playbook ... enforce_production.yml -e "force_enforce=true"
@@ -359,7 +362,7 @@ Workshop demo shows these commands in [DEMO_GUIDE.md § Act 10](DEMO_GUIDE.md).
 
 `enforce_production.yml` runs before removing permissive:
 
-1. **`check_soak_ready.sh`** — minimum soak days (optional **`--auto-tier`** via `sediff` blast radius) + AVC count threshold + passing deploy report with verified domain context at `/var/lib/myapp/selinux_deploy_report.json`
+1. **`collect_soak_facts.sh`** (role) — minimum soak days + AVC count threshold + passing deploy report with verified domain context at `/var/lib/myapp/selinux_deploy_report.json` (same checks as manual **`check_soak_ready.sh`** on the host; **`--auto-tier` disabled**)
 2. **`verify_file_contexts.sh`** — labeling dry-run (`restorecon` + `.fc` is source of truth; includes `/var/log/myapp`)
 3. **Remove stale `/run/myapp/notify.sock`** — avoids false-positive socket checks after restarts
 4. **`systemctl restart`** — `myapp-backend.service` then `myapp.service`

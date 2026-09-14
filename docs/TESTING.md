@@ -144,10 +144,10 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 | [`verify_file_contexts.sh`](../scripts/verify_file_contexts.sh) | Before service restart after `semodule -i` | `matchpathcon -V`; `restorecon -Rv -n` shows no changes under data/log paths |
 | [`wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) | After canary / enforce / rollback restart | systemd active; **MainPID domain** matches manifest; HTTP probes from manifest (demo: six paths + backend health) |
 | [`monitor_avc.sh`](../scripts/monitor_avc.sh) | Daily during soak; canary post-deploy window | Domain AVC count ≤ threshold (default **0**) |
-| [`check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Before enforce (`enforce_production.yml`) | Marker age ≥ min days; AVC count ≤ max; deploy report pass + **domain_context_verified** (manifest-aware) |
+| [`check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Manual pre-enforce check on host (Ansible uses **`collect_soak_facts.sh`**) | Marker age ≥ min days; AVC count ≤ max; deploy report pass + **domain_context_verified** |
 | [`post_deploy_report.sh`](../scripts/post_deploy_report.sh) | End of canary / enforce / rollback | Writes deploy report JSON (path from manifest or default) |
 | [`validate_app_manifest.sh`](../scripts/validate_app_manifest.sh) | CI / onboarding | YAML schema + required fields |
-| [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) | Optional `--auto-tier` soak | `sediff` → 1 / 3 / 7 day recommendation |
+| [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) | Controller-only blast radius (`sediff`) | 1 / 3 / 7 day recommendation (not wired to enforce `--auto-tier`) |
 
 **Exit codes for `wait_for_endpoints.sh`:** `0` pass; `1` systemd; `2` HTTP; `4` domain mismatch.
 
@@ -169,8 +169,8 @@ Workflow: [`.github/workflows/selinux-deploy.yml`](../.github/workflows/selinux-
 | Phase | Playbook | Key tests embedded |
 |-------|----------|-------------------|
 | Canary | `deploy_canary.yml` | `verify_file_contexts`, `wait_for_endpoints`, `monitor_avc` (recent window), deploy report |
-| Soak | *(manual)* | Daily `monitor_avc.sh`; optional `check_soak_ready.sh --auto-tier` |
-| Enforce | `enforce_production.yml` | `check_soak_ready.sh`, `semodule -B`, enforce domain, `wait_for_endpoints`, deploy report |
+| Soak | *(manual)* | Daily `monitor_avc.sh`; optional manual `check_soak_ready.sh` on host |
+| Enforce | `enforce_production.yml` | `collect_soak_facts.sh`, `semodule -B`, enforce domain, `wait_for_endpoints`, deploy report |
 | Rollback | `emergency_rollback.yml` | permissive relief, `wait_for_endpoints`, deploy report, AVC export |
 
 Full Ansible task order and variables: [`ansible/README.md`](../ansible/README.md).

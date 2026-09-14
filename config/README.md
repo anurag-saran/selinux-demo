@@ -47,7 +47,7 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 | [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) | systemd units, HTTP probes, domain verification |
 | [`scripts/post_deploy_report.sh`](../scripts/post_deploy_report.sh) | Deploy JSON service/domain fields |
 | [`scripts/check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Domain context keys in deploy report |
-| Ansible playbooks | Pass `app_manifest_path` inventory var |
+| Ansible role / playbooks | `app_manifest_path` inventory var (prod: RPM path under `/etc/myapp/`) |
 | [`scripts/validate_app_manifest.sh`](../scripts/validate_app_manifest.sh) | CI / onboarding validation |
 
 ## Designing probes for a new app
@@ -63,14 +63,19 @@ See [`docs/TESTING.md`](../docs/TESTING.md) for the full test-layer model.
 
 ## Ansible inventory
 
+**Lab / checkout on controller:**
+
 ```yaml
 vars:
   app_name: payments
-  app_manifest_path: "{{ project_root }}/config/payments.manifest.yml"
+  policy_artifact_dir: "{{ playbook_dir }}/.."
+  app_manifest_path: "{{ policy_artifact_dir }}/config/payments.manifest.yml"
+  selinux_ops_from_package: false
+  selinux_ops_dir: "{{ playbook_dir }}/../scripts"
   install_root: /opt/payments
   var_dir: /var/lib/payments
   log_dir: /var/log/payments
   domain: payments_t
 ```
 
-Manifest paths should stay in sync with inventory vars (or generate inventory from manifest in a future release).
+**Production:** install `myapp-selinux` RPM — manifest at **`/etc/myapp/selinux-manifest.yml`** (`app_manifest_path` in [`ansible/inventory.production.example.yml`](../ansible/inventory.production.example.yml)).
