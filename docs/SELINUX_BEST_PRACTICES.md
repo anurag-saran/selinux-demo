@@ -23,7 +23,7 @@ Current module version: **`selinux/policy_version.txt`** (1.1.1+).
 | Use **refpolicy interfaces** | Survives base-policy churn; reviewers recognize intent | `logging_send_syslog_msg`, `corecmd_exec_shell`, `files_search_*`, `logging_log_filetrans`, `init_daemon_run_dir`, `init_daemon_domain` |
 | Declare **dedicated port types** | Least privilege — not every unreserved port | `myapp_port_t` (8888), `myapp_backend_port_t` (8889) + `semanage port` in canary/RPM `%post` |
 | Use **dedicated log type** | logrotate and app writes without over-broad `var_lib_t` | `myapp_log_t` under `/var/log/myapp`; systemd `LogsDirectory=myapp` |
-| **Daemon baseline block** | Explicit once-reviewed allows every Python service needs | `files_read_etc_files`, `sysnet_read_config`, `kernel_read_system_state`, `dev_read_rand` |
+| **Daemon baseline block** | Explicit once-reviewed allows every Python service needs | `files_read_etc_files`, `sysnet_read_config`, `kernel_read_system_state`, `dev_read_urand` |
 | TCP client to backend | Correct permission class | `allow myapp_t myapp_backend_port_t:tcp_socket name_connect` |
 | Unix socket to backend | Peer connection | `allow myapp_t myapp_backend_t:unix_stream_socket connectto` |
 | `policy_module()` syntax | Required for refpolicy Makefile compile | Top of every `.te` |
@@ -130,7 +130,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | Register ports at deploy | `community.general.seport` in canary playbook |
 | Unified endpoint smoke | `wait_for_endpoints.sh` (6 HTTP paths + backend + **domain context**) |
 | Deploy feedback JSON | `/var/lib/myapp/selinux_deploy_report.json` |
-| Archive policy for rollback | `/var/lib/myapp/policy-history/myapp-{version}.pp` |
+| Rollback via RPM | `dnf downgrade myapp-selinux-<version>` (`rollback_dnf_version` inventory var) |
 | Enforce **block/rescue** | Auto-restore permissive if smoke fails mid-enforce |
 
 ### Don’t
@@ -188,7 +188,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 
 | Anti-pattern | Why it fails |
 |--------------|--------------|
-| Rollback = permissive only | Mitigation, not module revert — keep prior `.pp` in policy-history |
+| Rollback | Permissive relief first; optional `dnf downgrade myapp-selinux-*` — not app-writable policy-history |
 | Re-deploy app code alone | SELinux denial needs policy fix |
 | Broad local `allow` rules | Bypasses review; reintroduces audit2allow anti-patterns |
 

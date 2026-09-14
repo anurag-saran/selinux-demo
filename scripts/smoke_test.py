@@ -452,6 +452,37 @@ def test_app_manifest() -> None:
     assert "PRIMARY_SERVICE=\"myapp.service\"" in export.stdout
 
 
+def test_rpm_ops_parity() -> None:
+    script = PROJECT_ROOT / "scripts" / "validate_rpm_ops_parity.sh"
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_classify_fail_closed_json() -> None:
+    script = PROJECT_ROOT / "scripts" / "classify_policy_blast_radius.sh"
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "base.pp"
+        cand = Path(tmp) / "cand.pp"
+        base.write_bytes(b"FAKE")
+        cand.write_bytes(b"FAKE")
+        result = subprocess.run(
+            ["bash", str(script), str(base), str(cand)],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "CLASSIFY_SKIP_PODMAN": "1"},
+        )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["min_days"] == 7
+    assert "tier" in payload
+
+
 def main() -> int:
     import argparse
 
@@ -489,6 +520,8 @@ def main() -> int:
         ("monitor_avc_skip", test_monitor_avc_skip),
         ("demo_present_help", test_demo_present_help),
         ("app_manifest", test_app_manifest),
+        ("rpm_ops_parity", test_rpm_ops_parity),
+        ("classify_fail_closed_json", test_classify_fail_closed_json),
     ]
     for name, fn in tests:
         fn()

@@ -6,7 +6,11 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 |----------|---------|
 | [`deploy_canary.yml`](deploy_canary.yml) | Install policy, permissive soak start, smoke tests |
 | [`enforce_production.yml`](enforce_production.yml) | Soak gate, remove permissive, enforce smoke |
-| [`emergency_rollback.yml`](emergency_rollback.yml) | Break-glass permissive + optional module downgrade |
+| [`emergency_rollback.yml`](emergency_rollback.yml) | Permissive first; optional `dnf downgrade` |
+| [`reset_host_state.yml`](reset_host_state.yml) | `semodule -B` + clear permissive (no module change) |
+| [`generate_emergency_patch.yml`](generate_emergency_patch.yml) | Controller-only OpenAI patch from AVC log |
+
+Playbooks delegate to role [`roles/myapp_selinux/`](roles/myapp_selinux/). Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Demo/lab sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the checkout `scripts/` tree.
 
 Testing matrix (what each gate checks): [`docs/TESTING.md`](../docs/TESTING.md).
 

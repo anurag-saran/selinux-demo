@@ -1,14 +1,12 @@
 ---
-- name: Enforce production — remove permissive domain
+- name: Reset host SELinux state after interrupted canary
   hosts: all
   become: true
-  serial: 1
   collections:
     - community.general
-    - ansible.posix
   environment:
     PATH: "{{ ansible_env_path | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
   roles:
     - role: myapp_selinux
       vars:
-        myapp_selinux_phase: enforce
+        myapp_selinux_phase: reset_host

@@ -1,0 +1,24 @@
+---
+# Target-side ops scripts (RPM or checkout override via inventory).
+selinux_ops_dir: /usr/libexec/selinux-policy-ops
+selinux_ops_from_package: true
+
+# Application manifest on target (shipped in myapp-selinux RPM).
+app_manifest_path: /etc/myapp/selinux-manifest.yml
+
+# Controller-side policy artifacts (never referenced in remote command paths).
+policy_artifact_dir: "{{ playbook_dir }}/.."
+policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name | default('myapp') }}.pp"
+policy_staging_path: /var/lib/selinux-policy-staging/{{ app_name | default('myapp') }}.pp
+policy_version: "1.1.2"
+
+myapp_selinux_package: "myapp-selinux-{{ policy_version }}"
+
+# Rollback via dnf (e.g. 1.1.1-1); empty skips downgrade.
+rollback_dnf_version: ""
+
+# FCOS stub when semanage absent (controller path copied at runtime).
+stub_policy_src: "{{ policy_artifact_dir }}/selinux/stub/myapp_canary.pp"
+stub_policy_staging: /var/lib/selinux-policy-staging/myapp_canary.pp
+
+myapp_selinux_phase: canary

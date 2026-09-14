@@ -18,6 +18,7 @@ REPORT_FILE="${DEPLOY_REPORT_FILE:-${VAR_DIR}/selinux_deploy_report.json}"
 MANIFEST=""
 APP_NAME="myapp"
 POLICY_VERSION_FILE="${PROJECT_ROOT}/selinux/policy_version.txt"
+POLICY_VERSION_OVERRIDE=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         --marker-file) MARKER_FILE="$2"; shift 2 ;;
         --report-file) REPORT_FILE="$2"; shift 2 ;;
         --project-root) PROJECT_ROOT="$2"; shift 2 ;;
+        --policy-version) POLICY_VERSION_OVERRIDE="$2"; shift 2 ;;
         --manifest) MANIFEST="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
@@ -80,7 +82,9 @@ if [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]]; then
 fi
 
 policy_version="unknown"
-if [[ -f "${POLICY_VERSION_FILE}" ]]; then
+if [[ -n "${POLICY_VERSION_OVERRIDE:-}" ]]; then
+    policy_version="${POLICY_VERSION_OVERRIDE}"
+elif [[ -f "${POLICY_VERSION_FILE}" ]]; then
     policy_version="$(tr -d '[:space:]' < "${POLICY_VERSION_FILE}")"
 fi
 

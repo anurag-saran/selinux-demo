@@ -1,0 +1,31 @@
+---
+# Run on the Ansible controller after emergency_rollback exports /tmp/emergency_avc.log
+- name: Generate emergency policy patch from AVC log (controller)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    policy_artifact_dir: "{{ playbook_dir }}/.."
+    emergency_log: "{{ emergency_avc_log | default('/tmp/emergency_avc.log') }}"
+    gen_script: "{{ policy_artifact_dir }}/cli/selinux_gen.py"
+  tasks:
+    - name: Require OPENAI_API_KEY for generation
+      ansible.builtin.fail:
+        msg: "Set OPENAI_API_KEY on the controller to generate an emergency patch"
+      when: lookup('env', 'OPENAI_API_KEY') | default('', true) | length == 0
+
+    - name: Generate emergency policy patch (generate-only)
+      ansible.builtin.command: >
+        python3 {{ gen_script }}
+        --app-name {{ app_name | default('myapp') }}
+        --domain {{ domain | default('myapp_t') }}
+        --audit-log {{ emergency_log }}
+        --existing-te {{ policy_artifact_dir }}/selinux/{{ app_name | default('myapp') }}.te
+        --existing-fc {{ policy_artifact_dir }}/selinux/{{ app_name | default('myapp') }}.fc
+        --bump-version
+        --generate-only
+        --output-dir {{ policy_artifact_dir }}/policy_out
+      environment:
+        OPENAI_API_KEY: "{{ lookup('env', 'OPENAI_API_KEY') }}"
+        OPENAI_BASE_URL: "{{ lookup('env', 'OPENAI_BASE_URL') | default('', true) }}"
+        OPENAI_API_MODEL: "{{ lookup('env', 'OPENAI_API_MODEL') | default('gpt-4o-mini', true) }}"

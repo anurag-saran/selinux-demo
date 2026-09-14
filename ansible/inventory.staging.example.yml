@@ -14,9 +14,12 @@ all:
     log_dir: /var/log/myapp
     runtime_dir: /run/myapp
     service_name: myapp.service
-    policy_pp_path: "{{ playbook_dir }}/../selinux/myapp.pp"
-    project_root: "{{ playbook_dir }}/.."
-    app_manifest_path: "{{ project_root }}/config/{{ app_name }}.manifest.yml"
+    policy_version: "1.1.2"
+    selinux_ops_from_package: false
+    selinux_ops_dir: "{{ playbook_dir }}/../scripts"
+    policy_artifact_dir: "{{ playbook_dir }}/.."
+    policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name }}.pp"
+    app_manifest_path: "{{ policy_artifact_dir }}/config/{{ app_name }}.manifest.yml"
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"
     soak_min_days: 7

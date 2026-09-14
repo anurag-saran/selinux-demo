@@ -1,0 +1,181 @@
+---
+- name: Detect semanage availability
+  ansible.builtin.stat:
+    path: /usr/sbin/semanage
+  register: semanage_bin
+
+- name: Require policy_pp_src when not installing from RPM
+  ansible.builtin.fail:
+    msg: >-
+      Set policy_pp_src to the controller path of the compiled .pp
+      (or enable selinux_ops_from_package).
+  when:
+    - not (selinux_ops_from_package | bool)
+    - policy_pp_src | default('') | length == 0
+
+- name: Stat policy module on controller
+  ansible.builtin.stat:
+    path: "{{ policy_pp_src }}"
+  register: pp_src_stat
+  delegate_to: localhost
+  become: false
+  when:
+    - not (selinux_ops_from_package | bool)
+    - policy_pp_src | default('') | length > 0
+
+- name: Fail when staged policy missing on controller
+  ansible.builtin.fail:
+    msg: "Build policy first: bash scripts/compile_and_validate.sh selinux"
+  when:
+    - not (selinux_ops_from_package | bool)
+    - policy_pp_src | default('') | length > 0
+    - not pp_src_stat.stat.exists
+
+- name: Import package install and staging tasks
+  ansible.builtin.import_tasks: install_packages.yml
+
+- block:
+    - name: Disable dontaudit rules during canary soak
+      ansible.builtin.command: semodule -DB
+      register: semodule_db
+      changed_when: semodule_db.rc == 0
+
+    - name: Register application TCP port 8888
+      community.general.seport:
+        ports: "8888"
+        proto: tcp
+        setype: "{{ app_name }}_port_t"
+        state: present
+      when: semanage_bin.stat.exists
+
+    - name: Register backend TCP port 8889
+      community.general.seport:
+        ports: "8889"
+        proto: tcp
+        setype: "{{ app_name }}_backend_port_t"
+        state: present
+      when: semanage_bin.stat.exists
+
+    - name: Enable permissive domain for canary
+      community.general.selinux_permissive:
+        name: "{{ domain }}"
+        permissive: true
+      when: semanage_bin.stat.exists
+
+    - name: Stage FCOS permissive overlay
+      ansible.builtin.copy:
+        src: "{{ stub_policy_src }}"
+        dest: "{{ stub_policy_staging }}"
+        mode: "0644"
+      when: not semanage_bin.stat.exists
+
+    - name: Install FCOS permissive overlay
+      ansible.builtin.command: "semodule -i {{ stub_policy_staging }}"
+      when: not semanage_bin.stat.exists
+      register: fcos_overlay
+      changed_when: fcos_overlay.rc == 0
+
+    - name: Ensure persistent application directories exist
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ app_run_user | default('myapp') }}"
+        group: "{{ app_run_group | default('myapp') }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ var_dir }}", mode: "0750" }
+        - { path: "{{ log_dir | default('/var/log/myapp') }}", mode: "0750" }
+
+    - name: Restore file contexts on persistent application paths
+      ansible.builtin.command: >-
+        restorecon -Rv {{ install_root }} {{ var_dir }}
+        {{ log_dir | default('/var/log/myapp') }}
+      register: restorecon_persistent
+      changed_when: restorecon_persistent.rc == 0
+
+    - name: Verify file contexts before service restart
+      ansible.builtin.command: >
+        {{ selinux_ops_dir }}/verify_file_contexts.sh
+        --install-root {{ install_root }}
+        --var-dir {{ var_dir }}
+        --log-dir {{ log_dir | default('/var/log/myapp') }}
+        --app-name {{ app_name }}
+      changed_when: false
+
+    - name: Record canary deploy timestamp for soak gate
+      ansible.builtin.shell: "date +%s > {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}"
+      changed_when: true
+
+    - name: Restart application services via systemd
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: true
+      loop:
+        - myapp-backend.service
+        - "{{ service_name }}"
+
+    - name: Restore file contexts on runtime directory after service start
+      ansible.builtin.command: "restorecon -Rv {{ runtime_dir | default('/run/myapp') }}"
+      register: restorecon_run
+      changed_when: restorecon_run.rc == 0
+
+    - name: Wait for all endpoints (unified canary smoke)
+      ansible.builtin.command: >
+        {{ selinux_ops_dir }}/wait_for_endpoints.sh
+        --manifest {{ app_manifest_path }}
+        --host 127.0.0.1 --retries 15 --delay 2
+      changed_when: false
+
+    - name: Check for new domain AVC events (recent window)
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ selinux_ops_dir }}/monitor_avc.sh \
+          --domain {{ domain }} \
+          --since recent \
+          --max-avc -1 \
+          --show-lines 0 \
+          --format json
+      register: avc_json
+      changed_when: false
+
+    - name: Parse canary AVC count
+      ansible.builtin.set_fact:
+        avc_count: "{{ (avc_json.stdout | from_json).count | default(0) }}"
+
+    - name: Fail when canary AVC count exceeds threshold
+      ansible.builtin.fail:
+        msg: >-
+          Canary AVC count {{ avc_count }} exceeds threshold
+          {{ canary_max_avc | default(0) }}.
+      when: avc_count | int > (canary_max_avc | default(0) | int)
+
+    - name: Write canary deploy report
+      ansible.builtin.command: >
+        {{ selinux_ops_dir }}/post_deploy_report.sh
+        --phase canary
+        --domain {{ domain }}
+        --var-dir {{ var_dir }}
+        --manifest {{ app_manifest_path }}
+        --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}
+        --policy-version {{ policy_version }}
+      register: deploy_report
+      changed_when: deploy_report.rc == 0
+      failed_when: deploy_report.rc != 0
+
+    - name: Report canary status
+      ansible.builtin.debug:
+        msg: >-
+          Recent {{ domain }} events: {{ avc_count }} (threshold {{ canary_max_avc | default(0) }}).
+          Deploy report: {{ var_dir }}/selinux_deploy_report.json.
+
+  rescue:
+    - name: Restore dontaudit baseline after failed canary
+      ansible.builtin.command: semodule -B
+      changed_when: true
+
+    - name: Canary deploy failed
+      ansible.builtin.fail:
+        msg: >-
+          Canary deploy failed; semodule -B restored dontaudit baseline.
+          Inspect AVCs and deploy report if present.

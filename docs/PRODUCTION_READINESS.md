@@ -341,32 +341,15 @@ ansible-playbook ... enforce_production.yml -e "force_enforce=true"
 
 ## 11. Phase 6 — Emergency rollback
 
-If enforce causes an outage, run **`ansible-playbook ... ansible/emergency_rollback.yml`** (or GitHub Actions → **SELinux Policy Deploy** → `rollback`). The playbook performs:
+If enforce causes an outage, run **`ansible-playbook ... ansible/emergency_rollback.yml`** (or GitHub Actions → **SELinux Policy Deploy** → `rollback`). The playbook **sets the domain permissive first** (stock `semanage` / Ansible modules), then optional **`dnf downgrade myapp-selinux-<version>`** when `rollback_dnf_version` is set, then `semodule -B`, `restorecon`, and service restarts. It exports AVCs to **`/tmp/emergency_avc.log`**.
 
-1. **`semanage permissive -a myapp_t`** — instant relief, no reboot
-2. **Remove stale `/run/myapp/notify.sock`**
-3. **Restart** `myapp-backend.service` and `myapp.service`
-4. **`wait_for_endpoints.sh`** — all six HTTP endpoints must return HTTP 200
-5. **Reset soak marker** — writes a new timestamp to `/var/lib/myapp/selinux_canary_deployed_at` (full re-soak required before next enforce)
-6. **`post_deploy_report.sh --phase rollback`** → `/var/lib/myapp/selinux_deploy_report.json`
-7. **Export AVCs** to `/tmp/emergency_avc.log` and optionally run AI patch generation (when `OPENAI_API_KEY` is set)
+**Policy generation is controller-only:** run **`ansible/generate_emergency_patch.yml`** on a workstation with `OPENAI_API_KEY` — not on production hosts.
 
-**Expected relief:**
+**Interrupted canary** (host left on `semodule -DB`): run **`ansible/reset_host_state.yml`** to restore dontaudit and clear permissive without changing the installed module.
 
-```bash
-$ sudo semanage permissive -l
-myapp_t
+Optional ops scripts (`wait_for_endpoints`, deploy report) run only when **`selinux-policy-ops`** is installed on the host.
 
-$ bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 3 --delay 2
-[INFO] All endpoints ready
-
-$ cat /var/lib/myapp/selinux_deploy_report.json
-{"status":"pass","phase":"rollback",...}
-```
-
-**After rollback:** export AVCs, extend policy, open a PR, redeploy canary, and **wait the full soak period again** — the marker was reset.
-
-See [`ansible/emergency_rollback.yml`](../ansible/emergency_rollback.yml).
+See [`ansible/emergency_rollback.yml`](../ansible/emergency_rollback.yml), [`ansible/reset_host_state.yml`](../ansible/reset_host_state.yml), and [`ansible/generate_emergency_patch.yml`](../ansible/generate_emergency_patch.yml).
 
 Workshop demo shows these commands in [DEMO_GUIDE.md § Act 10](DEMO_GUIDE.md).
 

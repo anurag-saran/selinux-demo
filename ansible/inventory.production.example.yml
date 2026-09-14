@@ -2,7 +2,7 @@
 # Register a self-hosted runner with labels: selinux-production
 # Protect the "production" GitHub Environment with required reviewers.
 #
-# Rollout: deploy_canary.yml --limit canary → soak → deploy_canary --limit production → enforce
+# Rollout: deploy_canary.yml --limit canary → soak → enforce_production.yml
 
 all:
   children:
@@ -30,10 +30,14 @@ all:
     log_dir: /var/log/myapp
     runtime_dir: /run/myapp
     service_name: myapp.service
-    policy_pp_path: "{{ playbook_dir }}/../selinux/myapp.pp"
-    project_root: "{{ playbook_dir }}/.."
-    app_manifest_path: "{{ project_root }}/config/{{ app_name }}.manifest.yml"
+    policy_version: "1.1.2"
+    selinux_ops_from_package: true
+    selinux_ops_dir: /usr/libexec/selinux-policy-ops
+    app_manifest_path: /etc/myapp/selinux-manifest.yml
+    policy_artifact_dir: "{{ playbook_dir }}/../dist"
+    policy_pp_src: ""
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"
     soak_min_days: 7
     soak_max_avc: 0
+    rollback_dnf_version: ""

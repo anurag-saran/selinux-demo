@@ -82,7 +82,11 @@ jobs:
         run: |
           set -o pipefail
           args=(-i "${{ steps.inv.outputs.path }}" ansible/deploy_canary.yml \
-            -e "policy_pp_path=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp")
+            -e "policy_pp_src=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp" \
+            -e "policy_artifact_dir=${{ github.workspace }}" \
+            -e "selinux_ops_from_package=false" \
+            -e "selinux_ops_dir=${{ github.workspace }}/scripts" \
+            -e "app_manifest_path=${{ github.workspace }}/config/myapp.manifest.yml")
           if [[ -n "${{ steps.limit.outputs.value }}" ]]; then
             args+=(--limit "${{ steps.limit.outputs.value }}")
           fi
@@ -94,7 +98,10 @@ jobs:
         run: |
           set -o pipefail
           args=(-i "${{ steps.inv.outputs.path }}" ansible/enforce_production.yml \
-            -e "policy_pp_path=${{ github.workspace }}/${{ inputs.policy_dir }}/myapp.pp")
+            -e "policy_artifact_dir=${{ github.workspace }}" \
+            -e "selinux_ops_from_package=false" \
+            -e "selinux_ops_dir=${{ github.workspace }}/scripts" \
+            -e "app_manifest_path=${{ github.workspace }}/config/myapp.manifest.yml")
           if [[ -n "${{ steps.limit.outputs.value }}" ]]; then
             args+=(--limit "${{ steps.limit.outputs.value }}")
           fi
@@ -103,10 +110,6 @@ jobs:
       - name: Run emergency rollback
         if: inputs.action == 'rollback'
         id: rollback
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-          OPENAI_API_MODEL: ${{ secrets.OPENAI_API_MODEL }}
         run: |
           set -o pipefail
           args=(-i "${{ steps.inv.outputs.path }}" ansible/emergency_rollback.yml)

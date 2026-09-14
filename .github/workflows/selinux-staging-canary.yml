@@ -32,7 +32,11 @@ jobs:
             INV="ansible/inventory.example.yml"
           fi
           ansible-playbook -i "${INV}" ansible/deploy_canary.yml \
-            -e "policy_pp_path=${{ github.workspace }}/selinux/myapp.pp"
+            -e "policy_pp_src=${{ github.workspace }}/selinux/myapp.pp" \
+            -e "policy_artifact_dir=${{ github.workspace }}" \
+            -e "selinux_ops_from_package=false" \
+            -e "selinux_ops_dir=${{ github.workspace }}/scripts" \
+            -e "app_manifest_path=${{ github.workspace }}/config/myapp.manifest.yml"
 
       - name: Job summary
         if: always()

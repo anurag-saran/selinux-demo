@@ -1,0 +1,3 @@
+---
+- name: Run myapp_selinux role phase
+  ansible.builtin.import_tasks: "{{ myapp_selinux_phase }}.yml"
