@@ -16,3 +16,5 @@ ansible/inventory.production.yml
 __pycache__/
 *.pyc
 .DS_Store
+policy_out/pr_body.md
+policy_out/pr_summary.md
