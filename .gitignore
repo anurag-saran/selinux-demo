@@ -18,3 +18,4 @@ __pycache__/
 .DS_Store
 policy_out/pr_body.md
 policy_out/pr_summary.md
+policy_out/findings.json
