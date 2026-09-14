@@ -19,19 +19,44 @@ from avc_preprocess import merge_avc_entries, parse_existing_allows, subtract_co
 from deterministic_gen import domains_from_manifest, parse_avc_file  # noqa: E402
 
 
-from policy_rules import VERDICT_BASELINE, VERDICT_FC  # noqa: E402
+from policy_rules import (  # noqa: E402
+    GENERIC_PORT_TYPES,
+    VERDICT_BASELINE,
+    VERDICT_FC,
+    VERDICT_PORT,
+)
 
 
-def load_handled_keys(findings_path: Path) -> set[tuple[str, str, str]]:
+def load_findings_handling(findings_path: Path) -> tuple[set[tuple[str, str, str]], list[tuple[str, str, frozenset[str]]]]:
     if not findings_path.is_file():
-        return set()
+        return set(), []
     data = json.loads(findings_path.read_text(encoding="utf-8"))
-    handled = {VERDICT_FC, VERDICT_BASELINE}
-    out: set[tuple[str, str, str]] = set()
+    handled_keys: set[tuple[str, str, str]] = set()
+    port_handled: list[tuple[str, str, frozenset[str]]] = []
     for row in data:
-        if row.get("verdict") in handled:
-            out.add((row["src"], row["tgt"], row["class"]))
-    return out
+        key = (row["src"], row["tgt"], row["class"])
+        verdict = row.get("verdict")
+        if verdict in (VERDICT_FC, VERDICT_BASELINE):
+            handled_keys.add(key)
+        if verdict == VERDICT_PORT:
+            port_handled.append(
+                (row["src"], row["class"], frozenset(row.get("perms", [])))
+            )
+    return handled_keys, port_handled
+
+
+def need_handled(
+    need: AccessNeed,
+    handled_keys: set[tuple[str, str, str]],
+    port_handled: list[tuple[str, str, frozenset[str]]],
+) -> bool:
+    if need.key in handled_keys:
+        return True
+    if need.tgt_type in GENERIC_PORT_TYPES:
+        for src, tclass, perms in port_handled:
+            if need.src_type == src and need.tclass == tclass and need.perms <= perms:
+                return True
+    return False
 
 
 def main() -> int:
@@ -52,13 +77,18 @@ def main() -> int:
     te_text = args.te.read_text(encoding="utf-8")
 
     findings_path = args.findings or (args.te.parent / "findings.json")
-    handled_keys = load_handled_keys(findings_path)
+    handled_keys, port_handled = load_findings_handling(findings_path)
+    if findings_path.is_file():
+        for row in json.loads(findings_path.read_text(encoding="utf-8")):
+            rendered = row.get("rendered") or ""
+            if rendered and rendered.strip() in te_text:
+                handled_keys.add((row["src"], row["tgt"], row["class"]))
 
     entries, _paths = parse_avc_file(args.avc_log, domains)
     merged = merge_avc_entries(entries)
     net_new, _ = subtract_covered(merged, parse_existing_allows(te_text))
 
-    uncovered = [n for n in net_new if n.key not in handled_keys]
+    uncovered = [n for n in net_new if not need_handled(n, handled_keys, port_handled)]
     if uncovered:
         print(f"Uncovered net-new access needs ({len(uncovered)}):", file=sys.stderr)
         for need in uncovered:

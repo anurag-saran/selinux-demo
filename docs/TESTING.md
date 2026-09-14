@@ -201,3 +201,14 @@ Layer 7  emergency_rollback                   outage response
 | **RPM upgrade** relabel path | Test `packaging/myapp-selinux.spec` on a throwaway VM |
 | Fleet-wide **serial enforce** | `enforce_production.yml` uses `serial: 1` — test on canary host first |
 | AVC **classification** under `semodule -DB` (noise vs real) | Manual review; future gate — see [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
+
+---
+
+## 9. Deterministic generator (offline)
+
+| Check | Command |
+|-------|---------|
+| House-rule fixtures | `python3 scripts/smoke_test.py` → `deterministic_fixture_classify` |
+| Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
+| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export --engine deterministic` |
+| Coverage gate | `bash scripts/verify_avc_coverage.sh` after generation |

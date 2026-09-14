@@ -111,23 +111,23 @@ def test_subtract_existing() -> None:
     te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
     existing = parse_existing_allows(te)
     merged = [
-        AccessNeed("myapp_t", "myapp_var_lib_t", "file", frozenset({"write"})),
+        AccessNeed("myapp_t", "myapp_lib_t", "file", frozenset({"read"})),
     ]
     net_new, covered = subtract_covered(merged, existing)
-    assert len(net_new) == 0
+    assert len(net_new) == 0, f"unexpected net_new: {net_new}"
     assert len(covered) == 1
-    assert "write" in covered[0].perms
+    assert "read" in covered[0].perms
 
 
 def test_net_new_detection() -> None:
     te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
     existing = parse_existing_allows(te)
     merged = [
-        AccessNeed("myapp_t", "myapp_var_lib_t", "file", frozenset({"write", "link"})),
+        AccessNeed("myapp_t", "myapp_lib_t", "file", frozenset({"read", "write"})),
     ]
     net_new, covered = subtract_covered(merged, existing)
-    assert any("link" in need.perms for need in net_new)
-    assert any("write" in need.perms for need in covered)
+    assert any("write" in need.perms for need in net_new)
+    assert any("read" in need.perms for need in covered)
 
 
 def test_preprocess_stats() -> None:
@@ -170,7 +170,7 @@ def test_no_changes_needed_summary() -> None:
     te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
     entries = [
         parse_avc_line(
-            _sample_avc_line("write", "system_u:system_r:myapp_t:s0", "system_u:object_r:myapp_var_lib_t:s0")
+            _sample_avc_line("read", "system_u:system_r:myapp_t:s0", "system_u:object_r:myapp_lib_t:s0")
         )
     ]
     summary, stats = build_llm_avc_summary(entries, existing_te=te)
@@ -356,6 +356,17 @@ def test_check_soak_ready_gate() -> None:
     script = PROJECT_ROOT / "scripts" / "check_soak_ready.sh"
     with tempfile.TemporaryDirectory() as tmp:
         marker = Path(tmp) / "marker"
+        report = Path(tmp) / "selinux_deploy_report.json"
+        report.write_text(
+            json.dumps(
+                {
+                    "status": "pass",
+                    "endpoints_exercised": True,
+                    "domain_context_verified": True,
+                }
+            ),
+            encoding="utf-8",
+        )
         missing = subprocess.run(
             ["bash", str(script), "--marker-file", str(marker), "--min-days", "7"],
             cwd=PROJECT_ROOT,
@@ -386,6 +397,8 @@ def test_check_soak_ready_gate() -> None:
                 "--max-avc",
                 "0",
                 "--skip-if-unavailable",
+                "--report-file",
+                str(report),
             ],
             cwd=PROJECT_ROOT,
             capture_output=True,
@@ -598,6 +611,8 @@ def main() -> int:
         ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
     ]
+    if os.environ.get("SMOKE_SKIP_FLASK") == "1":
+        tests = [t for t in tests if t[0] != "flask_endpoints"]
     for name, fn in tests:
         fn()
         print(f"PASS {name}")

@@ -162,6 +162,13 @@ def try_sepolgen_interface(
     return f"{best.interface.name}({src})", f"Matched refpolicy interface (distance {getattr(best, 'dist', '?')})."
 
 
+def baseline_macro_covers(need: AccessNeed, te_text: str) -> bool:
+    if need.tgt_type == "random_device_t" and need.perms <= frozenset({"read", "open", "getattr"}):
+        if f"dev_read_urand({need.src_type})" in te_text:
+            return True
+    return False
+
+
 def classify(
     need: AccessNeed,
     manifest: dict,
@@ -170,6 +177,15 @@ def classify(
 ) -> Finding:
     src, tgt, tclass = need.src_type, need.tgt_type, need.tclass
     perms = need.perms
+
+    if baseline_macro_covers(need, existing_te):
+        return Finding(
+            need,
+            VERDICT_BASELINE,
+            "",
+            "Covered by dev_read_urand in reviewed baseline block.",
+            paths,
+        )
 
     if tgt in FORBIDDEN_TARGET_TYPES:
         return Finding(
