@@ -28,9 +28,11 @@ from policy_rules import (  # noqa: E402
     VERDICT_BASELINE,
     VERDICT_DIRECT,
     VERDICT_FC,
+    VERDICT_FC_DRIFT,
     VERDICT_FORBIDDEN,
     VERDICT_INTERFACE,
     VERDICT_PORT,
+    VERDICT_TOOLCHAIN,
 )
 from selinux_gen import (  # noqa: E402
     domain_for_app,
@@ -43,6 +45,12 @@ from selinux_gen import (  # noqa: E402
 
 PATH_FIELD_RE = re.compile(r'path="([^"]+)"')
 POLICY_MODULE_RE = re.compile(r"policy_module\(\s*(\w+)\s*,\s*([\d.]+)\s*\)")
+FC_LINE_RE = re.compile(
+    r"^\s*(?P<pattern>\S+)\s+gen_context\(system_u:object_r:(?P<type>\w+),",
+    re.MULTILINE,
+)
+
+SEPOLGEN_UNAVAILABLE = object()
 
 
 @dataclass(frozen=True)
@@ -52,6 +60,7 @@ class Finding:
     rendered: str
     note: str
     paths: tuple[str, ...] = ()
+    engine: str = "house_rules"
 
 
 def load_manifest(path: Path) -> dict:
@@ -102,6 +111,20 @@ def suggest_fc_type(path: str, manifest: dict) -> str | None:
     return None
 
 
+def existing_fc_covers(path: str, want_type: str, fc_text: str) -> bool:
+    """True when an existing .fc regex already assigns want_type to path."""
+    for match in FC_LINE_RE.finditer(fc_text):
+        if match.group("type") != want_type:
+            continue
+        pattern = match.group("pattern")
+        try:
+            if re.match(f"^{pattern}$", path):
+                return True
+        except re.error:
+            continue
+    return False
+
+
 def collapse_to_pattern(perms: frozenset[str]) -> str | None:
     perm_set = set(perms)
     for required, macro in PATTERN_MACROS:
@@ -133,14 +156,14 @@ def parse_avc_file(avc_path: Path, domains: set[str]) -> tuple[list, dict[tuple[
 
 def try_sepolgen_interface(
     src: str, tgt: str, tclass: str, perms: frozenset[str]
-) -> tuple[str, str] | None:
+) -> tuple[str, str] | None | object:
     try:
         import sepolgen.access as access_mod
         import sepolgen.defaults as defaults
         import sepolgen.interfaces as interfaces
         import sepolgen.matching as matching
     except ImportError:
-        return None
+        return SEPOLGEN_UNAVAILABLE
 
     if_path = defaults.interface_info()
     try:
@@ -148,7 +171,7 @@ def try_sepolgen_interface(
             ifset = interfaces.InterfaceSet()
             ifset.from_file(fd)
     except OSError:
-        return None
+        return SEPOLGEN_UNAVAILABLE
 
     try:
         av = access_mod.AccessVector([src, tgt, tclass, *sorted(perms)])
@@ -160,6 +183,16 @@ def try_sepolgen_interface(
         return None
     best = sorted(candidates, key=lambda m: (-getattr(m, "dist", 0), m.interface.name))[0]
     return f"{best.interface.name}({src})", f"Matched refpolicy interface (distance {getattr(best, 'dist', '?')})."
+
+
+def sepolgen_toolchain_available() -> bool:
+    try:
+        import sepolgen.defaults as defaults
+
+        defaults.interface_info()
+        return True
+    except (ImportError, OSError, AttributeError):
+        return False
 
 
 def baseline_macro_covers(need: AccessNeed, te_text: str) -> bool:
@@ -174,6 +207,8 @@ def classify(
     manifest: dict,
     paths: tuple[str, ...],
     existing_te: str,
+    existing_fc: str,
+    allow_degraded: bool,
 ) -> Finding:
     src, tgt, tclass = need.src_type, need.tgt_type, need.tclass
     perms = need.perms
@@ -200,6 +235,17 @@ def classify(
         for path in paths:
             want = suggest_fc_type(path, manifest)
             if want:
+                if existing_fc_covers(path, want, existing_fc):
+                    return Finding(
+                        need,
+                        VERDICT_FC_DRIFT,
+                        "",
+                        f"{path} should already be {want} per the .fc, but is labeled "
+                        f"{tgt} on disk. No policy change needed — run: "
+                        f"restorecon -Rv {path}",
+                        paths,
+                        engine="house_rules",
+                    )
                 fc = f"{re.escape(path)}    gen_context(system_u:object_r:{want},s0)"
                 return Finding(
                     need,
@@ -246,9 +292,31 @@ def classify(
         return Finding(need, VERDICT_DIRECT, rendered, "Module-private type.", paths)
 
     iface = try_sepolgen_interface(src, tgt, tclass, need.perms)
+    if iface is SEPOLGEN_UNAVAILABLE:
+        if allow_degraded:
+            perm_list = " ".join(sorted(need.perms))
+            rendered = f"allow {src} {tgt}:{tclass} {{ {perm_list} }};"
+            return Finding(
+                need,
+                VERDICT_DIRECT,
+                rendered,
+                "sepolgen unavailable — degraded raw allow on base type (--allow-degraded). "
+                "Install policycoreutils-devel and run sepolgen-ifgen for interface matching.",
+                paths,
+                engine="degraded",
+            )
+        return Finding(
+            need,
+            VERDICT_TOOLCHAIN,
+            "",
+            "Refusing raw allow on base type without sepolgen. Install policycoreutils-devel, "
+            "run sepolgen-ifgen, or pass --allow-degraded (records degraded rules in findings.json).",
+            paths,
+            engine="none",
+        )
     if iface:
         rendered, note = iface
-        return Finding(need, VERDICT_INTERFACE, rendered, note, paths)
+        return Finding(need, VERDICT_INTERFACE, rendered, note, paths, engine="sepolgen")
 
     perm_list = " ".join(sorted(need.perms))
     rendered = f"allow {src} {tgt}:{tclass} {{ {perm_list} }};"
@@ -258,6 +326,7 @@ def classify(
         rendered,
         "No refpolicy interface matched — review carefully (raw allow on base type).",
         paths,
+        engine="house_rules",
     )
 
 
@@ -307,7 +376,7 @@ def write_pr_summary(findings: list[Finding], app_name: str) -> str:
         "### File System Access",
     ]
     for f in findings:
-        if f.verdict in (VERDICT_DIRECT, VERDICT_FC, VERDICT_INTERFACE):
+        if f.verdict in (VERDICT_DIRECT, VERDICT_FC, VERDICT_FC_DRIFT, VERDICT_INTERFACE):
             lines.append(f"- {f.need.src_type} → {f.need.tgt_type}:{f.need.tclass} ({f.verdict})")
     lines.extend(
         [
@@ -352,12 +421,19 @@ def run(args: argparse.Namespace) -> int:
     findings: list[Finding] = []
     for need in net_new:
         paths = tuple(sorted(path_map.get(need.key, set())))
-        findings.append(classify(need, manifest, paths, existing_te))
+        findings.append(
+            classify(need, manifest, paths, existing_te, existing_fc, args.allow_degraded)
+        )
 
     meta = tool_versions()
     meta["avc_sha"] = hashlib.sha256(args.avc_log.read_bytes()).hexdigest()[:16]
+    meta["sepolgen"] = "available" if sepolgen_toolchain_available() else "missing"
 
-    blockers = [f for f in findings if f.verdict == VERDICT_FORBIDDEN]
+    blockers = [
+        f
+        for f in findings
+        if f.verdict in (VERDICT_FORBIDDEN, VERDICT_TOOLCHAIN)
+    ]
 
     if args.explain:
         for f in findings:
@@ -375,6 +451,12 @@ def run(args: argparse.Namespace) -> int:
         for f in blockers:
             print(f"REFUSED: {f.note}", file=sys.stderr)
         return 1
+
+    drift_notes = [f for f in findings if f.verdict == VERDICT_FC_DRIFT]
+    if drift_notes:
+        print("\nLABELING DRIFT (restorecon — no .fc / .te change):", file=sys.stderr)
+        for f in drift_notes:
+            print(f"  {f.note}", file=sys.stderr)
 
     version_file = args.version_file
     if args.bump_version:
@@ -406,6 +488,7 @@ def run(args: argparse.Namespace) -> int:
                     "verdict": f.verdict,
                     "rendered": f.rendered,
                     "note": f.note,
+                    "engine": f.engine,
                 }
                 for f in findings
             ],
@@ -447,6 +530,11 @@ def main() -> int:
         default=SELINUX_DIR / "policy_version.txt",
     )
     parser.add_argument("--explain", action="store_true")
+    parser.add_argument(
+        "--allow-degraded",
+        action="store_true",
+        help="When sepolgen is missing, emit raw allows on base types (engine=degraded in findings)",
+    )
     args = parser.parse_args()
     return run(args)
 

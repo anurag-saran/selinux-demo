@@ -58,7 +58,8 @@ selinux-demo/
 
 | Role | Command |
 |------|---------|
-| **Developer (offline / no API)** | `bash scripts/dev_generate_policy.sh --skip-export --engine deterministic` — see [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) |
+| **Developer (offline / no API)** | `bash scripts/dev_generate_policy.sh --skip-export` — deterministic engine is default; see [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) |
+| **Developer (LLM path)** | `bash scripts/dev_generate_policy.sh --engine llm --use-vm --apply` |
 | **Developer (open PR)** | `bash scripts/dev_generate_policy.sh --use-vm --apply --open-pr` |
 | **Developer (CLI alias)** | `bash scripts/selinux-gen --help` |
 | **PR body assembly** | `bash scripts/assemble_pr_body.sh` → `policy_out/pr_body.md` |

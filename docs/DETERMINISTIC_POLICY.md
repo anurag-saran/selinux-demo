@@ -24,7 +24,16 @@ sudo sepolgen-ifgen
 # → /var/lib/sepolgen/interface_info
 ```
 
-Without ifgen, the generator still classifies denials and emits **direct** / **fc_fix** / **private_port** rules; interface rows fall back to reviewed raw allows.
+Without ifgen, the generator still classifies denials and emits **direct** / **fc_fix** / **fc_drift** / **private_port** rules. Base-type allows require sepolgen or **`--allow-degraded`** (recorded as `engine=degraded` in `findings.json`).
+
+## Fast compiles (Podman)
+
+```bash
+bash scripts/build_selinux_compile_image.sh
+export SELINUX_BUILD_IMAGE=selinux-demo/selinux-build:stream9
+```
+
+Subsequent `compile_and_validate.sh` / `--enforce-check` runs use the cached image instead of `dnf install` on every invocation.
 
 ## House rules (see `cli/policy_rules.py`)
 

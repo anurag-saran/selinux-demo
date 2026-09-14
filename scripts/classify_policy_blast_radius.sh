@@ -16,7 +16,8 @@ source "${SCRIPT_DIR}/lib/compile_policy.sh"
 BASE_INPUT="${1:-}"
 CANDIDATE_INPUT="${2:-}"
 MODULE_NAME="${POLICY_MODULE:-myapp}"
-IMAGE="${SELINUX_COMPILE_IMAGE:-quay.io/centos/centos:stream9}"
+IMAGE="${SELINUX_BUILD_IMAGE:-selinux-demo/selinux-build:stream9}"
+FALLBACK_IMAGE="${SELINUX_COMPILE_IMAGE:-quay.io/centos/centos:stream9}"
 CLASSIFY_PY="${SCRIPT_DIR}/lib/blast_radius_classify.py"
 COLLECT_SH="${SCRIPT_DIR}/lib/blast_radius_collect.sh"
 
@@ -105,10 +106,21 @@ if ! command -v podman >/dev/null 2>&1; then
 fi
 
 collect_log="${work_dir}/collect.log"
-if ! podman run --rm \
+if selinux_build_image_ready; then
+    if ! podman run --rm \
+        -v "${work_dir}:/work:Z" \
+        -e "BLAST_RADIUS_MODULE=${MODULE_NAME}" \
+        "${IMAGE}" \
+        bash -lc 'set -euo pipefail; bash /work/blast_radius_collect.sh /work/base.pp /work/candidate.pp /work/out' \
+        >"${collect_log}" 2>&1; then
+        excerpt="$(tail -40 "${collect_log}")"
+        fail_closed_json "Policy rule diff failed — conservative soak" "${excerpt}"
+        exit 0
+    fi
+elif ! podman run --rm \
     -v "${work_dir}:/work:Z" \
     -e "BLAST_RADIUS_MODULE=${MODULE_NAME}" \
-    "${IMAGE}" \
+    "${FALLBACK_IMAGE}" \
     bash -lc '
         set -euo pipefail
         dnf install -y -q setools-console selinux-policy-targeted policycoreutils

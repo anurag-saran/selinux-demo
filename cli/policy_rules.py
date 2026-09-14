@@ -83,8 +83,10 @@ PATTERN_MACROS: list[tuple[frozenset[str], str]] = [
 ]
 
 VERDICT_FC = "fc_fix"
+VERDICT_FC_DRIFT = "fc_drift"
 VERDICT_PORT = "private_port"
 VERDICT_FORBIDDEN = "forbidden"
 VERDICT_BASELINE = "baseline"
 VERDICT_INTERFACE = "interface"
 VERDICT_DIRECT = "direct"
+VERDICT_TOOLCHAIN = "toolchain_required"

@@ -100,9 +100,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y podman
 
+      - name: Build SELinux compile image
+        run: bash scripts/build_selinux_compile_image.sh
+
       - name: Run blast-radius fixture suite
         env:
-          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+          SELINUX_BUILD_IMAGE: selinux-demo/selinux-build:stream9
         run: bash scripts/run_blast_radius_fixtures.sh
 
   shellcheck:
@@ -169,9 +172,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y podman
 
+      - name: Build SELinux compile image
+        run: bash scripts/build_selinux_compile_image.sh
+
       - name: Compile selinux/ module
         env:
-          SELINUX_COMPILE_IMAGE: ${{ matrix.image }}
+          SELINUX_BUILD_IMAGE: selinux-demo/selinux-build:stream9
         run: bash scripts/compile_and_validate.sh selinux
 
       - name: Upload compiled policy package

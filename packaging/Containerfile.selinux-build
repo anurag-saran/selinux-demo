@@ -1,0 +1,11 @@
+# Pre-baked CentOS Stream 9 image for refpolicy Makefile builds and sesearch checks.
+# Build: bash scripts/build_selinux_compile_image.sh
+FROM quay.io/centos/centos:stream9
+RUN dnf install -y -q \
+    selinux-policy-devel \
+    checkpolicy \
+    policycoreutils \
+    setools-console \
+    selinux-policy-targeted \
+    && dnf clean all
+WORKDIR /build

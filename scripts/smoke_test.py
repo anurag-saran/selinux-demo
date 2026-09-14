@@ -526,7 +526,16 @@ def test_deterministic_fixture_classify() -> None:
     fc = PROJECT_ROOT / "selinux" / "myapp.fc"
     gen = PROJECT_ROOT / "cli" / "deterministic_gen.py"
 
-    for case in ("01-mislabeled-var-lib", "03-shadow-read"):
+    exit_one_cases = {"03-shadow-read", "07-toolchain-required"}
+    cases = (
+        "01-mislabeled-var-lib",
+        "02-port-bind",
+        "03-shadow-read",
+        "04-private-getopt",
+        "07-toolchain-required",
+    )
+
+    for case in cases:
         case_dir = root / case
         expected = json.loads((case_dir / "expected.json").read_text(encoding="utf-8"))
         result = subprocess.run(
@@ -547,10 +556,12 @@ def test_deterministic_fixture_classify() -> None:
             capture_output=True,
             text=True,
         )
-        if case == "03-shadow-read":
+        if case in exit_one_cases:
             assert result.returncode == 1, result.stdout + result.stderr
         else:
             assert result.returncode == 0, result.stderr + result.stdout
+        if case in exit_one_cases:
+            continue
         findings = subprocess.run(
             [
                 sys.executable,
@@ -570,9 +581,6 @@ def test_deterministic_fixture_classify() -> None:
             capture_output=True,
             text=True,
         )
-        if case == "03-shadow-read":
-            assert findings.returncode == 1
-            continue
         assert findings.returncode == 0, findings.stderr
         payload = json.loads((case_dir / "_out" / "findings.json").read_text(encoding="utf-8"))
         for want in expected:
@@ -580,6 +588,51 @@ def test_deterministic_fixture_classify() -> None:
                 row.get("verdict") == want["verdict"] and row.get("tgt") == want["tgt"]
                 for row in payload
             ), f"{case}: missing {want} in {payload}"
+
+
+def test_deterministic_interface_verdict() -> None:
+    """Interface verdict is reachable when sepolgen returns a match (mocked)."""
+    from unittest.mock import patch
+
+    import yaml
+
+    import deterministic_gen as dg
+    from avc_preprocess import AccessNeed
+    from policy_rules import VERDICT_INTERFACE
+
+    need = AccessNeed("myapp_t", "var_log_t", "dir", frozenset({"search"}))
+    manifest = yaml.safe_load(
+        (PROJECT_ROOT / "config" / "myapp.manifest.yml").read_text(encoding="utf-8")
+    )
+    te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
+    fc = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
+
+    with patch.object(
+        dg,
+        "try_sepolgen_interface",
+        return_value=("list_dirs_pattern(myapp_t)", "mock interface"),
+    ):
+        finding = dg.classify(need, manifest, ("/var/log",), te, fc, allow_degraded=False)
+    assert finding.verdict == VERDICT_INTERFACE
+    assert finding.engine == "sepolgen"
+
+
+def test_deterministic_baseline_verdict() -> None:
+    """Baseline verdict when classify sees a need already covered in .te."""
+    import yaml
+
+    import deterministic_gen as dg
+    from avc_preprocess import AccessNeed
+    from policy_rules import VERDICT_BASELINE
+
+    manifest = yaml.safe_load(
+        (PROJECT_ROOT / "config" / "myapp.manifest.yml").read_text(encoding="utf-8")
+    )
+    te = (PROJECT_ROOT / "selinux" / "myapp.te").read_text(encoding="utf-8")
+    fc = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
+    need = AccessNeed("myapp_t", "myapp_lib_t", "file", frozenset({"read", "open", "getattr"}))
+    finding = dg.classify(need, manifest, (), te, fc, allow_degraded=False)
+    assert finding.verdict == VERDICT_BASELINE
 
 
 def main() -> int:
@@ -624,6 +677,8 @@ def main() -> int:
         ("classify_fail_closed_json", test_classify_fail_closed_json),
         ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
+        ("deterministic_interface_verdict", test_deterministic_interface_verdict),
+        ("deterministic_baseline_verdict", test_deterministic_baseline_verdict),
     ]
     if os.environ.get("SMOKE_SKIP_FLASK") == "1":
         tests = [t for t in tests if t[0] != "flask_endpoints"]

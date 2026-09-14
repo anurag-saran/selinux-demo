@@ -8,9 +8,20 @@
 set -euo pipefail
 
 SELINUX_COMPILE_IMAGE="${SELINUX_COMPILE_IMAGE:-quay.io/centos/centos:stream9}"
+SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-selinux-demo/selinux-build:stream9}"
 
 has_selinux_devel() {
     [[ -f /usr/share/selinux/devel/Makefile ]]
+}
+
+selinux_build_image_ready() {
+    command -v podman >/dev/null 2>&1 \
+        && podman image inspect "${SELINUX_BUILD_IMAGE}" >/dev/null 2>&1
+}
+
+compile_toolchain_available() {
+    has_selinux_devel && return 0
+    command -v podman >/dev/null 2>&1
 }
 
 compile_policy_module() {
@@ -39,14 +50,22 @@ compile_policy_module() {
         local work_dir
         work_dir="$(mktemp -d)"
         cp "${te}" "${fc}" "${work_dir}/"
-        podman run --rm \
-            -v "${work_dir}:/build:Z" \
-            "${SELINUX_COMPILE_IMAGE}" \
-            bash -lc "
-                set -euo pipefail
-                dnf install -y -q selinux-policy-devel checkpolicy policycoreutils
-                make -C /build -f /usr/share/selinux/devel/Makefile ${module_name}.pp
-            "
+        if selinux_build_image_ready; then
+            podman run --rm \
+                -v "${work_dir}:/build:Z" \
+                "${SELINUX_BUILD_IMAGE}" \
+                make -C /build -f /usr/share/selinux/devel/Makefile "${module_name}.pp"
+        else
+            echo "[WARN] ${SELINUX_BUILD_IMAGE} not found — slow path (dnf in container). Build once: bash scripts/build_selinux_compile_image.sh" >&2
+            podman run --rm \
+                -v "${work_dir}:/build:Z" \
+                "${SELINUX_COMPILE_IMAGE}" \
+                bash -lc "
+                    set -euo pipefail
+                    dnf install -y -q selinux-policy-devel checkpolicy policycoreutils
+                    make -C /build -f /usr/share/selinux/devel/Makefile ${module_name}.pp
+                "
+        fi
         cp "${work_dir}/${module_name}.pp" "${output_pp}"
         rm -rf "${work_dir}"
     else

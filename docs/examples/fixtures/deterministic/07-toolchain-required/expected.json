@@ -1,0 +1,6 @@
+[
+  {
+    "verdict": "toolchain_required",
+    "tgt": "var_log_t"
+  }
+]

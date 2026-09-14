@@ -17,7 +17,7 @@ POLICY_OUT="${PROJECT_ROOT}/policy_out"
 AVC_LOG="${POLICY_OUT}/avc.log"
 APP_NAME="${POLICY_APP:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
-ENGINE="${POLICY_ENGINE:-llm}"
+ENGINE="${POLICY_ENGINE:-deterministic}"
 MANIFEST="${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml"
 [[ -f "${MANIFEST}" ]] || MANIFEST="${PROJECT_ROOT}/config/myapp.manifest.yml"
 USE_VM=0
@@ -45,7 +45,7 @@ Usage: $(basename "$0") [options]
 Developer self-service: export AVCs → generate policy → diff → optional promote to selinux/
 
 Options:
-  --engine MODE    llm (default) or deterministic (offline house rules + optional sepolgen)
+  --engine MODE    deterministic (default) or llm (requires OPENAI_API_KEY)
   --apply          Copy policy_out/{app}.te/.fc into selinux/ after generation
   --enforce-check  Load candidate policy enforcing and run endpoint + domain checks
   --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
@@ -58,7 +58,8 @@ Options:
 
 Environment:
   OPENAI_API_KEY   Required for --engine llm
-  POLICY_ENGINE    Default engine if --engine omitted (llm|deterministic)
+  POLICY_ENGINE    Default engine if --engine omitted (deterministic|llm)
+  POLICY_ALLOW_DEGRADED  Pass --allow-degraded to deterministic_gen when sepolgen missing
   OPENAI_BASE_URL  Optional LiteLLM endpoint
   OPENAI_API_MODEL Optional model override
 
@@ -141,7 +142,8 @@ generate_policy() {
             --out-dir "${POLICY_OUT}" \
             --app-name "${APP_NAME}" \
             --version-file "${POLICY_OUT}/policy_version.txt" \
-            --bump-version
+            --bump-version \
+            $( [[ "${POLICY_ALLOW_DEGRADED:-0}" == "1" ]] && echo --allow-degraded )
         bash "${SCRIPT_DIR}/validate_forbidden_patterns.sh" "${POLICY_OUT}"
         bash "${SCRIPT_DIR}/compile_and_validate.sh" "${POLICY_OUT}"
         return 0

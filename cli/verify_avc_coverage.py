@@ -23,6 +23,7 @@ from policy_rules import (  # noqa: E402
     GENERIC_PORT_TYPES,
     VERDICT_BASELINE,
     VERDICT_FC,
+    VERDICT_FC_DRIFT,
     VERDICT_PORT,
 )
 
@@ -36,7 +37,7 @@ def load_findings_handling(findings_path: Path) -> tuple[set[tuple[str, str, str
     for row in data:
         key = (row["src"], row["tgt"], row["class"])
         verdict = row.get("verdict")
-        if verdict in (VERDICT_FC, VERDICT_BASELINE):
+        if verdict in (VERDICT_FC, VERDICT_FC_DRIFT, VERDICT_BASELINE):
             handled_keys.add(key)
         if verdict == VERDICT_PORT:
             port_handled.append(
