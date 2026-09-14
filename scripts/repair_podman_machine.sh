@@ -30,11 +30,13 @@ podman machine start
 sleep 8
 
 # Optional: clear corrupted rootful storage inside the VM (restarts API briefly).
-if podman machine ssh -- sudo podman system reset -f 2>/dev/null; then
-    echo "[INFO] Reset rootful storage inside VM." >&2
-    podman machine stop
-    podman machine start
-    sleep 10
+if [[ "${SELINUX_PODMAN_RESET_IN_VM:-0}" == "1" ]]; then
+    if podman machine ssh -- sudo podman system reset -f 2>/dev/null; then
+        echo "[INFO] Reset rootful storage inside VM." >&2
+        podman machine stop
+        podman machine start
+        sleep 10
+    fi
 fi
 
 echo "[INFO] Smoke test …" >&2

@@ -28,10 +28,26 @@ if ! command -v podman >/dev/null 2>&1; then
     exit 1
 fi
 
+PODMAN_ENV="${HOME}/.local/share/selinux-demo/podman/env.sh"
+if [[ -f "${PODMAN_ENV}" ]]; then
+    # shellcheck disable=SC1090
+    source "${PODMAN_ENV}"
+fi
+export CONTAINERS_STORAGE_DRIVER="${CONTAINERS_STORAGE_DRIVER:-vfs}"
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    podman machine start 2>/dev/null || true
+    sleep 5
+fi
+
 echo "[INFO] Logging in to docker.io as ${USER} …" >&2
 printf '%s' "${TOKEN}" | podman login docker.io -u "${USER}" --password-stdin
 
-bash "${BUILD_IMAGE_SCRIPT}"
+if selinux_build_image_ready; then
+    echo "[INFO] Image ${SELINUX_BUILD_IMAGE} already present — skipping rebuild." >&2
+else
+    bash "${BUILD_IMAGE_SCRIPT}"
+fi
 
 echo "[INFO] Pushing ${SELINUX_BUILD_IMAGE} …" >&2
 podman push "${SELINUX_BUILD_IMAGE}"
