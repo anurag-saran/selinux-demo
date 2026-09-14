@@ -46,7 +46,7 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 |----------|---------|
 | [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) | systemd units, HTTP probes, domain verification |
 | [`scripts/post_deploy_report.sh`](../scripts/post_deploy_report.sh) | Deploy JSON service/domain fields |
-| [`scripts/check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Domain context keys in deploy report |
+| [`scripts/check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Domain context keys in deploy report; optional **`--auto-tier`** with policy pair paths |
 | Ansible role / playbooks | `app_manifest_path` inventory var (prod: RPM path under `/etc/myapp/`) |
 | [`scripts/validate_app_manifest.sh`](../scripts/validate_app_manifest.sh) | CI / onboarding validation |
 
@@ -78,4 +78,4 @@ vars:
   domain: payments_t
 ```
 
-**Production:** install `myapp-selinux` RPM — manifest at **`/etc/myapp/selinux-manifest.yml`** (`app_manifest_path` in [`ansible/inventory.production.example.yml`](../ansible/inventory.production.example.yml)).
+**Production:** install `myapp-selinux` RPM — manifest at **`/etc/myapp/selinux-manifest.yml`** (`app_manifest_path` in [`ansible/inventory.production.example.yml`](../ansible/inventory.production.example.yml)). Module SemVer is read from **`selinux/policy_version.txt`** under `policy_artifact_dir` (not duplicated in inventory).

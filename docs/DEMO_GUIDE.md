@@ -299,7 +299,7 @@ AVC preprocess: raw=42 merged=6 net_new=2
 Wrote policy_out/avc_summary.txt
 [INFO] Wrote policy_out/myapp.te
 [INFO] Wrote policy_out/pr_summary.md
-[INFO] Policy version bumped to 1.1.1
+[INFO] Policy version bumped to 1.1.2
 ```
 
 **SELinux concept:** `.te` allow rules — [SELINUX_BASICS.md §5](SELINUX_BASICS.md).
@@ -314,17 +314,18 @@ Wrote policy_out/avc_summary.txt
 
 **In plain English:** Build the GitHub PR body admins actually review.
 
-**What runs:** `assemble_pr_body.sh` → `policy_out/pr_body.md`.
+**What runs:** `assemble_pr_body.sh` → `policy_out/pr_body.md` (template placeholders + merge-base **sesearch** access delta via `policy_module_diff.sh`; use `--skip-policy-diff` only for offline smoke).
 
 **What you should see:**
 
 ```bash
-$ grep -E 'Security and Sysadmin|forbidden-patterns|Network Bindings' policy_out/pr_body.md | head -5
+$ grep -E 'Policy access delta|Rules ADDED|Network Bindings|forbidden-patterns' policy_out/pr_body.md | head -8
+### 2.5 Policy access delta (merge-base)
 ### Network Bindings
 | **No Over-Permissive Grants** | ⬜ Pass / ⬜ Reject | CI `forbidden-patterns`
 ```
 
-**Talking point:** *"Developers don't paste free-form text — the pipeline assembles what admins need to sign off, including AVC excerpts."*
+**Talking point:** *"Developers don't paste free-form text — the pipeline assembles what admins need to sign off, including AVC excerpts and a rule-level diff against the merge base."*
 
 **Show on screen:** Admin Pass/Reject table in `policy_out/pr_body.md`.
 
@@ -334,14 +335,16 @@ $ grep -E 'Security and Sysadmin|forbidden-patterns|Network Bindings' policy_out
 
 **In plain English:** Run the same checks GitHub Actions runs before merge.
 
-**What runs:** `validate_forbidden_patterns.sh` + `compile_and_validate.sh` (refpolicy Makefile) + `validate_policy_semantics.sh` (`sesearch` assertions in CI).
+**What runs:** Same jobs as [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selinux-policy-ci.yml) — e.g. `validate_forbidden_patterns.sh`, `validate_version_consistency.sh`, `compile_and_validate.sh`, `validate_policy_semantics.sh`, `run_blast_radius_fixtures.sh` (Podman), `ansible-lint`. PRs also get **`policy-diff-comment`** (merge-base access delta).
 
 **What you should see:**
 
 ```text
 [INFO] Forbidden-pattern checks passed for myapp
-[INFO] Compiling myapp in policy_out
+[INFO] Version consistency OK (policy_version.txt ↔ policy_module() ↔ spec)
+[INFO] Compiling myapp in selinux
 [INFO] policy_module() present
+[INFO] Blast-radius fixtures: 4/4 passed
 ```
 
 **Talking point:** *"Admins shouldn't review syntax errors — CI catches those before merge."*
@@ -527,7 +530,7 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `app/bin/backup.sh` | Script executed by `/run-script` (bash builtins only) |
 | `selinux/myapp.te` | Type enforcement rules — Git source of truth |
 | `selinux/myapp.fc` | File path → label mappings |
-| `selinux/policy_version.txt` | SemVer bumped on each generation |
+| `selinux/policy_version.txt` | SemVer SSOT — bump here and in `policy_module(myapp, …)` in `.te`; CI `version-consistency` |
 | `policy_out/avc.log` | Raw exported denials (audit trail + PR excerpt) |
 | `policy_out/avc_summary.txt` | Merged net-new access needs (LLM input) |
 | `policy_out/pr_summary.md` | Plain-English summary for admins (live); sample: [`docs/examples/pr_summary.example.md`](../examples/pr_summary.example.md) |

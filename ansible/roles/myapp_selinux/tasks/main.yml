@@ -1,3 +1,8 @@
 ---
+- name: Load policy version from selinux/policy_version.txt (controller checkout)
+  ansible.builtin.set_fact:
+    policy_version: "{{ lookup('file', policy_artifact_dir ~ '/selinux/policy_version.txt') | trim }}"
+  run_once: true
+
 - name: Run myapp_selinux role phase
   ansible.builtin.import_tasks: "{{ myapp_selinux_phase }}.yml"

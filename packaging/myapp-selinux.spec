@@ -1,5 +1,6 @@
 Name:           myapp-selinux
-Version:        1.1.2
+# modver is passed by packaging/build_rpms.sh from selinux/policy_version.txt (single source of truth).
+Version:        %{modver}
 Release:        1%{?dist}
 Summary:        SELinux policy module for Order Processor demo application
 License:        MIT

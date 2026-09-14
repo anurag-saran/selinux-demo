@@ -30,11 +30,10 @@ all:
     log_dir: /var/log/myapp
     runtime_dir: /run/myapp
     service_name: myapp.service
-    policy_version: "1.1.2"
     selinux_ops_from_package: true
     selinux_ops_dir: /usr/libexec/selinux-policy-ops
     app_manifest_path: /etc/myapp/selinux-manifest.yml
-    policy_artifact_dir: "{{ playbook_dir }}/../dist"
+    policy_artifact_dir: "{{ playbook_dir }}/.."
     policy_pp_src: ""
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"

@@ -10,7 +10,7 @@ This guide captures **design principles and anti-patterns** enforced in this rep
 | **Testing / CI author** | Endpoint matrix, smoke tests, gates | [TESTING.md](TESTING.md) |
 | **New to SELinux concepts** | Labels, soak, permissive domains | [SELINUX_BASICS.md](SELINUX_BASICS.md) |
 
-Current module version: **`selinux/policy_version.txt`** (1.1.1+).
+Current module version: read **`selinux/policy_version.txt`** (SemVer). Keep the `policy_module(myapp, …)` line in **`selinux/myapp.te`** in sync — CI job **`version-consistency`** fails on drift. Do not duplicate the version in Ansible inventory or the RPM spec (spec uses `Version: %{modver}` from `build_rpms.sh`).
 
 ---
 
@@ -89,10 +89,13 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 
 ```text
 1. grep forbidden patterns     →  validate_forbidden_patterns.sh (fast pre-filter)
-2. refpolicy Makefile compile  →  compile-policy job (artifact upload)
-3. semantic sesearch checks    →  validate_policy_semantics.sh (what policy *means*)
-4. staging canary + smoke      →  selinux-staging-canary.yml
-5. ansible-lint                  →  pinned collection versions
+2. version SSOT                →  validate_version_consistency.sh (`version-consistency`)
+3. refpolicy Makefile compile  →  compile-policy job (artifact upload)
+4. semantic sesearch checks    →  validate_policy_semantics.sh (what policy *means*)
+5. blast-radius fixtures       →  run_blast_radius_fixtures.sh (`blast-radius`)
+6. PR policy access delta      →  policy_module_diff.sh + `policy-diff-comment` on PRs
+7. staging canary + smoke      →  selinux-staging-canary.yml
+8. ansible-lint                  →  pinned collection versions
 ```
 
 ### Do
@@ -103,8 +106,8 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | CI builds `.pp` as artifact only | `compile-policy` job upload (not committed) |
 | Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` (container-only; `--direct`) |
 | Verify service runs in expected domain | `wait_for_endpoints.sh` domain-context check |
-| Tier soak by blast radius | `classify_policy_blast_radius.sh` on controller (enforce uses fixed `soak_min_days`) |
-| Include policy diff in PR body | `assemble_pr_body.sh` + `sediff` |
+| Tier soak by blast radius | `classify_policy_blast_radius.sh` + fixtures in [`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/) (CI **`blast-radius`**); optional `check_soak_ready.sh --auto-tier` on controller (fail-closed) |
+| Include policy access delta in PR body | `assemble_pr_body.sh` + `policy_module_diff.sh` (sesearch / merge-base; not `sediff` on `.pp`) |
 | Lint shell and YAML | `shellcheck`, `yamllint`, `ansible-lint` in CI |
 
 ### Don’t
@@ -157,7 +160,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | **`ausearch --input-logs --subject myapp_t`** | Counts rotated logs; filters by subject domain |
 | Include **`SELINUX_ERR`** events | Not just `-m avc` — constraint / invalid context failures |
 | Daily **`monitor_avc.sh --max-avc 0`** | During soak |
-| **`check_soak_ready.sh`** before enforce | Soak days + event count + deploy report endpoint pass |
+| **`check_soak_ready.sh`** before enforce | Soak days + event count + deploy report endpoint pass; optional **`--auto-tier`** with base/candidate policy paths |
 | Canary AVC gate | `canary_max_avc: 0` default in `deploy_canary.yml` |
 | Reset soak clock on policy change | New marker after redeploy or rollback |
 
@@ -214,7 +217,8 @@ Use with the [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_revie
 - [ ] `.te` uses refpolicy interfaces, not audit2allow-style raw allows
 - [ ] Port 8888 / 8889 use `myapp_port_t` / `myapp_backend_port_t`, not `unreserved_port_t`
 - [ ] `.fc` uses FHS paths; no `--` on directory patterns; venv split exec/lib
-- [ ] CI: `forbidden-patterns`, `compile-policy`, `policy-semantics`, `ansible-lint` pass
+- [ ] CI: `forbidden-patterns`, `compile-policy`, `policy-semantics`, `version-consistency`, `blast-radius`, `ansible-lint` pass
+- [ ] Version bump: `selinux/policy_version.txt` and matching `policy_module(myapp, …)` in `.te` only (no duplicate version in spec/inventory)
 - [ ] `verify_file_contexts.sh` passes after `restorecon` (includes `/var/log/myapp`)
 - [ ] Canary plan: `semodule -DB`, endpoint smoke, **domain context** in deploy report, soak marker
 - [ ] Enforce plan: `collect_soak_facts.sh` gate (or manual `check_soak_ready.sh`), `semodule -B`, block/rescue tested or briefed

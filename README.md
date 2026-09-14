@@ -158,12 +158,12 @@ python3 cli/selinux_gen.py \
   --output-dir policy_out
 ```
 
-Outputs: `policy_out/myapp.te`, `myapp.fc`, `pr_summary.md`, `pr_body.md`, updated `selinux/policy_version.txt`.
+Outputs: `policy_out/myapp.te`, `myapp.fc`, `pr_summary.md`, `pr_body.md`, and updated `selinux/policy_version.txt` when promoted with `--apply`. PR access delta is filled by [`assemble_pr_body.sh`](scripts/assemble_pr_body.sh) (merge-base **sesearch** diff via [`policy_module_diff.sh`](scripts/lib/policy_module_diff.sh)).
 
 ### 4. Open a PR
 
 ```bash
-bash scripts/assemble_pr_body.sh
+bash scripts/assemble_pr_body.sh   # needs git merge-base + Podman for full §2.5 delta; --skip-policy-diff for offline smoke only
 gh pr create \
   --title "security(selinux): Update policy module for myapp" \
   --body-file policy_out/pr_body.md \
@@ -178,6 +178,16 @@ Template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`](.github/PUL
 
 Runs automatically on PRs via [`.github/workflows/selinux-policy-ci.yml`](.github/workflows/selinux-policy-ci.yml).
 
+| Job | Purpose |
+|-----|---------|
+| `smoke-tests` | Python unit/smoke tests (incl. `version_consistency`, blast-radius JSON fail-closed) |
+| `forbidden-patterns` | Wildcards and high-privilege denies in `.te` |
+| `version-consistency` | `policy_version.txt`, `policy_module()` in `.te`, and RPM spec wiring agree |
+| `compile-policy` / `policy-semantics` | Refpolicy build + container `sesearch` assertions |
+| `blast-radius` | [`tests/fixtures/blast_radius/`](tests/fixtures/blast_radius/) vs [`classify_policy_blast_radius.sh`](scripts/classify_policy_blast_radius.sh) |
+| `policy-diff-comment` | PR comment with merge-base **sesearch** access delta (not `sediff` on `.pp`) |
+| `ansible-lint`, `yamllint`, `shellcheck`, `app-manifest`, `rpm-ops-parity` | Supporting gates |
+
 Local equivalents:
 
 ```bash
@@ -185,6 +195,9 @@ python3 scripts/smoke_test.py
 bash scripts/validate_forbidden_patterns.sh selinux
 bash scripts/compile_and_validate.sh selinux      # refpolicy Makefile (checkmodule fallback)
 bash scripts/validate_policy_semantics.sh selinux   # sesearch assertions (CI: policy-semantics job)
+bash scripts/validate_version_consistency.sh      # version SSOT (CI: version-consistency)
+bash scripts/run_blast_radius_fixtures.sh       # soak tier fixtures (CI: blast-radius; needs Podman)
+bash scripts/assemble_pr_body.sh                # PR body + merge-base policy access delta
 bash scripts/compile_and_validate.sh policy_out   # after AI generation
 ```
 
@@ -221,7 +234,7 @@ Requires a **self-hosted runner** on a SELinux host:
 2. Choose `canary` on `staging`, monitor AVCs daily: `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0`
 3. After merge to `main`, CI runs **`staging-endpoint-smoke`** (`wait_for_endpoints.sh` + deploy report check on the staging runner)
 4. Deploy to **prod canary host**: `ansible-playbook ... deploy_canary.yml --limit canary` (fails if `canary_max_avc` exceeded, default 0)
-5. After 7+ day soak (enforce role **`collect_soak_facts`** gate + deploy report with verified domain context), choose `enforce` on `production`. **`--auto-tier` remains disabled** until blast-radius tiering is validated on the controller ([`classify_policy_blast_radius.sh`](scripts/classify_policy_blast_radius.sh)).
+5. After soak (default **7** days; optional **`check_soak_ready.sh --auto-tier`** with `--base-policy` / `--candidate-policy` for blast-radius tiering — fail-closed on classifier errors), run **SELinux Policy Deploy** → `enforce` on `production`. Ansible enforce uses **`collect_soak_facts.sh`** with fixed `soak_min_days` unless you wire tiering on the controller separately ([`classify_policy_blast_radius.sh`](scripts/classify_policy_blast_radius.sh), gated by [`tests/fixtures/blast_radius/`](tests/fixtures/blast_radius/)).
 
 Canary runs **`semodule -DB`** during soak so dontaudit rules do not hide AVCs. Canary, enforce, and rollback playbooks all run **`wait_for_endpoints.sh`** (six HTTP endpoints + backend + **SELinux domain verification**) and write **`/var/lib/myapp/selinux_deploy_report.json`** via **`post_deploy_report.sh`**. Failed canary and rollback restore **`semodule -B`**. Enforce uses an Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive and services are restarted before the playbook fails.
 
@@ -352,7 +365,7 @@ Environment: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL`, `OPENAI_TI
 ## Safety notes
 
 - Policy source of truth: **`selinux/`** — never commit API keys. Compiled **`selinux/myapp.pp`** is a CI artifact (build with `compile_and_validate.sh` before deploy); `policy_out/*.pp` is generation output.
-- Current module version: **`selinux/policy_version.txt`** (1.1.1 — enforce-safe paths, `/var/log/myapp` logs, domain-context gates, Tier 6 endpoints).
+- **SemVer:** single source of truth is **`selinux/policy_version.txt`** — keep `policy_module(myapp, …)` in `.te` in sync (CI **`version-consistency`**). RPM **`Version:`** comes from that file via [`packaging/build_rpms.sh`](packaging/build_rpms.sh). Ansible reads the same file at runtime (no hardcoded version in inventory).
 - Unlike blind `audit2allow`, this workflow uses **AI + forbidden-pattern CI + semantic `sesearch` checks + human review** — see [docs/SELINUX_BEST_PRACTICES.md](docs/SELINUX_BEST_PRACTICES.md).
 - **`semodule -i`** upgrades the module in place — no `semodule -r` step before install (handled in `apply_policy.sh` and Ansible).
 - Path labels come from **`myapp.fc`** — run **`restorecon`** after install; `.fc` is the source of truth (no manual `chcon`).

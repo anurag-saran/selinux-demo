@@ -14,7 +14,6 @@ all:
     log_dir: /var/log/myapp
     runtime_dir: /run/myapp
     service_name: myapp.service
-    policy_version: "1.1.2"
     selinux_ops_from_package: false
     selinux_ops_dir: "{{ playbook_dir }}/../scripts"
     policy_artifact_dir: "{{ playbook_dir }}/.."

@@ -1,7 +1,7 @@
 ---
 name: SELinux Policy Review (example)
 about: Curated sample — see docs/examples/README.md
-title: "security(selinux): Update policy module for myapp (v1.1.1 example)"
+title: "security(selinux): Update policy module for myapp (v1.1.2 example)"
 ---
 
 ## Pull Request: SELinux Policy Module Submission
@@ -12,7 +12,7 @@ title: "security(selinux): Update policy module for myapp (v1.1.1 example)"
 
 - **App Name / Service:** `myapp` (Order Processor)
 - **Target Domain:** `myapp_t`
-- **Policy Version:** 1.1.1
+- **Policy Version:** 1.1.2
 - **Staging Environment Tested:** selinux-staging
 - **Test Suite Run:** Six HTTP endpoints + `wait_for_endpoints.sh` (manifest-driven domain context)
 - **AVC Log Lines Collected:** 312
@@ -42,12 +42,24 @@ title: "security(selinux): Update policy module for myapp (v1.1.1 example)"
 - No `bin_t:file execute` (forbidden by CI — backup script stays self-contained)
 - No broad `var_t:file write`; data confined to `myapp_var_lib_t` / `myapp_log_t`
 
+### 2.5 Policy access delta (merge-base)
+
+> Sample static block — live runs replace this via `policy_module_diff.sh` (sesearch allow diff after merge-base compile; not `sediff` on `.pp`).
+
+**Rules ADDED** (app domains, excerpt):
+
+```text
+allow myapp_t myapp_log_t:file { append create open write };
+```
+
+**Rules REMOVED:** _(none in this example)_
+
 
 ### 3. Generated Files Included in PR
 
 - [x] `selinux/myapp.te` (Type Enforcement)
 - [x] `selinux/myapp.fc` (File Contexts)
-- [x] `selinux/policy_version.txt` (SemVer bump)
+- [x] `selinux/policy_version.txt` (SemVer bump — matches `policy_module(myapp, …)` in `.te`; CI `version-consistency`)
 - [ ] `selinux/myapp.if` — N/A for this PoC (standalone module; interfaces deferred)
 
 
@@ -75,9 +87,12 @@ type=AVC msg=audit(1730000006.106:506): avc: denied { connectto } for pid=4421 c
 - [x] `smoke-tests`
 - [x] `app-manifest`
 - [x] `forbidden-patterns`
+- [x] `version-consistency`
 - [x] `compile-policy` (artifact: `selinux-myapp-pp`)
 - [x] `policy-semantics` (`validate_policy_semantics.sh`)
+- [x] `blast-radius` (`run_blast_radius_fixtures.sh`)
 - [x] `ansible-lint`
+- [x] `policy-diff-comment` (PR comment with access delta; local body from `assemble_pr_body.sh`)
 
 
 ### 6. Security and Sysadmin Checklist (Admin Team Review)

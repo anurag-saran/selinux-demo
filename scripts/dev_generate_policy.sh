@@ -178,10 +178,14 @@ promote_to_selinux() {
     cp "${POLICY_OUT}/${APP_NAME}.fc" "${SELINUX_DIR}/${APP_NAME}.fc"
     if [[ -f "${POLICY_OUT}/policy_version.txt" ]]; then
         cp "${POLICY_OUT}/policy_version.txt" "${SELINUX_DIR}/policy_version.txt"
-    elif [[ -f "${SELINUX_DIR}/policy_version.txt" ]]; then
-        match="$(grep -oE 'policy_module\([^,]+,\s*[0-9.]+\)' "${SELINUX_DIR}/${APP_NAME}.te" \
+    else
+        match="$(grep -oE 'policy_module\([^,]+,\s*[0-9.]+\)' "${POLICY_OUT}/${APP_NAME}.te" \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-        [[ -n "${match}" ]] && echo "${match}" > "${SELINUX_DIR}/policy_version.txt"
+        if [[ -z "${match}" ]]; then
+            log_error "promote_to_selinux: cannot extract SemVer from policy_module() in ${POLICY_OUT}/${APP_NAME}.te"
+            exit 1
+        fi
+        echo "${match}" > "${SELINUX_DIR}/policy_version.txt"
     fi
     log_info "Updated ${SELINUX_DIR}/${APP_NAME}.{te,fc} and policy_version.txt"
 }

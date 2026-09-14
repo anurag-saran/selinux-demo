@@ -29,11 +29,19 @@ labels:
 
 ---
 
+### 2.5 Policy access delta (merge-base)
+
+> Filled by `bash scripts/assemble_pr_body.sh` from merge-base **sesearch** diff (`policy_module_diff.sh`). Admins review **Rules ADDED** / **Rules REMOVED** for app domains without reading raw `.te`.
+
+<!-- AUTO:SEDIFF -->
+
+---
+
 ### 3. Generated Files Included in PR
 
 - [ ] `selinux/myapp.te` (Type Enforcement)
 - [ ] `selinux/myapp.fc` (File Contexts)
-- [ ] `selinux/policy_version.txt` (SemVer bump)
+- [ ] `selinux/policy_version.txt` (SemVer bump — must match `policy_module(myapp, …)` in `.te`; CI `version-consistency`)
 - [ ] `selinux/myapp.if` — N/A for this PoC (standalone module; interfaces deferred)
 
 ---
@@ -56,10 +64,14 @@ labels:
 **CI checks (must pass before merge):**
 
 - [ ] `smoke-tests`
+- [ ] `app-manifest`
 - [ ] `forbidden-patterns`
+- [ ] `version-consistency`
 - [ ] `compile-policy` (artifact: `selinux-myapp-pp`)
 - [ ] `policy-semantics` (`validate_policy_semantics.sh`)
+- [ ] `blast-radius` (`run_blast_radius_fixtures.sh`)
 - [ ] `ansible-lint`
+- [ ] `policy-diff-comment` (PR comment with access delta)
 
 ---
 

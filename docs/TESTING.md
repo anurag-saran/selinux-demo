@@ -90,8 +90,10 @@ SMOKE_REQUIRE_BACKEND=0 python3 scripts/smoke_test.py
 | `no_changes_needed_summary` | Fully covered AVCs produce no-change summary |
 | `policy_json_validation` | AI JSON shape, forbidden patterns, PR summary headings |
 | `version_bump` | SemVer bump in `policy_version.txt` |
+| `version_consistency` | `validate_version_consistency.sh` passes on committed `selinux/` |
+| `classify_fail_closed_json` | Corrupt blast-radius input → JSON with `fail_closed: true` |
 | `flask_endpoints` | All six HTTP paths return 200 (`ok` in body); rewrites paths to temp dirs |
-| `assemble_pr_body` | `assemble_pr_body.sh` fills PR template placeholders |
+| `assemble_pr_body` | `assemble_pr_body.sh` fills PR template (`--skip-policy-diff` in CI smoke) |
 | `verify_file_contexts_skip` | `--skip-if-unavailable` exits 0 without SELinux tools |
 | `check_soak_ready_gate` | Soak script fails on missing/recent marker, passes on 8-day-old marker |
 | `monitor_avc_skip` | `monitor_avc.sh --skip-if-unavailable` exits 0 |
@@ -122,10 +124,14 @@ Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selin
 
 | Job | Script / action | Pass criteria |
 |-----|-----------------|---------------|
-| `smoke-tests` | `python3 scripts/smoke_test.py` | All smoke tests pass (incl. deterministic fixtures) |
+| `smoke-tests` | `python3 scripts/smoke_test.py` | All smoke tests pass (incl. `version_consistency`, `classify_fail_closed_json`, deterministic fixtures) |
 | `app-manifest` | `scripts/validate_app_manifest.sh` | Demo + onboarding example manifests validate |
+| `rpm-ops-parity` | `scripts/validate_rpm_ops_parity.sh` | Ops RPM allowlist matches checkout scripts |
 | `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, shadow_t, bin_t execute, etc. |
-| `shellcheck` | `shellcheck scripts/*.sh scripts/lib/*.sh` | No shellcheck errors |
+| `version-consistency` | `scripts/validate_version_consistency.sh` | `policy_version.txt`, `policy_module()` line, and spec `Version: %{modver}` wiring agree |
+| `shellcheck` | `shellcheck scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh` | No shellcheck errors |
+| `blast-radius` | `scripts/run_blast_radius_fixtures.sh` | All [`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/) tiers match; corrupt input fail-closed |
+| `policy-diff-comment` | `scripts/ci/post_pr_policy_diff_comment.sh` | PR comment with merge-base sesearch access delta (PRs only) |
 | `yamllint` | `yamllint ansible/ .github/workflows/` | YAML style clean |
 | `compile-policy` | `scripts/compile_and_validate.sh selinux` | `.pp` builds on CentOS Stream 9; artifact uploaded |
 | `ansible-lint` | `ansible-lint ansible/*.yml` | Playbooks lint clean |
@@ -144,10 +150,12 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 | [`verify_file_contexts.sh`](../scripts/verify_file_contexts.sh) | Before service restart after `semodule -i` | `matchpathcon -V`; `restorecon -Rv -n` shows no changes under data/log paths |
 | [`wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) | After canary / enforce / rollback restart | systemd active; **MainPID domain** matches manifest; HTTP probes from manifest (demo: six paths + backend health) |
 | [`monitor_avc.sh`](../scripts/monitor_avc.sh) | Daily during soak; canary post-deploy window | Domain AVC count ≤ threshold (default **0**) |
-| [`check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Manual pre-enforce check on host (Ansible uses **`collect_soak_facts.sh`**) | Marker age ≥ min days; AVC count ≤ max; deploy report pass + **domain_context_verified** |
+| [`check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Manual pre-enforce on host (Ansible: **`collect_soak_facts.sh`**) | Marker age ≥ min days; AVC count ≤ max; deploy report pass + **domain_context_verified**. Optional **`--auto-tier --base-policy PATH --candidate-policy PATH`** sets min days from blast-radius classifier (fail-closed → `soak_min_days`) |
 | [`post_deploy_report.sh`](../scripts/post_deploy_report.sh) | End of canary / enforce / rollback | Writes deploy report JSON (path from manifest or default) |
 | [`validate_app_manifest.sh`](../scripts/validate_app_manifest.sh) | CI / onboarding | YAML schema + required fields |
-| [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) | Controller-only blast radius (`sediff`) | 1 / 3 / 7 day recommendation (not wired to enforce `--auto-tier`) |
+| [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) | Controller soak tier recommendation | sesearch rule diff between installed modules → 1 / 3 / 7 days; **`run_blast_radius_fixtures.sh`** (CI **`blast-radius`**) |
+| [`validate_version_consistency.sh`](../scripts/validate_version_consistency.sh) | CI / local | SemVer SSOT across `.te`, `policy_version.txt`, RPM spec |
+| [`assemble_pr_body.sh`](../scripts/assemble_pr_body.sh) | Before opening PR | Fills PR template + merge-base policy access delta (`policy_module_diff.sh`) |
 
 **Exit codes for `wait_for_endpoints.sh`:** `0` pass; `1` systemd; `2` HTTP; `4` domain mismatch.
 
@@ -183,7 +191,7 @@ Admin runbook with pass/fail examples: [`PRODUCTION_READINESS.md`](PRODUCTION_RE
 
 ```text
 Layer 1  smoke_test.py + forbidden-patterns     PR / laptop (no SELinux)
-Layer 2  compile + policy-semantics + ansible-lint   PR (Podman)
+Layer 2  compile + policy-semantics + version-consistency + blast-radius + ansible-lint   PR (Podman)
 Layer 3  six HTTP endpoints + AVC export      staging discovery (permissive)
 Layer 4  deploy_canary + wait_for_endpoints   staging/prod canary host
 Layer 5  monitor_avc + check_soak_ready       soak period
@@ -200,7 +208,7 @@ Layer 7  emergency_rollback                   outage response
 | Real **logrotate** cron as `logrotate_t` | Run system logrotate on staging during soak; `.fc` + `create` in `app/logrotate.d/myapp` |
 | **RPM upgrade** relabel path | Test `packaging/myapp-selinux.spec` on a throwaway VM |
 | Fleet-wide **serial enforce** | `enforce_production.yml` uses `serial: 1` — test on canary host first |
-| AVC **classification** under `semodule -DB` (noise vs real) | Manual review; future gate — see [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
+| AVC **classification** under `semodule -DB` (noise vs real) | Manual review; optional **`check_soak_ready.sh --auto-tier`** on controller with policy pair paths |
 
 ---
 

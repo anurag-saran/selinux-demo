@@ -328,6 +328,7 @@ def test_assemble_pr_body() -> None:
                 "myapp",
                 "--staging-host",
                 "staging.example.com",
+                "--skip-policy-diff",
             ],
             check=True,
             cwd=PROJECT_ROOT,
@@ -476,6 +477,17 @@ def test_rpm_ops_parity() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_version_consistency() -> None:
+    script = PROJECT_ROOT / "scripts" / "validate_version_consistency.sh"
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
 def test_classify_fail_closed_json() -> None:
     script = PROJECT_ROOT / "scripts" / "classify_policy_blast_radius.sh"
     with tempfile.TemporaryDirectory() as tmp:
@@ -493,6 +505,7 @@ def test_classify_fail_closed_json() -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["min_days"] == 7
+    assert payload.get("fail_closed") is True
     assert "tier" in payload
 
 
@@ -607,6 +620,7 @@ def main() -> int:
         ("demo_present_help", test_demo_present_help),
         ("app_manifest", test_app_manifest),
         ("rpm_ops_parity", test_rpm_ops_parity),
+        ("version_consistency", test_version_consistency),
         ("classify_fail_closed_json", test_classify_fail_closed_json),
         ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),

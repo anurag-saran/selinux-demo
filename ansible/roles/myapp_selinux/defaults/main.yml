@@ -10,8 +10,8 @@ app_manifest_path: /etc/myapp/selinux-manifest.yml
 policy_artifact_dir: "{{ playbook_dir }}/.."
 policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name | default('myapp') }}.pp"
 policy_staging_path: /var/lib/selinux-policy-staging/{{ app_name | default('myapp') }}.pp
-policy_version: "1.1.2"
 
+# policy_version is loaded from selinux/policy_version.txt in tasks/main.yml (not duplicated here).
 myapp_selinux_package: "myapp-selinux-{{ policy_version }}"
 
 # Rollback via dnf (e.g. 1.1.1-1); empty skips downgrade.

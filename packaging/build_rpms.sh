@@ -5,7 +5,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="${ROOT}/dist"
 RPMBUILD="${ROOT}/packaging/rpmbuild"
-VERSION="$(tr -d '[:space:]' < "${ROOT}/selinux/policy_version.txt")"
+# shellcheck source=../scripts/lib/version.sh
+source "${ROOT}/scripts/lib/version.sh"
+VERSION="$(policy_version "${ROOT}/selinux/policy_version.txt")"
 
 mkdir -p "${DIST}" "${RPMBUILD}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 OPS_SRC="${RPMBUILD}/BUILD/selinux-policy-ops-src"
@@ -34,6 +36,16 @@ rpmbuild -ba \
   "${RPMBUILD}/SPECS/selinux-policy-ops.spec" \
   2>/dev/null || {
   echo "Note: full rpmbuild may require RHEL; validating spec parity only" >&2
+  exit 0
+}
+
+rpmbuild -ba \
+  --define "_topdir ${RPMBUILD}" \
+  --define "_sourcedir ${RPMBUILD}/SOURCES" \
+  --define "modver ${VERSION}" \
+  "${RPMBUILD}/SPECS/myapp-selinux.spec" \
+  2>/dev/null || {
+  echo "Note: myapp-selinux rpmbuild may require RHEL; modver=${VERSION}" >&2
   exit 0
 }
 

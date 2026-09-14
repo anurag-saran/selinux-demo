@@ -80,6 +80,31 @@ jobs:
       - name: Validate forbidden SELinux patterns
         run: bash scripts/validate_forbidden_patterns.sh selinux
 
+  version-consistency:
+    name: version-consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify policy version single source of truth
+        run: bash scripts/validate_version_consistency.sh
+
+  blast-radius:
+    name: blast-radius
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Run blast-radius fixture suite
+        env:
+          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+        run: bash scripts/run_blast_radius_fixtures.sh
+
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
@@ -90,7 +115,33 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          shellcheck scripts/*.sh scripts/lib/*.sh
+          shellcheck scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh scripts/validate_version_consistency.sh
+
+  policy-diff-comment:
+    name: policy-diff-comment
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch for merge-base diff
+        run: git fetch origin main:refs/remotes/origin/main || git fetch origin master:refs/remotes/origin/master
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Post policy access delta comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+        run: bash scripts/ci/post_pr_policy_diff_comment.sh
 
   yamllint:
     name: yamllint

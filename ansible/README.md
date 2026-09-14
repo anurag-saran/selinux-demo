@@ -46,7 +46,7 @@ Collections: `community.general` (`selinux_permissive`, `seport`), `ansible.posi
 
 ## Policy artifacts and RPMs
 
-Build the module before deploy (`.pp` is not committed):
+Build the module before deploy (`.pp` is not committed). RPM version is taken from **`selinux/policy_version.txt`** when you run [`packaging/build_rpms.sh`](../packaging/build_rpms.sh) (`myapp-selinux-<version>-*.rpm`).
 
 ```bash
 bash scripts/compile_and_validate.sh selinux
@@ -80,7 +80,7 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/myapp_s
 | `log_dir` | `/var/log/myapp` | Log directory (`LogsDirectory`) — **must be set in inventory** (not a self-referential play var) |
 | `runtime_dir` | `/run/myapp` | Runtime dir (`RuntimeDirectory`) |
 | `service_name` | `myapp.service` | Primary systemd unit |
-| `policy_version` | `1.1.2` | SemVer for RPM name and deploy report |
+| `policy_version` | _(from `selinux/policy_version.txt` at runtime)_ | SemVer for RPM name and deploy report |
 | `selinux_ops_dir` | `/usr/libexec/selinux-policy-ops` | Target path to ops scripts (lab: `…/scripts`) |
 | `selinux_ops_from_package` | `true` / `false` | When `true`, role runs `dnf install selinux-policy-ops` (+ app RPM) |
 | `policy_artifact_dir` | controller repo or `dist/` | **Controller only** — never used in remote `command` paths |
@@ -96,7 +96,11 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/myapp_s
 
 **Deprecated (do not use on production targets):** `project_root`, `policy_pp_path`, `policy-history/`, `rollback_target_version`.
 
-**`--auto-tier` / `soak_auto_tier`:** disabled — enforce uses fixed `soak_min_days` and role task **`collect_soak_facts.sh`** (not `check_soak_ready.sh --auto-tier`). Blast-radius tiering remains experimental on the controller only ([`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh)).
+**Optional blast-radius soak tier (`check_soak_ready.sh` on controller):** pass **`--auto-tier`** with **`--base-policy`** and **`--candidate-policy`** (paths to `.te`/`.pp` for previous vs candidate module). The script calls [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) (sesearch rule diff, not `sediff`). On classifier error or `fail_closed` JSON, minimum soak stays at **`soak_min_days`** (default 7) — never shortens the gate on failure. Tier logic is gated by CI job **`blast-radius`** ([`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/)).
+
+**Ansible enforce role** uses fixed **`soak_min_days`** via **`collect_soak_facts.sh`** unless you extend the role to pass tiering inputs.
+
+**Deprecated:** hardcoding `policy_version` in inventory — the role loads **`selinux/policy_version.txt`** from `policy_artifact_dir` at runtime.
 
 ---
 

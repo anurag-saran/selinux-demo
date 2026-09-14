@@ -15,8 +15,11 @@ MIN_DAYS="${SOAK_MIN_DAYS:-7}"
 MAX_AVC="${SOAK_MAX_AVC:-0}"
 SKIP_SELINUX="${SKIP_SELINUX:-0}"
 AUTO_TIER="${SOAK_AUTO_TIER:-0}"
+BASE_POLICY="${SOAK_BASE_POLICY:-}"
+CANDIDATE_POLICY="${SOAK_CANDIDATE_POLICY:-}"
 APP_DOMAIN="${SELINUX_APP_DOMAIN:-myapp_t}"
 BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}"
+CLASSIFY_SCRIPT="${SCRIPT_DIR}/classify_policy_blast_radius.sh"
 MANIFEST=""
 
 RED='\033[0;31m'
@@ -39,7 +42,9 @@ Options:
   --report-file PATH    Deploy report JSON (default: /var/lib/myapp/selinux_deploy_report.json)
   --min-days N          Minimum soak days (default: 7)
   --max-avc N           Maximum allowed AVC events since canary (default: 0)
-  --auto-tier           Disabled (use fixed soak_min_days; blast radius on controller only)
+  --auto-tier           Set minimum soak from classify_policy_blast_radius.sh (requires base + candidate policy paths)
+  --base-policy PATH    Previous module (.pp or .te) for --auto-tier
+  --candidate-policy PATH  Candidate module (.pp or .te) for --auto-tier
   --manifest PATH       App manifest for deploy report domain verification
   --skip-if-unavailable Exit 0 when marker or audit tools missing (CI smoke)
   -h, --help            Show help
@@ -56,6 +61,8 @@ while [[ $# -gt 0 ]]; do
         --min-days) MIN_DAYS="$2"; shift 2 ;;
         --max-avc) MAX_AVC="$2"; shift 2 ;;
         --auto-tier) AUTO_TIER=1; shift ;;
+        --base-policy) BASE_POLICY="$2"; shift 2 ;;
+        --candidate-policy) CANDIDATE_POLICY="$2"; shift 2 ;;
         --manifest) MANIFEST="$2"; shift 2 ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -78,8 +85,57 @@ if [[ ! -f "${MARKER_FILE}" ]]; then
 fi
 
 if [[ "${AUTO_TIER}" == "1" || "${SOAK_AUTO_TIER:-0}" == "1" ]]; then
-    log_error "--auto-tier is disabled; enforce uses collect_soak_facts.sh with fixed soak_min_days (default 7)"
-    exit 1
+    configured_floor="${MIN_DAYS}"
+    if [[ -z "${BASE_POLICY}" || -z "${CANDIDATE_POLICY}" ]]; then
+        log_error "--auto-tier requires --base-policy and --candidate-policy (or SOAK_BASE_POLICY / SOAK_CANDIDATE_POLICY)"
+        MIN_DAYS="${configured_floor}"
+        log_error "Blast-radius classifier not run — using fail-closed soak minimum ${MIN_DAYS} day(s)"
+    elif [[ ! -f "${BASE_POLICY}" || ! -f "${CANDIDATE_POLICY}" ]]; then
+        log_error "Policy path missing for --auto-tier (base=${BASE_POLICY}, candidate=${CANDIDATE_POLICY})"
+        MIN_DAYS="${configured_floor}"
+        log_error "Blast-radius classifier not run — using fail-closed soak minimum ${MIN_DAYS} day(s)"
+    else
+        classify_json="$(mktemp)"
+        classify_err="$(mktemp)"
+        if ! bash "${CLASSIFY_SCRIPT}" "${BASE_POLICY}" "${CANDIDATE_POLICY}" >"${classify_json}" 2>"${classify_err}"; then
+            log_error "classify_policy_blast_radius.sh failed:"
+            cat "${classify_err}" >&2
+            MIN_DAYS="${configured_floor}"
+            log_error "Blast-radius classifier error — fail-closed soak minimum ${MIN_DAYS} day(s)"
+        else
+            auto_tier_out="$(python3 - "${classify_json}" "${configured_floor}" <<'PY'
+import json, sys
+floor = int(sys.argv[2])
+try:
+    p = json.load(open(sys.argv[1], encoding="utf-8"))
+except json.JSONDecodeError:
+    print(f"FAIL {floor} unparseable JSON from classifier")
+    raise SystemExit
+if p.get("fail_closed"):
+    print(f"FAIL {floor} {p.get('reason', 'fail-closed')}")
+    raise SystemExit
+tier = p.get("tier", "")
+days = p.get("min_days", floor)
+reason = p.get("reason", "")
+if tier not in ("low", "medium", "high") or not isinstance(days, int):
+    print(f"FAIL {floor} invalid classifier payload")
+    raise SystemExit
+print(f"OK {days} {tier} {reason}")
+PY
+)"
+            if [[ "${auto_tier_out}" == FAIL* ]]; then
+                read -r _ fail_days fail_reason <<< "${auto_tier_out}"
+                MIN_DAYS="${fail_days}"
+                log_error "Blast-radius classifier fail-closed — using soak minimum ${MIN_DAYS} day(s): ${fail_reason}"
+            else
+                read -r _ classified_days tier reason <<< "${auto_tier_out}"
+                MIN_DAYS="${classified_days}"
+                log_info "Blast-radius tier: ${tier} → minimum soak ${MIN_DAYS} day(s)"
+                log_info "Classifier reason: ${reason}"
+            fi
+        fi
+        rm -f "${classify_json}" "${classify_err}"
+    fi
 fi
 
 deploy_epoch="$(tr -d '[:space:]' < "${MARKER_FILE}")"

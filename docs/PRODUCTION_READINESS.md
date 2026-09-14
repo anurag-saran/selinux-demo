@@ -139,6 +139,7 @@ See also: [`TESTING.md`](TESTING.md) (full endpoint → policy mapping and `smok
 | **Post-merge staging smoke** | CI re-check after canary on runner | `staging-endpoint-smoke` job in `selinux-staging-canary.yml` | `wait_for_endpoints.sh` passes; deploy report present |
 | **Permissive soak** | Capture weekly cron, logrotate, restarts (7–14 days) | `semanage permissive -a myapp_t` + daily `monitor_avc.sh` | `count=0`, exit 0 |
 | **Production canary host** | Deploy to one node before fleet | `deploy_canary.yml --limit canary` | Marker file written, app + backend healthy |
+| **Blast-radius tiering** | Soak minimum from policy delta (fail-closed) | `bash scripts/run_blast_radius_fixtures.sh` (CI **`blast-radius`** job) | All fixtures match `expected.json`; tier logic changes require fixture updates |
 | **Enforce gate** | Automated soak + AVC + deploy report | `collect_soak_facts.sh` in `enforce_production.yml` (manual: `check_soak_ready.sh` on host) | Role reports soak gate passed |
 | **Production enforce** | Remove permissive domain | `ansible/enforce_production.yml` | `semanage permissive -l` empty; **six** production smoke tests pass under enforcing |
 | **Outage response** | Instant relief + AVC capture | `ansible/emergency_rollback.yml` | Domain back in permissive list; endpoints pass; deploy report written; soak marker reset |
@@ -162,7 +163,7 @@ $ sudo semanage permissive -l
 myapp_t
 ```
 
-**Duration:** 7 to 14 days by default (`soak_min_days`). **`--auto-tier` is disabled** in `enforce_production.yml` and `check_soak_ready.sh`; blast-radius tiering is controller-only ([`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh)).
+**Duration:** 7 to 14 days by default (`soak_min_days`). Optional **`check_soak_ready.sh --auto-tier`** adjusts the minimum using [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) (sesearch rule diff, not sediff). Tiering is **gated on** [`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/) — do not change tier logic without updating fixtures and passing the **`blast-radius`** CI job.
 
 The canary playbook records a deploy timestamp at `/var/lib/myapp/selinux_canary_deployed_at` (epoch seconds), runs **`semodule -DB`** so dontaudit rules do not hide soak AVCs, and installs policy with **`semodule -i`** (in-place upgrade — no `semodule -r`). Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
 
@@ -362,7 +363,7 @@ Workshop demo shows these commands in [DEMO_GUIDE.md § Act 10](DEMO_GUIDE.md).
 
 `enforce_production.yml` runs before removing permissive:
 
-1. **`collect_soak_facts.sh`** (role) — minimum soak days + AVC count threshold + passing deploy report with verified domain context at `/var/lib/myapp/selinux_deploy_report.json` (same checks as manual **`check_soak_ready.sh`** on the host; **`--auto-tier` disabled**)
+1. **`collect_soak_facts.sh`** (role) — minimum soak days + AVC count threshold + passing deploy report with verified domain context at `/var/lib/myapp/selinux_deploy_report.json` (same checks as manual **`check_soak_ready.sh`** on the host; optional **`--auto-tier`** with base/candidate policy paths)
 2. **`verify_file_contexts.sh`** — labeling dry-run (`restorecon` + `.fc` is source of truth; includes `/var/log/myapp`)
 3. **Remove stale `/run/myapp/notify.sock`** — avoids false-positive socket checks after restarts
 4. **`systemctl restart`** — `myapp-backend.service` then `myapp.service`
@@ -420,6 +421,19 @@ bash scripts/check_soak_ready.sh \
   --domain myapp_t \
   --marker-file /var/lib/myapp/selinux_canary_deployed_at
 ```
+
+Optional blast-radius minimum (controller; requires previous + candidate module sources):
+
+```bash
+bash scripts/check_soak_ready.sh \
+  --auto-tier \
+  --base-policy selinux/myapp.te \
+  --candidate-policy policy_out/myapp.te \
+  --marker-file /var/lib/myapp/selinux_canary_deployed_at \
+  --min-days 7
+```
+
+Logs **`Blast-radius tier:`** and **`Classifier reason:`** on success; on classifier failure keeps **`soak_min_days`** (fail-closed).
 
 ---
 
@@ -504,6 +518,9 @@ Before you enforce on production, confirm:
 | No over-permissive grants | `forbidden-patterns` |
 | Compilation test | `compile-policy` |
 | Semantic policy checks | `policy-semantics` (`sesearch` via `validate_policy_semantics.sh`) |
+| Version SSOT | `version-consistency` |
+| Policy access delta (review aid) | `policy-diff-comment` + `assemble_pr_body.sh` locally |
+| Soak tier logic (do not change without fixtures) | `blast-radius` |
 | Canary readiness | `staging-canary` on merge to `main` |
 | Post-canary endpoint smoke | `staging-endpoint-smoke` (`wait_for_endpoints.sh` + deploy report) |
 | Canary AVC gate at deploy | `deploy_canary.yml` (`canary_max_avc`, default 0) |
