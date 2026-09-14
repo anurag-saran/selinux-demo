@@ -81,7 +81,7 @@ Set in inventory `vars` or pass with `-e`:
 | `soak_min_days` | `7` | Minimum soak days (enforce gate) |
 | `soak_max_avc` | `0` | Max domain AVCs since marker |
 | `canary_max_avc` | `0` | Max recent AVCs right after canary deploy |
-| `soak_auto_tier` | `false` | Pass `--auto-tier` to `check_soak_ready.sh` |
+| `soak_auto_tier` | `false` | **Disabled in playbooks** until PR 2 fixes blast-radius classifier; use fixed `soak_min_days` |
 | `force_enforce` | `false` | Skip soak gate (break-glass) |
 | `rollback_target_version` | *(unset)* | Reinstall `policy-history/myapp-{version}.pp` on rollback |
 

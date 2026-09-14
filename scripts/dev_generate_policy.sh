@@ -172,14 +172,24 @@ open_pr() {
         return 1
     fi
     local branch="policy/${APP_NAME}-update"
-    log_info "Creating branch ${branch} and opening PR..."
+    log_info "Creating branch ${branch}, committing, pushing, and opening PR..."
     git -C "${PROJECT_ROOT}" checkout -b "${branch}" 2>/dev/null || \
         git -C "${PROJECT_ROOT}" checkout "${branch}"
     git -C "${PROJECT_ROOT}" add \
         "selinux/${APP_NAME}.te" \
         "selinux/${APP_NAME}.fc" \
-        "selinux/policy_version.txt" \
-        "policy_out/pr_body.md" 2>/dev/null || true
+        "selinux/policy_version.txt"
+    if git -C "${PROJECT_ROOT}" diff --cached --quiet; then
+        log_error "Nothing to commit — run with --apply after generation"
+        return 1
+    fi
+    git -C "${PROJECT_ROOT}" commit -m "$(cat <<EOF
+security(selinux): Update policy module for ${APP_NAME}
+
+Generated via dev_generate_policy.sh
+EOF
+)"
+    git -C "${PROJECT_ROOT}" push -u origin "${branch}"
     gh pr create \
         --title "security(selinux): Update policy module for ${APP_NAME}" \
         --body-file "${POLICY_OUT}/pr_body.md" \
@@ -243,9 +253,11 @@ print_pr_steps() {
    bash scripts/validate_forbidden_patterns.sh selinux
    python3 scripts/smoke_test.py
 
-3. Commit and open PR:
+3. Commit, push, and open PR:
    git checkout -b policy/${APP_NAME}-update
    git add selinux/${APP_NAME}.te selinux/${APP_NAME}.fc selinux/policy_version.txt
+   git commit -m "security(selinux): Update policy module for ${APP_NAME}"
+   git push -u origin policy/${APP_NAME}-update
    gh pr create \\
      --title "security(selinux): Update policy module for ${APP_NAME}" \\
      --body-file policy_out/pr_body.md \\

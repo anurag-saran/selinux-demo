@@ -10,7 +10,6 @@
   vars:
     bin_dir: "{{ install_root }}/bin"
     notify_sock: "{{ (runtime_dir | default('/run/myapp')) }}/notify.sock"
-    log_dir: "{{ log_dir | default('/var/log/myapp') }}"
     policy_history_dir: "{{ var_dir }}/policy-history"
     stub_policy_dir: "{{ project_root }}/selinux/stub"
 
@@ -90,10 +89,21 @@
           changed_when: true
           when: not semanage_bin.stat.exists
 
-        - name: Restore file contexts on application paths
+        - name: Ensure persistent application directories exist
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: directory
+            owner: "{{ app_run_user | default('myapp') }}"
+            group: "{{ app_run_group | default('myapp') }}"
+            mode: "{{ item.mode }}"
+          loop:
+            - { path: "{{ var_dir }}", mode: "0750" }
+            - { path: "{{ log_dir | default('/var/log/myapp') }}", mode: "0750" }
+
+        - name: Restore file contexts on persistent application paths
           ansible.builtin.command: >-
-            restorecon -Rv {{ install_root }} {{ var_dir }} {{ log_dir }}
-            {{ runtime_dir | default('/run/myapp') }}
+            restorecon -Rv {{ install_root }} {{ var_dir }}
+            {{ log_dir | default('/var/log/myapp') }}
           changed_when: true
 
         - name: Verify file contexts before service restart
@@ -117,6 +127,10 @@
           loop:
             - myapp-backend.service
             - "{{ service_name }}"
+
+        - name: Restore file contexts on runtime directory after service start
+          ansible.builtin.command: "restorecon -Rv {{ runtime_dir | default('/run/myapp') }}"
+          changed_when: true
 
         - name: Wait for all endpoints (unified canary smoke)
           ansible.builtin.command: >

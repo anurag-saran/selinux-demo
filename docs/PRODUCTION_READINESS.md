@@ -162,7 +162,7 @@ $ sudo semanage permissive -l
 myapp_t
 ```
 
-**Duration:** 7 to 14 days by default (or shorter when `soak_auto_tier=true` / `check_soak_ready.sh --auto-tier` classifies a low blast-radius change via `sediff`).
+**Duration:** 7 to 14 days by default (`soak_min_days`). **`--auto-tier` is disabled** in `enforce_production.yml` and `check_soak_ready.sh` until blast-radius classification is production-safe (planned PR 2).
 
 The canary playbook records a deploy timestamp at `/var/lib/myapp/selinux_canary_deployed_at` (epoch seconds), runs **`semodule -DB`** so dontaudit rules do not hide soak AVCs, and installs policy with **`semodule -i`** (in-place upgrade — no `semodule -r`). Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
 

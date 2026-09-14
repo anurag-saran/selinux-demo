@@ -38,9 +38,9 @@ Options:
   --domain NAME         SELinux domain (default: myapp_t)
   --marker-file PATH    Canary deploy timestamp file (epoch seconds)
   --report-file PATH    Deploy report JSON (default: /var/lib/myapp/selinux_deploy_report.json)
-  --min-days N          Minimum soak days (default: 7, or auto-tier when SOAK_AUTO_TIER=1)
+  --min-days N          Minimum soak days (default: 7)
   --max-avc N           Maximum allowed AVC events since canary (default: 0)
-  --auto-tier           Compute min-days from sediff blast radius vs policy-history
+  --auto-tier           Disabled until blast-radius classifier is fixed (PR 2)
   --manifest PATH       App manifest for deploy report domain verification
   --skip-if-unavailable Exit 0 when marker or audit tools missing (CI smoke)
   -h, --help            Show help
@@ -79,16 +79,8 @@ if [[ ! -f "${MARKER_FILE}" ]]; then
 fi
 
 if [[ "${AUTO_TIER}" == "1" || "${SOAK_AUTO_TIER:-0}" == "1" ]]; then
-    mapfile -t history_pps < <(ls -1t "${POLICY_HISTORY_DIR}"/*.pp 2>/dev/null || true)
-    candidate_pp="${history_pps[0]:-}"
-    base_pp="${history_pps[1]:-}"
-    if [[ -n "${candidate_pp}" && -f "${candidate_pp}" && -n "${base_pp}" && -f "${base_pp}" ]]; then
-        tier_json="$(bash "${SCRIPT_DIR}/classify_policy_blast_radius.sh" "${base_pp}" "${candidate_pp}" 2>/dev/null || true)"
-        if [[ -n "${tier_json}" ]]; then
-            MIN_DAYS="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("min_days",7))' <<< "${tier_json}")"
-            log_info "Auto-tier soak: ${MIN_DAYS} day(s) — $(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("reason",""))' <<< "${tier_json}")"
-        fi
-    fi
+    log_error "--auto-tier is disabled until blast-radius classification is fixed (use fixed soak_min_days, default 7)"
+    exit 1
 fi
 
 deploy_epoch="$(tr -d '[:space:]' < "${MARKER_FILE}")"
