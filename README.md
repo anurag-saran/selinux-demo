@@ -311,7 +311,7 @@ bash scripts/run_on_podman_vm.sh apply-policy
 
 ## Workshop demo (presenter)
 
-**New to the demo?** Follow the learning path: [`docs/SELINUX_BASICS.md`](docs/SELINUX_BASICS.md) → [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) (10 acts, example output, presenter vs observer paths).
+**New to the demo?** Follow the learning path: [`docs/SELINUX_BASICS.md`](docs/SELINUX_BASICS.md) → [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) (10 acts). **New to the codebase?** See [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md).
 
 Paced narration with pauses between acts (dev → PR → canary → guardrails → enforce):
 
@@ -379,6 +379,7 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 
 | Guide | For |
 |-------|-----|
+| [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | **Code tour** — every major directory/file, algorithms (AVC merge, policy diff, blast radius, soak gates) |
 | [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
 | [docs/TESTING.md](docs/TESTING.md) | **All test cases** — six HTTP endpoints, `smoke_test.py`, CI jobs, soak/enforce gates |
 | [ansible/README.md](ansible/README.md) | **Ansible playbooks** — canary, enforce, rollback task order and variables |
