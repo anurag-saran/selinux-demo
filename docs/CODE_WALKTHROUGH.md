@@ -217,8 +217,8 @@ Python deps (`openai`, `pyyaml`, etc.) for the CLI.
 | **`lib/compile_policy.sh`** | **`compile_policy_module`**: refpolicy Makefile **natively or in Podman**. Pull-first **`docker.io/asaran/selinux-demo-selinux-build:stream9`** (Stream 9 build). |
 | **`lib/selinux_build_image.sh`** | Defaults, **`pull_selinux_build_image`**, **`ensure_selinux_build_image`**. |
 | **`build_selinux_compile_image.sh`** | Builds [`packaging/Containerfile.selinux-build`](../packaging/Containerfile.selinux-build) (Stream 9 or RHEL 9 base). |
-| **`repair_podman_machine.sh`** | macOS: reset Podman Machine + `vfs` storage workaround. |
-| **`publish_selinux_compile_image.sh`** | Push to Docker Hub (`asaran/selinux-demo-selinux-build`) for Red Hat demos. |
+| **`publish_selinux_compile_image.sh`** | Login + push to Docker Hub (`:stream9`, `:latest`); skips local rebuild if tag exists. |
+| **`repair_podman_machine.sh`** | macOS: recreate Podman Machine; optional `SELINUX_PODMAN_RESET_IN_VM=1`. |
 | **`compile_module.sh`** | CLI wrapper used by **`selinux_gen.py`** and local compiles. |
 | **`validate_forbidden_patterns.sh`** | Fast grep + Python checks on `.te`. | Fails on wildcards, `bin_t` execute, `require { type myapp_* }`, privileged targets, broad `var_t` write. |
 | **`validate_policy_semantics.sh`** | Installs `.pp` in **Podman only**, runs **`sesearch --direct`** probes (no shadow read, no foreign entrypoint). | Ensures compiled policy **means** what reviewers think — not just syntax. |
@@ -372,7 +372,7 @@ These fixtures **lock in** soak tier logic — change classifier only with fixtu
 | **[SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md)** | Do/don’t for policy authors |
 | **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Live presentation script |
 | **[DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md)** | Default offline engine, sepolgen banners, `findings.json`, fixture index |
-| **[DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md)** | CentOS Stream 9 compile image on Docker Hub, pull-first, publish |
+| **[DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md)** | Published Hub image, pull-first, macOS repair, republish |
 | **`examples/fixtures/deterministic/`** | Golden AVC → verdict fixtures (smoke-tested) |
 | **`examples/`** | Static PR body samples when you cannot run assemble live |
 

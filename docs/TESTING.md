@@ -136,7 +136,7 @@ Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selin
 | `blast-radius` | `scripts/lib/selinux_build_image.sh ensure` + `scripts/run_blast_radius_fixtures.sh` | All [`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/) tiers match; corrupt input fail-closed |
 | `policy-diff-comment` | `scripts/ci/post_pr_policy_diff_comment.sh` | PR comment with merge-base sesearch access delta (PRs only) |
 | `yamllint` | `yamllint ansible/ .github/workflows/` | YAML style clean |
-| `compile-policy` | `selinux_build_image.sh ensure` + `scripts/compile_and_validate.sh selinux` | `.pp` builds in **CentOS Stream 9** compile image; artifact uploaded |
+| `compile-policy` | `selinux_build_image.sh ensure` + `scripts/compile_and_validate.sh selinux` | `.pp` builds in prebuilt **Stream 9** image (pull Hub or local build); artifact uploaded |
 | `ansible-lint` | `ansible-lint ansible/*.yml` | Playbooks lint clean |
 | `policy-semantics` | `scripts/validate_policy_semantics.sh selinux` | No shadow/unlabeled/foreign entrypoint (container `--direct` sesearch) |
 

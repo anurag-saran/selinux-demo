@@ -49,7 +49,7 @@ bash scripts/compile_and_validate.sh selinux
 # Uses scripts/lib/compile_policy.sh → make -f /usr/share/selinux/devel/Makefile
 ```
 
-Build target OS: **RHEL 9 / CentOS Stream 9** ([`DOCKER_HUB_COMPILE_IMAGE.md`](DOCKER_HUB_COMPILE_IMAGE.md)). Default image: `docker.io/asaran/selinux-demo-selinux-build:stream9`.
+Build target OS: **CentOS Stream 9** (RHEL 9 upstream). Published compile image: `docker.io/asaran/selinux-demo-selinux-build:stream9` — [`DOCKER_HUB_COMPILE_IMAGE.md`](DOCKER_HUB_COMPILE_IMAGE.md).
 
 ---
 

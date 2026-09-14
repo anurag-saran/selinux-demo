@@ -546,6 +546,6 @@ Developer workflow and PR assembly: [README.md](../README.md) and [DEMO_GUIDE.md
 | [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Acts 1–2 discovery; Acts 6–10 admin soak/enforce | Workshop observers |
 | [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
-| [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) | CentOS Stream 9 compile image pull-first | Demo laptops / CI |
+| [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) | Published `stream9` compile image — pull-first | Demo laptops / CI |
 | **This file** | §3.5 soak; §5–14 phases and checklist | RHEL admins |
 | [README.md](../README.md) | Deploy paths + GitHub Actions | Day-to-day commands |

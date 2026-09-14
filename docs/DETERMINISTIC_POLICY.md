@@ -38,7 +38,7 @@ bash scripts/lib/selinux_build_image.sh pull
 export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:stream9   # optional override
 ```
 
-Details: [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md). Local build (~2–4 min): `bash scripts/build_selinux_compile_image.sh`. Maintainers publish with `scripts/publish_selinux_compile_image.sh` (Hub token via env only).
+Details: [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) — image **`asaran/selinux-demo-selinux-build:stream9`** is on Docker Hub; pull-first is the default. Maintainers republish with `scripts/publish_selinux_compile_image.sh` (Hub token via env only).
 
 **Automatic:** `dev_generate_policy.sh`, `compile_and_validate.sh`, and `compile_module.sh` call **`ensure_selinux_build_image`** (`SELINUX_BUILD_IMAGE_PULL=1` by default).
 

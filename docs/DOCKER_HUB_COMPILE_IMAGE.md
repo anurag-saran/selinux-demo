@@ -2,60 +2,83 @@
 
 Pre-baked **CentOS Stream 9** image with `selinux-policy-devel`, `setools-console`, and targeted policy. Matches **RHEL 9 deploys** (Stream is RHEL upstream). No per-run `dnf` on compile.
 
-## Default image (pull-first)
+## Published image (pull-first)
+
+These tags are on **Docker Hub** under [`asaran/selinux-demo-selinux-build`](https://hub.docker.com/r/asaran/selinux-demo-selinux-build):
+
+| Tag | Use |
+|-----|-----|
+| **`stream9`** | Default for demos and CI (`SELINUX_BUILD_IMAGE`) |
+| **`latest`** | Same image as `stream9` after publish |
 
 ```text
 docker.io/asaran/selinux-demo-selinux-build:stream9
 ```
 
-Also tagged `:latest` when published (`SELINUX_BUILD_IMAGE_PUSH_LATEST=1`, default).
-
-## Quick use
+## Quick use (demo laptop)
 
 ```bash
-export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:stream9
-bash scripts/lib/selinux_build_image.sh pull    # or ensure
+source "${HOME}/.local/share/selinux-demo/podman/env.sh"   # macOS: sets vfs + Podman 5 path
+bash scripts/lib/selinux_build_image.sh pull    # seconds — or: ensure
 bash scripts/compile_and_validate.sh selinux
 ```
 
-`ensure_selinux_build_image` runs before compiles when `SELINUX_BUILD_IMAGE_PULL=1` (default).
+Compiles invoked via `dev_generate_policy.sh`, `compile_and_validate.sh`, `validate_policy_semantics.sh`, and blast-radius scripts call **`ensure_selinux_build_image`** when `SELINUX_BUILD_IMAGE_PULL=1` (default): **pull → local build → slow Stream path**.
 
-## Build locally
+## Rebuild and publish (maintainers)
 
-Uses **`quay.io/centos/centos:stream9`** (override with `SELINUX_BUILD_BASE_IMAGE`):
-
-```bash
-bash scripts/build_selinux_compile_image.sh
-```
-
-On **macOS**, if Podman hits overlay errors:
+When `selinux-policy-devel` or the Containerfile changes:
 
 ```bash
 source "${HOME}/.local/share/selinux-demo/podman/env.sh"
-bash scripts/repair_podman_machine.sh
-bash scripts/build_selinux_compile_image.sh
-```
-
-## Publish to Docker Hub
-
-```bash
 export DOCKERHUB_USER=asaran
-export DOCKERHUB_TOKEN='…'
+export DOCKERHUB_TOKEN='…'   # Hub access token — never commit
+
+# macOS: fresh VM if overlay/readlink errors
+bash scripts/repair_podman_machine.sh
+
 bash scripts/publish_selinux_compile_image.sh
 ```
 
-## Later: subscribed RHEL base (optional)
+`publish_selinux_compile_image.sh` logs in to Docker Hub, **builds only if the tag is missing locally**, pushes `:stream9` and `:latest`.
 
-When you want the container `FROM` to be RHEL instead of Stream:
+Local build only (no push):
+
+```bash
+bash scripts/build_selinux_compile_image.sh
+```
+
+Build uses **`quay.io/centos/centos:stream9`** unless overridden:
+
+```bash
+export SELINUX_BUILD_BASE_IMAGE=quay.io/centos/centos:stream9
+```
+
+## macOS Podman notes
+
+| Issue | Fix |
+|-------|-----|
+| `readlink … storage/overlay/l: invalid argument` | `bash scripts/repair_podman_machine.sh` then rebuild/publish |
+| Legacy Podman 2.x | `bash scripts/fix_podman.sh` (installs user-local 5.x + `CONTAINERS_STORAGE_DRIVER=vfs` in `env.sh`) |
+| Build stops/restarts VM unnecessarily | Fixed: build/publish use `podman machine start` only (no `ensure_vm_ready` stop loop) |
+
+Optional deep reset **inside** the Linux VM (usually not needed):
+
+```bash
+SELINUX_PODMAN_RESET_IN_VM=1 bash scripts/repair_podman_machine.sh
+```
+
+## Optional: subscribed RHEL base
+
+When the container `FROM` should be RHEL instead of Stream:
 
 ```bash
 podman login registry.redhat.io
 export SELINUX_BUILD_BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4
-bash scripts/build_selinux_compile_image.sh
 bash scripts/publish_selinux_compile_image.sh
 ```
 
-Same Hub tag (`:stream9`) can still be used; the image contents were built on RHEL.
+You may keep publishing to the same Hub tag `:stream9`; document in release notes if the base changed.
 
 ## Environment
 
@@ -66,5 +89,6 @@ Same Hub tag (`:stream9`) can still be used; the image contents were built on RH
 | `SELINUX_COMPILE_IMAGE` | `quay.io/centos/centos:stream9` (slow path) |
 | `SELINUX_BUILD_IMAGE_PULL` | `1` |
 | `SELINUX_BUILD_IMAGE_AUTO` | `1` |
+| `CONTAINERS_STORAGE_DRIVER` | `vfs` on macOS (via `~/.local/share/selinux-demo/podman/env.sh`) |
 
-Related: [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [TESTING.md](TESTING.md).
+Related: [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [TESTING.md](TESTING.md), [README.md](../README.md).

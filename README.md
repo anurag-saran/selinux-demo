@@ -91,9 +91,11 @@ Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansibl
 pip3 install -r cli/requirements.txt
 export OPENAI_API_KEY="your-key"   # only for --engine llm
 
-# macOS / laptop without native selinux-policy-devel: pull prebuilt **CentOS Stream 9** image (Red Hat demo), or build once
+# macOS / laptop: pull prebuilt CentOS Stream 9 compile image from Docker Hub (~seconds)
+source "${HOME}/.local/share/selinux-demo/podman/env.sh"   # once per shell on Mac
 export SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-docker.io/asaran/selinux-demo-selinux-build:stream9}"
-# Pull-first on first compile (SELINUX_BUILD_IMAGE_PULL=1, default). See [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md).
+bash scripts/lib/selinux_build_image.sh pull
+# See [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) (build/publish/repair)
 
 # Staging + tests (native Linux)
 sudo bash scripts/setup_staging_env.sh
@@ -197,14 +199,16 @@ Runs automatically on PRs via [`.github/workflows/selinux-policy-ci.yml`](.githu
 Local equivalents:
 
 ```bash
-python3 scripts/smoke_test.py
+pip3 install -r cli/requirements.txt
+source "${HOME}/.local/share/selinux-demo/podman/env.sh"   # macOS Podman + vfs
+bash scripts/lib/selinux_build_image.sh pull
+bash scripts/compile_and_validate.sh selinux
 bash scripts/validate_forbidden_patterns.sh selinux
-bash scripts/lib/selinux_build_image.sh pull    # or ensure (pull → local CentOS Stream 9 build)
-bash scripts/compile_and_validate.sh selinux      # refpolicy Makefile in compile image
-bash scripts/validate_policy_semantics.sh selinux   # sesearch assertions (CI: policy-semantics job)
-bash scripts/validate_version_consistency.sh      # version SSOT (CI: version-consistency)
-bash scripts/run_blast_radius_fixtures.sh       # soak tier fixtures (CI: blast-radius; needs Podman)
-bash scripts/assemble_pr_body.sh                # PR body + merge-base policy access delta
+bash scripts/validate_policy_semantics.sh selinux
+bash scripts/validate_version_consistency.sh
+bash scripts/run_blast_radius_fixtures.sh
+python3 scripts/smoke_test.py
+bash scripts/assemble_pr_body.sh
 bash scripts/compile_and_validate.sh policy_out   # after generation
 ```
 
@@ -307,6 +311,7 @@ sudo bash scripts/apply_policy.sh policy_out
 
 ```bash
 source ~/.local/share/selinux-demo/podman/env.sh
+bash scripts/lib/selinux_build_image.sh pull   # docker.io/asaran/selinux-demo-selinux-build:stream9
 bash scripts/demo_present.sh --use-vm --demo-mode
 bash scripts/run_on_podman_vm.sh export-avcs
 export OPENAI_API_KEY="your-key"
@@ -387,7 +392,7 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 | Guide | For |
 |-------|-----|
 | [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) | **Default generator** — house rules, sepolgen banners, `findings.json`, fixture catalog |
-| [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) | **Red Hat demo compiles** — CentOS Stream 9 image on Docker Hub, pull-first env vars, publish script |
+| [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) | **Published** `asaran/selinux-demo-selinux-build:stream9` — pull-first, Mac repair, republish |
 | [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | **Code tour** — every major directory/file, algorithms (AVC merge, policy diff, blast radius, soak gates) |
 | [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
 | [docs/TESTING.md](docs/TESTING.md) | **All test cases** — six HTTP endpoints, `smoke_test.py`, CI jobs, soak/enforce gates |
