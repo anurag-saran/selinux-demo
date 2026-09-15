@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import yaml  # noqa: E402
 from avc_preprocess import AccessNeed, merge_avc_entries, parse_existing_allows, subtract_covered  # noqa: E402
+from boolean_hints import load_boolean_hints, match_boolean_hint  # noqa: E402
 from policy_rules import (  # noqa: E402
     FORBIDDEN_TARGET_TYPES,
     GENERIC_FILE_TYPES,
@@ -32,6 +33,7 @@ from policy_rules import (  # noqa: E402
     VERDICT_FORBIDDEN,
     VERDICT_INTERFACE,
     VERDICT_PORT,
+    VERDICT_BOOLEAN,
     VERDICT_TOOLCHAIN,
 )
 from selinux_gen import (  # noqa: E402
@@ -158,6 +160,25 @@ class Finding:
     note: str
     paths: tuple[str, ...] = ()
     engine: str = "house_rules"
+    boolean: str = ""
+
+
+def boolean_finding(
+    need: AccessNeed,
+    paths: tuple[str, ...],
+    boolean_name: str,
+    rendered: str,
+    note: str,
+) -> Finding:
+    return Finding(
+        need,
+        VERDICT_BOOLEAN,
+        rendered,
+        note,
+        paths,
+        engine="house_rules",
+        boolean=boolean_name,
+    )
 
 
 def load_manifest(path: Path) -> dict:
@@ -282,6 +303,7 @@ def classify(
     existing_te: str,
     existing_fc: str,
     allow_degraded: bool,
+    boolean_hints: list[dict],
 ) -> Finding:
     src, tgt, tclass = need.src_type, need.tgt_type, need.tclass
     perms = need.perms
@@ -364,8 +386,18 @@ def classify(
             )
         return Finding(need, VERDICT_DIRECT, rendered, "Module-private type.", paths)
 
+    def _boolean_or_none() -> Finding | None:
+        hit = match_boolean_hint(need, boolean_hints)
+        if not hit:
+            return None
+        name, rendered, note = hit
+        return boolean_finding(need, paths, name, rendered, note)
+
     iface = try_sepolgen_interface(src, tgt, tclass, need.perms)
     if iface is SEPOLGEN_UNAVAILABLE:
+        bool_f = _boolean_or_none()
+        if bool_f:
+            return bool_f
         if allow_degraded:
             perm_list = " ".join(sorted(need.perms))
             rendered = f"allow {src} {tgt}:{tclass} {{ {perm_list} }};"
@@ -390,6 +422,10 @@ def classify(
     if iface:
         rendered, note = iface
         return Finding(need, VERDICT_INTERFACE, rendered, note, paths, engine="sepolgen")
+
+    bool_f = _boolean_or_none()
+    if bool_f:
+        return bool_f
 
     perm_list = " ".join(sorted(need.perms))
     rendered = f"allow {src} {tgt}:{tclass} {{ {perm_list} }};"
@@ -453,8 +489,11 @@ def write_pr_summary(findings: list[Finding], app_name: str) -> str:
         "### File System Access",
     ]
     for f in findings:
-        if f.verdict in (VERDICT_DIRECT, VERDICT_FC, VERDICT_FC_DRIFT, VERDICT_INTERFACE):
-            lines.append(f"- {f.need.src_type} → {f.need.tgt_type}:{f.need.tclass} ({f.verdict})")
+        if f.verdict in (VERDICT_DIRECT, VERDICT_FC, VERDICT_FC_DRIFT, VERDICT_INTERFACE, VERDICT_BOOLEAN):
+            if f.verdict == VERDICT_BOOLEAN:
+                lines.append(f"- Boolean `{f.boolean}`: `{f.rendered}` ({f.note[:100]})")
+            else:
+                lines.append(f"- {f.need.src_type} → {f.need.tgt_type}:{f.need.tclass} ({f.verdict})")
     lines.extend(
         [
             "",
@@ -464,9 +503,55 @@ def write_pr_summary(findings: list[Finding], app_name: str) -> str:
             "### Explicit Denials Maintained",
             "- No wildcard allows; forbidden targets refused at generation time",
             "",
+            "### Classification audit (engine)",
+            "| Verdict | Target | Engine | Note |",
+            "| --- | --- | --- | --- |",
         ]
     )
+    for f in findings:
+        note = f.note.replace("|", "\\|")[:120]
+        lines.append(
+            f"| {f.verdict} | {f.need.tgt_type} | {f.engine} | {note} |"
+        )
+    lines.append("")
     return "\n".join(lines)
+
+
+def write_findings_artifact(
+    out_dir: Path,
+    findings: list[Finding],
+    sepolgen_info: dict[str, str],
+    *,
+    generation_blocked: bool,
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.joinpath("findings.json").write_text(
+        json.dumps(
+            {
+                "sepolgen_status": sepolgen_info["status"],
+                "sepolgen_detail": sepolgen_info.get("detail", ""),
+                "generation_blocked": generation_blocked,
+                "findings": [
+                    {
+                        "src": f.need.src_type,
+                        "tgt": f.need.tgt_type,
+                        "class": f.need.tclass,
+                        "perms": sorted(f.need.perms),
+                        "verdict": f.verdict,
+                        "rendered": f.rendered,
+                        "note": f.note,
+                        "engine": f.engine,
+                        **({"boolean": f.boolean} if f.boolean else {}),
+                    }
+                    for f in findings
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def tool_versions() -> dict[str, str]:
@@ -499,6 +584,8 @@ def run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    boolean_hints = load_boolean_hints(args.boolean_hints)
+
     entries, path_map = parse_avc_file(args.avc_log, domains)
     merged = merge_avc_entries(entries)
     net_new, _covered = subtract_covered(merged, parse_existing_allows(existing_te))
@@ -507,7 +594,15 @@ def run(args: argparse.Namespace) -> int:
     for need in net_new:
         paths = tuple(sorted(path_map.get(need.key, set())))
         findings.append(
-            classify(need, manifest, paths, existing_te, existing_fc, args.allow_degraded)
+            classify(
+                need,
+                manifest,
+                paths,
+                existing_te,
+                existing_fc,
+                args.allow_degraded,
+                boolean_hints,
+            )
         )
 
     meta = tool_versions()
@@ -533,12 +628,25 @@ def run(args: argparse.Namespace) -> int:
             if f.rendered:
                 print(f"               → {f.rendered}")
         emit_degraded_warning(findings)
+        if blockers:
+            args.out_dir.mkdir(parents=True, exist_ok=True)
+            write_findings_artifact(
+                args.out_dir, findings, sepolgen_info, generation_blocked=True
+            )
         return 1 if blockers else 0
 
     if blockers:
         print("\n*** GENERATION BLOCKED — fix sepolgen or remove base-type denials from AVC log ***\n", file=sys.stderr)
         for f in blockers:
             print(f"REFUSED: {f.note}", file=sys.stderr)
+        write_findings_artifact(
+            args.out_dir, findings, sepolgen_info, generation_blocked=True
+        )
+        (args.out_dir / "pr_summary.md").write_text(
+            write_pr_summary(findings, app_name),
+            encoding="utf-8",
+        )
+        print(f"\nWrote {args.out_dir}/findings.json (generation_blocked=true)\n", file=sys.stderr)
         return 1
 
     emit_degraded_warning(findings)
@@ -548,6 +656,12 @@ def run(args: argparse.Namespace) -> int:
         print("\nLABELING DRIFT (restorecon — no .fc / .te change):", file=sys.stderr)
         for f in drift_notes:
             print(f"  {f.note}", file=sys.stderr)
+
+    boolean_notes = [f for f in findings if f.verdict == VERDICT_BOOLEAN]
+    if boolean_notes:
+        print("\nBOOLEAN TRIAGE (setsebool — no permanent .te allow):", file=sys.stderr)
+        for f in boolean_notes:
+            print(f"  {f.rendered}  # {f.note}", file=sys.stderr)
 
     version_file = args.version_file
     if args.bump_version:
@@ -573,31 +687,7 @@ def run(args: argparse.Namespace) -> int:
 
     (args.out_dir / f"{app_name}.te").write_text(out_te, encoding="utf-8")
     (args.out_dir / f"{app_name}.fc").write_text(out_fc, encoding="utf-8")
-    (args.out_dir / "findings.json").write_text(
-        json.dumps(
-            {
-                "sepolgen_status": sepolgen_info["status"],
-                "sepolgen_detail": sepolgen_info.get("detail", ""),
-                "findings": [
-                    {
-                        "src": f.need.src_type,
-                        "tgt": f.need.tgt_type,
-                        "class": f.need.tclass,
-                        "perms": sorted(f.need.perms),
-                        "verdict": f.verdict,
-                        "rendered": f.rendered,
-                        "note": f.note,
-                        "engine": f.engine,
-                    }
-                    for f in findings
-                ],
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    write_findings_artifact(args.out_dir, findings, sepolgen_info, generation_blocked=False)
     (args.out_dir / "pr_summary.md").write_text(
         write_pr_summary(findings, app_name),
         encoding="utf-8",
@@ -634,6 +724,12 @@ def main() -> int:
         "--allow-degraded",
         action="store_true",
         help="When sepolgen is missing, emit raw allows on base types (engine=degraded in findings)",
+    )
+    parser.add_argument(
+        "--boolean-hints",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent / "config" / "boolean_hints.yml",
+        help="YAML table of AVC patterns → setsebool suggestions (default: config/boolean_hints.yml)",
     )
     args = parser.parse_args()
     return run(args)

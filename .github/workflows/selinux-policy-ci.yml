@@ -89,6 +89,23 @@ jobs:
       - name: Verify policy version single source of truth
         run: bash scripts/validate_version_consistency.sh
 
+  deterministic-fixtures:
+    name: deterministic-fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CLI dependencies
+        run: pip install -r cli/requirements.txt
+
+      - name: Run deterministic golden fixtures
+        run: bash scripts/run_deterministic_fixtures.sh
+
   blast-radius:
     name: blast-radius
     runs-on: ubuntu-latest
@@ -175,6 +192,9 @@ jobs:
 
       - name: Compile selinux/ module
         run: bash scripts/compile_and_validate.sh selinux
+
+      - name: Compile payments module (onboarded .if)
+        run: POLICY_MODULE=payments SELINUX_DOMAIN=payments_t bash scripts/compile_and_validate.sh selinux/payments
 
       - name: Upload compiled policy package
         uses: actions/upload-artifact@v4

@@ -62,6 +62,7 @@ After the image exists, these use **make-only** container runs (no per-invocatio
 | `interface` | sepolgen refpolicy macro (when ifgen data present) |
 | `direct` | Module-private types, or sepolgen ran but no macro matched (manual review) |
 | `toolchain_required` | Base-type denial with no sepolgen and no `--allow-degraded` — generation blocked |
+| `boolean` | Curated match in `config/boolean_hints.yml` → suggest **`setsebool -P … on`** (no `.te` allow) |
 
 ## Verification
 
@@ -74,7 +75,9 @@ python3 cli/verify_avc_coverage.py --avc-log policy_out/avc.log \
 
 Labeling fixes (`fc_fix`, `fc_drift`) are satisfied via `findings.json`, not allow rules. Shared logic: **`cli/fc_labeling.py`** (also strips redundant lines from LLM `.fc` output).
 
-`findings.json` is an object: `sepolgen_status`, `sepolgen_detail`, and `findings` (array of classified rows). Older list-only files still work in `verify_avc_coverage.py`.
+`findings.json` is an object: `sepolgen_status`, `sepolgen_detail`, `generation_blocked`, and `findings` (array of classified rows). Refusal cases (`forbidden`, `toolchain_required`) still write **`findings.json`** with `generation_blocked: true` before exit 1. Older list-only files still work in `verify_avc_coverage.py`.
+
+Golden fixtures: **`bash scripts/run_deterministic_fixtures.sh`** (CI job **`deterministic-fixtures`**). `pr_summary.md` includes a **Classification audit (engine)** table for reviewers.
 
 ## Engines
 
@@ -83,4 +86,4 @@ Labeling fixes (`fc_fix`, `fc_drift`) are satisfied via `findings.json`, not all
 | `dev_generate_policy.sh` (default) | `cli/deterministic_gen.py` |
 | `dev_generate_policy.sh --engine llm` | LLM (`cli/selinux_gen.py`) |
 
-Fixtures: [`docs/examples/fixtures/deterministic/`](examples/fixtures/deterministic/) — nine AVC directories; each has `avc.log` + `expected.json`. CI runs `deterministic_verdict_fixture_coverage` (all eight verdicts) and `deterministic_fixture_classify`. Cases `08`/`09` use optional `sepolgen_mock.json` so CI does not require host ifgen.
+Fixtures: [`docs/examples/fixtures/deterministic/`](examples/fixtures/deterministic/) — ten AVC directories covering **nine** verdict types; each has `avc.log` + `expected.json`. CI: **`bash scripts/run_deterministic_fixtures.sh`** (job **`deterministic-fixtures`**) plus smoke tests. Cases `08`/`09` use optional `sepolgen_mock.json` so CI does not require host ifgen. Case `10-boolean-hint` exercises **`boolean`** without sepolgen.

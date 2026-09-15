@@ -6,7 +6,8 @@ Each application onboarded to the SELinux Policy-as-Code pipeline declares an **
 
 1. Copy [`payments.manifest.example.yml`](payments.manifest.example.yml) to `config/<app_name>.manifest.yml`.
 2. Fill in paths, systemd units, HTTP probes, and SELinux port types.
-3. Point scripts and Ansible at it:
+3. Scaffold policy on RHEL: `bash scripts/scaffold_sepolicy_module.sh payments payments_t` (see [ONBOARDING_SECOND_APP.md](../docs/ONBOARDING_SECOND_APP.md)).
+4. Point scripts and Ansible at it:
 
 ```bash
 export APP_MANIFEST=config/payments.manifest.yml

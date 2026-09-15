@@ -118,7 +118,7 @@ Good policy in this repo prefers **refpolicy macros** over audit2allow-style one
 | File | Purpose |
 |------|---------|
 | **`myapp.manifest.yml`** | Demo manifest: install paths, HTTP port, endpoint list, systemd units, SELinux domains, soak marker paths. |
-| **`payments.manifest.example.yml`** | Template for onboarding another app name. |
+| **`payments.manifest.example.yml`** | Template for onboarding another app name; policy in **`selinux/payments/`** with **`.if`**. See [ONBOARDING_SECOND_APP.md](ONBOARDING_SECOND_APP.md). |
 | **`README.md`** | Schema table and inventory examples. |
 
 ### Logic highlight: [`scripts/lib/app_manifest.py`](../scripts/lib/app_manifest.py)
@@ -180,11 +180,11 @@ Shared **`.fc` drift** logic: detect when a path is already covered by a directo
 Same AVC preprocess path, but instead of an LLM:
 
 1. **`emit_sepolgen_warning()`** on every run when `sepolgen-ifgen` data is missing (stderr banner; not silent degradation).
-2. Classify each net-new `AccessNeed` → **`Finding`** (verdict + rendered TE/FC snippet). Verdicts: `fc_fix`, `fc_drift`, `private_port`, `forbidden`, `baseline`, `interface`, `direct`, `toolchain_required`.
+2. Classify each net-new `AccessNeed` → **`Finding`** (verdict + rendered TE/FC snippet). Verdicts: `fc_fix`, `fc_drift`, `private_port`, `forbidden`, `baseline`, `interface`, `direct`, `toolchain_required`, `boolean`.
 3. Refuse base-type raw allows without sepolgen unless **`--allow-degraded`** (second stderr banner; `engine=degraded` in output).
 4. Write **`findings.json`** as `{ "sepolgen_status", "sepolgen_detail", "findings": [ … ] }` plus merged `.te`/`.fc`.
 
-Golden cases: **`docs/examples/fixtures/deterministic/`** (nine AVC dirs; smoke tests assert all eight verdicts). Optional **`sepolgen_mock.json`** per case for CI without host ifgen.
+Golden cases: **`docs/examples/fixtures/deterministic/`** (nine AVC dirs). Assert locally with **`bash scripts/run_deterministic_fixtures.sh`** (CI job **`deterministic-fixtures`**) and in **`smoke_test.py`**. Optional **`sepolgen_mock.json`** per case for CI without host ifgen.
 
 Default in **`dev_generate_policy.sh`** (`POLICY_ENGINE=deterministic`). See [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md).
 
@@ -262,7 +262,7 @@ Python deps (`openai`, `pyyaml`, etc.) for the CLI.
 |--------|---------|
 | **`validate_app_manifest.sh`** | Shell wrapper → `app_manifest.py validate`. |
 | **`validate_rpm_ops_parity.sh`** | Ops RPM file list matches repo scripts. |
-| **`smoke_test.py`** | CI on Ubuntu: AVC parsing, prompts, manifest, assemble (with `--skip-policy-diff`), version consistency, classifier fail-closed JSON, **`deterministic_verdict_fixture_coverage`** + **`deterministic_fixture_classify`** (all verdict fixtures). |
+| **`smoke_test.py`** | CI on Ubuntu: AVC parsing, prompts, manifest, assemble (with `--skip-policy-diff`), version consistency, classifier fail-closed JSON, deterministic fixture coverage + classify (same nine cases as **`run_deterministic_fixtures.sh`**). |
 | **`run_e2e_tests.sh`** | Higher-level integration driver. |
 
 ### CI helper
@@ -374,6 +374,7 @@ These fixtures **lock in** soak tier logic — change classifier only with fixtu
 | **[DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md)** | Default offline engine, sepolgen banners, `findings.json`, fixture index |
 | **[DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md)** | Published Hub image, pull-first, macOS repair, republish |
 | **`examples/fixtures/deterministic/`** | Golden AVC → verdict fixtures (smoke-tested) |
+| **`selinux/payments/`** | Second onboarded module (`payments.{te,fc,if}`); compile with `POLICY_MODULE=payments` |
 | **`examples/`** | Static PR body samples when you cannot run assemble live |
 
 ---

@@ -5,7 +5,7 @@ Each directory has `avc.log` + `expected.json` (golden `verdict` / `tgt` rows). 
 - **`case.meta.json`** — `exit_code` (default 0), `stderr_substrings` for blocked runs
 - **`sepolgen_mock.json`** — in-process mock for CI hosts without `sepolgen-ifgen` (`behavior`: `match` | `no_match`)
 
-CI runs all cases via `scripts/smoke_test.py` (`deterministic_verdict_fixture_coverage` + `deterministic_fixture_classify`).
+CI runs all cases via **`bash scripts/run_deterministic_fixtures.sh`** (and `smoke_test.py` in **`smoke-tests`**). Job: **`deterministic-fixtures`**.
 
 | Case | Verdict exercised |
 |------|-------------------|
@@ -18,6 +18,7 @@ CI runs all cases via `scripts/smoke_test.py` (`deterministic_verdict_fixture_co
 | `07-toolchain-required` | **`toolchain_required`** — base-type allow blocked without sepolgen (exit 1) |
 | `08-interface-match` | **`interface`** — mocked refpolicy macro (`sepolgen_mock.json`) |
 | `09-direct-no-interface` | **`direct`** — sepolgen ran but no macro matched (`no_match` mock) |
+| `10-boolean-hint` | **`boolean`** — `config/boolean_hints.yml` → `setsebool` (no `.te` allow on `http_port_t`) |
 
 Run classification without writing policy:
 

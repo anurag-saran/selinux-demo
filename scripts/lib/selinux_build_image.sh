@@ -10,7 +10,8 @@ set -euo pipefail
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${_LIB_DIR}/../.." && pwd)"
 
-# Docker Hub pull-first (demo / CI).
+# Docker Hub pull-first (demo / CI). Override for internal mirrors:
+#   export SELINUX_BUILD_IMAGE=registry.example.com/security/selinux-demo-selinux-build:stream9
 SELINUX_BUILD_IMAGE_DEFAULT="docker.io/asaran/selinux-demo-selinux-build:stream9"
 SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-${SELINUX_BUILD_IMAGE_DEFAULT}}"
 SELINUX_BUILD_BASE_IMAGE_DEFAULT="quay.io/centos/centos:stream9"

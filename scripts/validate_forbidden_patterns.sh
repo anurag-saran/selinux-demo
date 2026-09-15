@@ -84,12 +84,9 @@ if ! grep -q "${DOMAIN}" "${te}"; then
     check_fail "Domain ${DOMAIN} not referenced in ${te}"
 fi
 
-for token in "/opt/${MODULE_NAME}" "/var/lib/myapp" "${MODULE_NAME}_exec_t" "${MODULE_NAME}_var_lib_t"; do
+for token in "/opt/${MODULE_NAME}" "/var/lib/${MODULE_NAME}" "${MODULE_NAME}_exec_t" "${MODULE_NAME}_var_lib_t"; do
     if ! grep -q "${token}" "${fc}"; then
-        if ! grep -q "/opt/myapp" "${fc}" || ! grep -q "/var/lib/myapp" "${fc}"; then
-            check_fail "fc_content missing expected path/type: ${token}"
-            break
-        fi
+        check_fail "fc_content missing expected path/type: ${token}"
     fi
 done
 

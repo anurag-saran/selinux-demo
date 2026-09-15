@@ -529,6 +529,7 @@ DETERMINISTIC_CLASSIFICATION_VERDICTS = frozenset(
         "interface",
         "direct",
         "toolchain_required",
+        "boolean",
     }
 )
 
@@ -575,6 +576,7 @@ def _deterministic_run_args(
         version_file=PROJECT_ROOT / "selinux" / "policy_version.txt",
         explain=explain,
         allow_degraded=False,
+        boolean_hints=PROJECT_ROOT / "config" / "boolean_hints.yml",
     )
 
 
@@ -693,9 +695,6 @@ def test_deterministic_fixture_classify() -> None:
         for needle in meta.get("stderr_substrings", []):
             assert needle in combined, f"{case}: stderr missing {needle!r}\n{combined}"
 
-        if want_exit != 0:
-            continue
-
         gen_code, gen_out, gen_err = _run_deterministic_gen(
             case_dir,
             manifest,
@@ -705,14 +704,22 @@ def test_deterministic_fixture_classify() -> None:
             out_dir=case_dir / "_out",
             mock=mock,
         )
-        assert gen_code == 0, f"{case}: generation failed\n{gen_err}{gen_out}"
-        payload = json.loads((case_dir / "_out" / "findings.json").read_text(encoding="utf-8"))
+        assert gen_code == want_exit, (
+            f"{case}: generation exit {gen_code}, want {want_exit}\n{gen_err}{gen_out}"
+        )
+        findings_path = case_dir / "_out" / "findings.json"
+        assert findings_path.is_file(), f"{case}: missing findings.json"
+        payload = json.loads(findings_path.read_text(encoding="utf-8"))
         rows = payload["findings"] if isinstance(payload, dict) else payload
         for want in expected:
             assert any(
                 row.get("verdict") == want["verdict"] and row.get("tgt") == want["tgt"]
                 for row in rows
             ), f"{case}: missing {want} in {rows}"
+        if want_exit != 0:
+            assert payload.get("generation_blocked") is True, f"{case}: expected generation_blocked"
+            continue
+
         if case == "01-mislabeled-var-lib":
             out_fc = (case_dir / "_out" / "myapp.fc").read_text(encoding="utf-8")
             assert out_fc == fc.read_text(encoding="utf-8"), (
@@ -721,6 +728,66 @@ def test_deterministic_fixture_classify() -> None:
         if case == "06-fc-missing-line":
             out_fc = (case_dir / "_out" / "myapp.fc").read_text(encoding="utf-8")
             assert "/opt/myapp/cache/data" in out_fc, f"{case}: expected new .fc line for cache path"
+        if case == "10-boolean-hint":
+            out_te = (case_dir / "_out" / "myapp.te").read_text(encoding="utf-8")
+            assert "http_port_t" not in out_te, f"{case}: must not add permanent allow on http_port_t"
+            row = next(r for r in rows if r.get("verdict") == "boolean")
+            assert row.get("boolean") == "httpd_can_network_connect"
+            assert "setsebool" in (row.get("rendered") or "")
+
+
+def test_payments_onboarding_module() -> None:
+    """Second app: manifest example + selinux/payments with shipped .if."""
+    mod = PROJECT_ROOT / "selinux" / "payments"
+    for name in ("payments.te", "payments.fc", "payments.if"):
+        assert (mod / name).is_file(), f"missing {mod / name}"
+    if_text = (mod / "payments.if").read_text(encoding="utf-8")
+    assert "interface(`payments_read_public_state'" in if_text
+    loader = PROJECT_ROOT / "scripts" / "lib" / "app_manifest.py"
+    result = subprocess.run(
+        ["python3", str(loader), "json", str(PROJECT_ROOT / "config" / "payments.manifest.example.yml")],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    norm = json.loads(result.stdout)
+    assert norm["policy"]["module_dir"] == "selinux/payments"
+
+
+def test_selinux_build_image_internal_registry() -> None:
+    """Compile image URL is fully overridable (not hard-coded to Docker Hub at runtime)."""
+    lib = PROJECT_ROOT / "scripts" / "lib" / "selinux_build_image.sh"
+    internal = "registry.example.com/security/selinux-demo-selinux-build:stream9"
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source '{lib}' && printf '%s' \"$SELINUX_BUILD_IMAGE\"",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SELINUX_BUILD_IMAGE": internal},
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == internal
+
+
+def test_boolean_hint_matching() -> None:
+    from boolean_hints import load_boolean_hints, match_boolean_hint
+
+    hints = load_boolean_hints(PROJECT_ROOT / "config" / "boolean_hints.yml")
+    need = AccessNeed(
+        "myapp_t",
+        "http_port_t",
+        "tcp_socket",
+        frozenset({"name_connect"}),
+    )
+    hit = match_boolean_hint(need, hints)
+    assert hit is not None
+    assert hit[0] == "httpd_can_network_connect"
+    assert "setsebool" in hit[1]
 
 
 def test_fc_labeling_drift_detection() -> None:
@@ -786,6 +853,9 @@ def main() -> int:
         ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
         ("deterministic_verdict_fixture_coverage", test_deterministic_verdict_fixture_coverage),
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
+        ("payments_onboarding_module", test_payments_onboarding_module),
+        ("selinux_build_image_internal_registry", test_selinux_build_image_internal_registry),
+        ("boolean_hint_matching", test_boolean_hint_matching),
         ("fc_labeling_drift_detection", test_fc_labeling_drift_detection),
     ]
     if os.environ.get("SMOKE_SKIP_FLASK") == "1":

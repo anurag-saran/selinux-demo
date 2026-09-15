@@ -4,7 +4,9 @@ policy_out/*.te
 policy_out/*.fc
 policy_out/policy_version.txt
 selinux/*.pp
+selinux/**/*.pp
 selinux/*.mod
+selinux/**/*.mod
 policy_out/avc.log
 policy_out/avc_summary.txt
 policy_out/container_build/

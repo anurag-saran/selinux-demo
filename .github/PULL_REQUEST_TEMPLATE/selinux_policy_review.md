@@ -42,7 +42,8 @@ labels:
 - [ ] `selinux/myapp.te` (Type Enforcement)
 - [ ] `selinux/myapp.fc` (File Contexts)
 - [ ] `selinux/policy_version.txt` (SemVer bump — must match `policy_module(myapp, …)` in `.te`; CI `version-consistency`)
-- [ ] `selinux/myapp.if` — N/A for this PoC (standalone module; interfaces deferred)
+- [ ] `selinux/myapp.if` — N/A (standalone demo module)
+- [ ] `selinux/payments/payments.if` — updated if this PR touches cross-module interfaces (see [ONBOARDING_SECOND_APP.md](../../docs/ONBOARDING_SECOND_APP.md))
 
 ---
 

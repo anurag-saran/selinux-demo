@@ -1,6 +1,8 @@
-# SELinux compile image (CentOS Stream 9 / Docker Hub)
+# SELinux compile image (CentOS Stream 9)
 
 Pre-baked **CentOS Stream 9** image with `selinux-policy-devel`, `setools-console`, and targeted policy. Matches **RHEL 9 deploys** (Stream is RHEL upstream). No per-run `dnf` on compile.
+
+**Registry:** Demo tags are published on Docker Hub; production shops set **`SELINUX_BUILD_IMAGE`** to an internal mirror (no script edits). See [Internal registry](#internal-registry-regulated-environments) below.
 
 ## Published image (pull-first)
 
@@ -90,5 +92,17 @@ You may keep publishing to the same Hub tag `:stream9`; document in release note
 | `SELINUX_BUILD_IMAGE_PULL` | `1` |
 | `SELINUX_BUILD_IMAGE_AUTO` | `1` |
 | `CONTAINERS_STORAGE_DRIVER` | `vfs` on macOS (via `~/.local/share/selinux-demo/podman/env.sh`) |
+
+### Internal registry (regulated environments)
+
+Docker Hub is optional. Point **`SELINUX_BUILD_IMAGE`** at any registry mirror (no script edits):
+
+```bash
+export SELINUX_BUILD_IMAGE=registry.example.com/security/selinux-demo-selinux-build:stream9
+export SELINUX_BUILD_IMAGE_PULL=1   # or 0 to build only from Stream base locally
+bash scripts/lib/selinux_build_image.sh ensure
+```
+
+Local-only shops: `SELINUX_BUILD_IMAGE_PULL=0` and `bash scripts/build_selinux_compile_image.sh` (never pushes).
 
 Related: [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [TESTING.md](TESTING.md), [README.md](../README.md).

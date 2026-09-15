@@ -127,7 +127,8 @@ Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selin
 
 | Job | Script / action | Pass criteria |
 |-----|-----------------|---------------|
-| `smoke-tests` | `python3 scripts/smoke_test.py` | All smoke tests pass (incl. `version_consistency`, `classify_fail_closed_json`, deterministic fixtures) |
+| `smoke-tests` | `python3 scripts/smoke_test.py` | AVC/prompt/manifest/assemble smoke (incl. deterministic tests when run full suite) |
+| `deterministic-fixtures` | `scripts/run_deterministic_fixtures.sh` | Ten deterministic fixture dirs / nine verdict types (refusal `findings.json` included) |
 | `app-manifest` | `scripts/validate_app_manifest.sh` | Demo + onboarding example manifests validate |
 | `rpm-ops-parity` | `scripts/validate_rpm_ops_parity.sh` | Ops RPM allowlist matches checkout scripts |
 | `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, shadow_t, bin_t execute, etc. |
@@ -219,7 +220,7 @@ Layer 7  emergency_rollback                   outage response
 
 | Check | Command |
 |-------|---------|
-| House-rule fixtures (all 8 verdicts) | `python3 scripts/smoke_test.py` → `deterministic_verdict_fixture_coverage`, `deterministic_fixture_classify` |
+| House-rule fixtures (nine verdict types) | `bash scripts/run_deterministic_fixtures.sh` or `python3 scripts/smoke_test.py` |
 | Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
 | Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) |
 | Coverage gate | `bash scripts/verify_avc_coverage.sh` after generation |

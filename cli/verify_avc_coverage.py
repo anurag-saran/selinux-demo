@@ -15,13 +15,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import yaml  # noqa: E402
-from avc_preprocess import merge_avc_entries, parse_existing_allows, subtract_covered  # noqa: E402
+from avc_preprocess import AccessNeed, merge_avc_entries, parse_existing_allows, subtract_covered  # noqa: E402
 from deterministic_gen import domains_from_manifest, parse_avc_file  # noqa: E402
 
 
 from policy_rules import (  # noqa: E402
     GENERIC_PORT_TYPES,
     VERDICT_BASELINE,
+    VERDICT_BOOLEAN,
     VERDICT_FC,
     VERDICT_FC_DRIFT,
     VERDICT_PORT,
@@ -46,7 +47,7 @@ def load_findings_handling(findings_path: Path) -> tuple[set[tuple[str, str, str
     for row in rows:
         key = (row["src"], row["tgt"], row["class"])
         verdict = row.get("verdict")
-        if verdict in (VERDICT_FC, VERDICT_FC_DRIFT, VERDICT_BASELINE):
+        if verdict in (VERDICT_FC, VERDICT_FC_DRIFT, VERDICT_BASELINE, VERDICT_BOOLEAN):
             handled_keys.add(key)
         if verdict == VERDICT_PORT:
             port_handled.append(

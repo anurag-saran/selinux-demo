@@ -46,6 +46,7 @@ compile_policy_module() {
 
     local te="${policy_dir}/${module_name}.te"
     local fc="${policy_dir}/${module_name}.fc"
+    local if_file="${policy_dir}/${module_name}.if"
 
     [[ -f "${te}" && -f "${fc}" ]] || {
         echo "[ERROR] Missing ${te} or ${fc}" >&2
@@ -54,10 +55,18 @@ compile_policy_module() {
 
     rm -f "${output_pp}" "${policy_dir}/${module_name}.mod"
 
+    _copy_module_sources() {
+        local dest="$1"
+        cp "${te}" "${fc}" "${dest}/"
+        if [[ -f "${if_file}" ]]; then
+            cp "${if_file}" "${dest}/"
+        fi
+    }
+
     if has_selinux_devel; then
         local work_dir
         work_dir="$(mktemp -d)"
-        cp "${te}" "${fc}" "${work_dir}/"
+        _copy_module_sources "${work_dir}"
         make -C "${work_dir}" -f /usr/share/selinux/devel/Makefile "${module_name}.pp"
         cp "${work_dir}/${module_name}.pp" "${output_pp}"
         rm -rf "${work_dir}"
@@ -65,7 +74,7 @@ compile_policy_module() {
         ensure_selinux_build_image || true
         local work_dir
         work_dir="$(mktemp -d)"
-        cp "${te}" "${fc}" "${work_dir}/"
+        _copy_module_sources "${work_dir}"
         if selinux_build_image_ready; then
             podman run --rm \
                 -v "${work_dir}:/build:Z" \
