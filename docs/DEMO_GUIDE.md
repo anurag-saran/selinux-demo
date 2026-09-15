@@ -6,12 +6,12 @@ This guide helps **newcomers**, **presenters**, and **observers** understand and
 
 | You are… | Read first | Then |
 |----------|------------|------|
-| **Completely new to SELinux** | [SELINUX_BASICS.md](SELINUX_BASICS.md) sections 1–7 (~15 min) | This guide sections 1–4, then run the demo |
+| **Completely new to SELinux** | [SELINUX_BASICS.md](SELINUX_BASICS.md) sections 1–7 (~15 min) | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (commands + outputs), then this guide sections 1–4 |
 | **Watching a colleague present** | Sections 1–4 below | Follow along during the 10 acts |
 | **Presenting the workshop** | Whole guide + rehearse with `--auto --demo-mode` | Presenter checklist (section 13) |
 | **Running the app team workflow after the demo** | [README.md](../README.md) developer section | `dev_generate_policy.sh` |
 
-**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → **this guide** (workshop) → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) (admin rollout).
+**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (hands-on) → **this guide** (workshop) → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) (admin rollout).
 
 ---
 

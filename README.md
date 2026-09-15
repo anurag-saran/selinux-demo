@@ -323,7 +323,7 @@ bash scripts/run_on_podman_vm.sh apply-policy
 
 ## Workshop demo (presenter)
 
-**New to the demo?** Follow the learning path: [`docs/SELINUX_BASICS.md`](docs/SELINUX_BASICS.md) → [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) (10 acts). **New to the codebase?** See [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md).
+**New to the demo?** Follow the learning path: [`docs/SELINUX_BASICS.md`](docs/SELINUX_BASICS.md) → [`docs/SELINUX_TRAINING_LAB.md`](docs/SELINUX_TRAINING_LAB.md) (hands-on) → [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) (10 acts). **New to the codebase?** See [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md).
 
 Paced narration with pauses between acts (dev → PR → canary → guardrails → enforce):
 
@@ -393,8 +393,9 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 |-------|-----|
 | [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) | **Default generator** — house rules, sepolgen banners, `findings.json`, fixture catalog |
 | [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) | **Published** `asaran/selinux-demo-selinux-build:stream9` — pull-first, Mac repair, republish |
-| [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | **Code tour** — every major directory/file, algorithms (AVC merge, policy diff, blast radius, soak gates) |
+| [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | **Code tour (beginner-friendly)** — repo map, plain-English pipeline, then scripts/CLI/CI |
 | [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
+| [docs/SELINUX_TRAINING_LAB.md](docs/SELINUX_TRAINING_LAB.md) | **Hands-on course** — 10 labs with commands and sample outputs before the workshop |
 | [docs/TESTING.md](docs/TESTING.md) | **All test cases** — six HTTP endpoints, `smoke_test.py`, CI jobs, soak/enforce gates |
 | [ansible/README.md](ansible/README.md) | **Ansible playbooks** — canary, enforce, rollback task order and variables |
 | [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Workshop demo for newbies — 10 acts, example output, observer vs presenter paths |

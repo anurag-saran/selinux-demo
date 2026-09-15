@@ -8,7 +8,7 @@ This document is the **single reference** for how this repository tests SELinux 
 | **Policy author opening a PR** | §4 CI on pull requests | §5 Shell gate scripts |
 | **Admin / SRE** | §6 Staging and production gates | [`ansible/README.md`](../ansible/README.md), [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
 
-Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](SELINUX_BASICS.md) §9; workshop flow in [`DEMO_GUIDE.md`](DEMO_GUIDE.md) Acts 1–10; **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
+Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](SELINUX_BASICS.md) §9; hands-on prep in [`SELINUX_TRAINING_LAB.md`](SELINUX_TRAINING_LAB.md); workshop flow in [`DEMO_GUIDE.md`](DEMO_GUIDE.md) Acts 1–10; **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
 
 ---
 

@@ -1,407 +1,340 @@
 # Code walkthrough guide
 
-This document is for **new contributors** who want to understand what lives where in this repository, how the pieces connect, and the **logic behind the main scripts and Python modules**. Read it alongside [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) and [DEMO_GUIDE.md](DEMO_GUIDE.md) (workshop order).
+This guide answers: **“What files are in this project, and how do they work together?”**
+
+You do **not** need to know every script on day one. Read this in order, pause when something is new, and use the linked docs for deeper topics.
+
+| Your goal | Start here |
+|-----------|------------|
+| Understand SELinux words (domain, AVC, `.te`) | [SELINUX_BASICS.md](SELINUX_BASICS.md) **first** (sections 1–7) |
+| **Practice commands before the workshop** | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (10 labs, sample outputs) |
+| See how this repo fits together | [What this project does](#what-this-project-does-in-plain-english) → [Story of one policy change](#story-of-one-policy-change) |
+| Find a folder or file | [Directory map](#directory-map-what-each-folder-is-for) |
+| Run the live workshop | [DEMO_GUIDE.md](DEMO_GUIDE.md) |
+| Deploy to real servers | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) |
+
+**Time:** about 30–45 minutes if you read the basics doc first; 60+ minutes if you read both cover to cover.
 
 ---
 
-## How to use this guide
+## Words you will see in this repo
 
-| If you want to… | Start here |
-|-----------------|------------|
-| See the whole pipeline in one picture | [End-to-end flow](#end-to-end-flow) |
-| Find a file by name | [Directory map](#directory-map) |
-| Understand AI policy generation | [CLI (`cli/`)](#cli-policy-generation) |
-| Understand deploy and soak | [Ansible (`ansible/`)](#ansible-deployment) |
-| Understand CI gates | [GitHub Actions](#github-workflows) |
+If any term is fuzzy, open [SELINUX_BASICS.md](SELINUX_BASICS.md). Quick reminders:
 
-**Convention:** *Source of truth* for policy text is **`selinux/`**. *Local build output* goes to **`policy_out/`** (gitignored). Production hosts usually get a **compiled `.pp` from an RPM**, not a git checkout.
+| Term | Plain English |
+|------|----------------|
+| **Policy** | Rules that say which labeled process may touch which labeled files, ports, etc. |
+| **`.te` file** | Text file with **allow** rules and types (Type Enforcement). |
+| **`.fc` file** | Maps paths like `/var/lib/myapp` to file **types** so `restorecon` labels disks correctly. |
+| **`.pp` file** | Compiled policy **module** you install with `semodule -i`. |
+| **AVC** | A log line: “this process tried to do X and policy said no.” |
+| **Domain** | The SELinux type of a **running** process (e.g. `myapp_t`). |
+| **Manifest** | YAML file listing app name, paths, HTTP test URLs, and domains — so scripts do not hardcode `myapp`. |
+| **`policy_out/`** | Local scratch folder for generated files (not committed to git). |
+| **`selinux/`** | The **real** policy source your team reviews in pull requests. |
 
 ---
 
-## End-to-end flow
+## What this project does in plain English
+
+This repository is a **demo plus tooling** for “shift-left” SELinux:
+
+1. A small **Flask app** (`app/`) runs on a Linux host with SELinux on.
+2. While the app domain is **permissive**, the kernel **logs** denials (AVCs) instead of blocking everything.
+3. Scripts **collect** those logs and **generate** updates to `myapp.te` / `myapp.fc` (by rules engine or optional AI).
+4. **CI** checks the change (dangerous patterns, compile, semantics, version numbers).
+5. **Ansible** deploys a new module to servers in **canary** mode, waits through a **soak** period, then **enforces**.
+
+You are not expected to memorize every bash script. Most days you touch **`app/`**, **`selinux/`**, **`config/*.manifest.yml`**, and **`scripts/dev_generate_policy.sh`**.
+
+---
+
+## Story of one policy change
+
+Follow this narrative once; later sections add file names and detail.
 
 ```mermaid
-flowchart LR
-  subgraph dev [App team]
-    A[app/ Flask probes] --> B[staging permissive myapp_t]
-    B --> C[audit.log AVCs]
-    C --> D[dev_generate_policy.sh]
-    D --> E[cli/selinux_gen.py or deterministic_gen.py]
-    E --> F[policy_out/ .te .fc pr_summary]
-    F --> G[assemble_pr_body.sh]
-    G --> H[PR to selinux/]
-  end
-  subgraph ci [CI on PR]
-    H --> I[forbidden-patterns compile semantics blast-radius version-consistency]
-    I --> J[policy-diff-comment]
-  end
-  subgraph ops [Admin]
-    J --> K[merge]
-    K --> L[deploy_canary.yml]
-    L --> M[soak + monitor_avc]
-    M --> N[enforce_production.yml]
-  end
+flowchart TD
+  A[Developer runs staging app] --> B[App hits missing allow rule]
+  B --> C[AVC lines in audit log]
+  C --> D[dev_generate_policy.sh exports AVCs]
+  D --> E[deterministic_gen.py or selinux_gen.py]
+  E --> F[Files in policy_out/]
+  F --> G[Human review + PR to selinux/]
+  G --> H[GitHub CI checks]
+  H --> I[Merge]
+  I --> J[Ansible canary deploy]
+  J --> K[Soak: monitor_avc + check_soak_ready]
+  K --> L[Ansible enforce]
 ```
 
-**Idea in one sentence:** the app **provokes** denials on purpose; the CLI **turns denials into policy diffs**; shell scripts **validate and explain** those diffs; Ansible **installs and soaks** safely before enforce.
+**Step by step:**
+
+1. **Staging** — `scripts/setup_staging_env.sh` (or Ansible) installs the app and puts `myapp_t` in permissive mode so you can collect denials safely.
+2. **Trigger the app** — curl the demo URLs (or run `scripts/run_demo.sh`). Each URL is designed to exercise one kind of permission (files, ports, scripts, etc.). See [SELINUX_BASICS.md §9](SELINUX_BASICS.md) for the mapping.
+3. **Export AVCs** — `scripts/dev_generate_policy.sh` calls `lib/avc_query.sh` with paths and domains from **`config/myapp.manifest.yml`** (not hardcoded `/opt/myapp` defaults).
+4. **Generate policy** — Default engine is **`cli/deterministic_gen.py`** (offline, rule-based). Optional: **`cli/selinux_gen.py`** uses an LLM when `OPENAI_API_KEY` is set.
+5. **Review** — Output lands in **`policy_out/`** (`.te`, `.fc`, `pr_summary.md`, `findings.json`). You compare to **`selinux/`** and open a PR.
+6. **CI** — Workflow **`selinux-policy-ci.yml`** runs compile, forbidden-pattern checks, version consistency, blast-radius fixtures, etc.
+7. **Deploy** — Admins use **`ansible/deploy_canary.yml`**, watch **`scripts/monitor_avc.sh`**, then **`check_soak_ready.sh`**, then **`enforce_production.yml`**.
+
+**Golden rule:** committed policy lives in **`selinux/`**. **`policy_out/`** is disposable local output.
 
 ---
 
-## Directory map
+## Directory map — what each folder is for
 
-| Path | Role |
-|------|------|
-| [`app/`](../app/) | Demo Flask app, backend stub, systemd units — integration test surface |
-| [`selinux/`](../selinux/) | Version-controlled Type Enforcement (`.te`) and file contexts (`.fc`) |
-| [`cli/`](../cli/) | Python: AVC parsing, LLM or deterministic policy generation |
-| [`config/`](../config/) | YAML **app manifests** (paths, HTTP probes, domains) |
-| [`scripts/`](../scripts/) | Bash/Python automation: compile, demo, soak gates, PR assembly |
-| [`scripts/lib/`](../scripts/lib/) | Shared libraries sourced by other scripts |
-| [`scripts/ci/`](../scripts/ci/) | GitHub Actions helpers (PR comments) |
-| [`ansible/`](../ansible/) | Playbooks + `myapp_selinux` role (canary, enforce, rollback) |
-| [`packaging/`](../packaging/) | RPM specfiles and `build_rpms.sh` |
-| [`tests/fixtures/`](../tests/fixtures/) | Deterministic inputs for blast-radius classifier CI |
-| [`docs/`](../docs/) | Human docs (this file, testing, production readiness) |
-| [`policy_out/`](../policy_out/) | **Generated** `.pp`, AVC exports, PR markdown (not committed) |
-| [`.github/workflows/`](../.github/workflows/) | CI and deploy workflows |
-| [`Containerfile`](../Containerfile) | Optional container image for dev/demo |
-| [`generator/`](../generator/) | Thin wrapper pointing at the CLI (legacy entry) |
+Think of the repo in **layers**: app → policy source → generators → automation → deploy.
+
+| Path | Beginner description |
+|------|----------------------|
+| [`app/`](../app/) | Demo web app + systemd unit files. Exists so SELinux has realistic traffic to log. |
+| [`selinux/`](../selinux/) | **`myapp.te`**, **`myapp.fc`**, version file — what reviewers approve. Second app example: **`selinux/payments/`**. |
+| [`config/`](../config/) | **`myapp.manifest.yml`** — app name, paths, ports, curl paths, soak file locations. |
+| [`cli/`](../cli/) | Python tools: read AVC logs, classify denials, write policy snippets. |
+| [`scripts/`](../scripts/) | Bash entry points: compile, demo, soak checks, PR body assembly. |
+| [`scripts/lib/`](../scripts/lib/) | Shared code **sourced** by other scripts (not usually run alone). |
+| [`ansible/`](../ansible/) | Playbooks that install `.pp`, permissive soak, enforce, rollback. |
+| [`packaging/`](../packaging/) | RPM specs and container recipe for the compile toolchain. |
+| [`docs/`](../docs/) | Guides (basics, testing, production, this file). |
+| [`policy_out/`](../policy_out/) | Generated output on your machine (gitignored). |
+| [`.github/workflows/`](../.github/workflows/) | CI and deploy automation on GitHub. |
+| [`tests/fixtures/`](../tests/fixtures/) | Small policy snippets used to test the blast-radius classifier in CI. |
 
 ---
 
 ## Application layer (`app/`)
 
-These files exist so SELinux has **realistic workloads** to deny or allow. Each HTTP route maps to a permission class admins care about.
+**Why it exists:** SELinux policy is written for **real behavior**. This Flask app is a safe, small stand-in for “our product on a server.”
 
-| File | Purpose |
-|------|---------|
-| **`app.py`** | Flask app on port **8888**. Six routes exercise bind, file I/O, script exec, log rotation, TCP client, and Unix socket client. **`selinux_status()`** reads `getenforce`, permissive list, and optional deploy report — returned on `GET /` for debugging. |
-| **`backend_stub.py`** | Minimal HTTP on **8889** and Unix socket under **`/run/myapp/notify.sock`**. Runs in **`myapp_backend_t`** when systemd is configured correctly. |
-| **`myapp.service` / `myapp-backend.service`** | systemd units with `StateDirectory`, `LogsDirectory`, `RuntimeDirectory` so paths exist with correct ownership before the app starts. |
-| **`backup.sh`** | Invoked by `/run-script`. Uses **bash builtins only** so policy never needs forbidden `bin_t:file execute`. |
-| **`logrotate.d/myapp`** | Example logrotate config (real logrotate runs as other domains; demo uses `/rotate-log` instead). |
+| File | What it does (simply) |
+|------|------------------------|
+| **`app.py`** | Web server on port **8888** with six routes (home, save log, run script, rotate log, call backend, Unix socket). |
+| **`backend_stub.py`** | Tiny service on **8889** + socket under `/run/myapp/` — second SELinux domain (`myapp_backend_t`). |
+| **`myapp.service`**, **`myapp-backend.service`** | Tell systemd how to start the app and create state/log/run directories. |
+| **`backup.sh`** | Script the `/run-script` route executes (bash-only on purpose). |
 
-### Logic highlight: why six endpoints?
-
-Each route is a **controlled experiment**:
-
-1. **`/`** — `name_bind` on a dedicated port type (`myapp_port_t`).
-2. **`/save-log`** — append/create under `/var/log/myapp` (`myapp_log_t`) plus directory traversal.
-3. **`/run-script`** — `execute_no_trans` on a labeled script type.
-4. **`/rotate-log`** — rename/create (logrotate-like) on app log types.
-5. **`/probe-backend`** — outbound TCP + socket options (`myapp_backend_port_t`).
-6. **`/notify-socket`** — Unix `connectto` to backend domain.
-
-[`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) curls these paths and optionally verifies each service’s **MainPID SELinux context** matches the manifest — catching “HTTP 200 but wrong domain” bugs.
+**Why six HTTP paths?** Each path tries to use a different resource (port, log file, script file, network, socket). When policy is incomplete, you get an AVC that points to the **missing allow rule**. Integration checks use [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) to curl those paths and confirm the process still runs as the right **domain**.
 
 ---
 
 ## Policy source (`selinux/`)
 
-| File | Purpose |
-|------|---------|
-| **`myapp.te`** | Type Enforcement: types, attributes, `allow` rules, refpolicy **interfaces** (`init_daemon_domain`, `logging_log_filetrans`, etc.). Starts with **`policy_module(myapp, X.Y.Z)`**. |
-| **`myapp.fc`** | File context mappings: which paths get which types at `restorecon`. |
-| **`policy_version.txt`** | **Single source of truth** for SemVer (must match `policy_module()` line; CI enforces). |
-| **`stub/`** | Smaller module for early staging / FCOS overlay paths. |
-| **`myapp_canary.*`** | Optional canary-specific module variants used in some flows. |
-| **`myapp.pp`** | May exist locally after compile; CI builds `.pp` as artifact — not required in git. |
+| File | What it is |
+|------|------------|
+| **`myapp.te`** | Human-readable rules: types, `allow` lines, and reusable **macros** from refpolicy. |
+| **`myapp.fc`** | “This path on disk should have type X.” Used by `restorecon`. |
+| **`policy_version.txt`** | Version number (must match the `policy_module(myapp, …)` line in `.te`; CI checks this). |
+| **`stub/`** | Smaller module for early lab setups. |
+| **`payments/`** | Example second application module (see [ONBOARDING_SECOND_APP.md](ONBOARDING_SECOND_APP.md)). |
 
-### Logic highlight: interfaces vs raw allows
-
-Good policy in this repo prefers **refpolicy macros** over audit2allow-style one-offs. That keeps reviews readable and aligns with [`validate_forbidden_patterns.sh`](../scripts/validate_forbidden_patterns.sh) (no wildcards, no `shadow_t`, etc.).
+**Review tip:** prefer **interface macros** (shared refpolicy helpers) over one-off allows copied from `audit2allow`. That matches what [`scripts/validate_forbidden_patterns.sh`](../scripts/validate_forbidden_patterns.sh) enforces in CI.
 
 ---
 
-## Config (`config/`)
+## Config and manifests (`config/`)
 
-| File | Purpose |
-|------|---------|
-| **`myapp.manifest.yml`** | Demo manifest: install paths, HTTP port, endpoint list, systemd units, SELinux domains, soak marker paths. |
-| **`payments.manifest.example.yml`** | Template for onboarding another app name; policy in **`selinux/payments/`** with **`.if`**. See [ONBOARDING_SECOND_APP.md](ONBOARDING_SECOND_APP.md). |
-| **`README.md`** | Schema table and inventory examples. |
-
-### Logic highlight: [`scripts/lib/app_manifest.py`](../scripts/lib/app_manifest.py)
-
-Python module that:
-
-- Validates required keys.
-- Exports shell-friendly variables (`shell-export` subcommand).
-- Resolves default manifest path from `POLICY_APP` / `APP_MANIFEST`.
-
-Manifest-driven scripts share one definition of “what to probe” instead of hardcoding myapp paths everywhere.
-
----
-
-## CLI — policy generation (`cli/`)
-
-### `selinux_gen.py` — main LLM pipeline
-
-**Entry point** for AI-assisted updates. High-level algorithm:
-
-1. **Collect AVCs** — from a file or `ausearch` on the host (`parse_avc_line`).
-2. **Preprocess** — delegate to `avc_preprocess.py` (merge, subtract existing allows).
-3. **Prompt** — `prompt_templates.py` builds system + user messages with existing `.te`, net-new needs, and interface allowlists.
-4. **Call LLM** — returns JSON with updated `.te` / `.fc` fragments and **`pr_summary.md`** sections.
-5. **Validate** — regex checks mirror CI forbidden patterns; required PR summary headings.
-6. **Version** — read/bump `policy_version.txt`; sync `policy_module()` version.
-7. **Optional compile/install** — invoke refpolicy Makefile or subprocess helpers.
-
-Key data structures:
-
-- **`AvcEntry`** — one parsed denial line (subject, object, class, permissions).
-- **Forbidden patterns** — same spirit as shell CI (wildcards, `bin_t` execute, privileged types).
-
-### `avc_preprocess.py` — shrink LLM input
-
-| Function | Algorithm |
-|----------|-----------|
-| `merge_avc_entries` | Group AVC lines by `(src_type, tgt_type, class)`; **union** permission sets. |
-| `parse_existing_allows` | Regex-scan current `.te` for `allow src tgt:class { perms };`. |
-| `subtract_covered` | For each merged need, compute `net_new = avc_perms - existing_perms`. Only net-new goes to the LLM. |
-| `build_avc_summary_text` | Human-readable summary for prompts and logs. |
-
-This prevents the model from re-adding allows you already have and reduces token cost.
-
-### `prompt_templates.py`
-
-Static **system prompt** encodes org rules: FHS paths, banned types, preferred interfaces, output JSON shape. **`build_user_prompt`** injects AVC summary + existing policy excerpt.
-
-### `policy_rules.py`
-
-Shared **deterministic** verdict constants and pattern tables (`FORBIDDEN_TARGET_TYPES`, `PATTERN_MACROS` mapping permission sets to refpolicy macro names). Keeps deterministic generation aligned with CI philosophy.
-
-### `fc_labeling.py`
-
-Shared **`.fc` drift** logic: detect when a path is already covered by a directory regex (`fc_drift` → `restorecon` only) vs needs a new line (`fc_fix`). Used by **`deterministic_gen.py`** and to strip redundant lines from LLM `.fc` output in **`selinux_gen.py`**.
-
-### `deterministic_gen.py` — offline generation (default engine)
-
-Same AVC preprocess path, but instead of an LLM:
-
-1. **`emit_sepolgen_warning()`** on every run when `sepolgen-ifgen` data is missing (stderr banner; not silent degradation).
-2. Classify each net-new `AccessNeed` → **`Finding`** (verdict + rendered TE/FC snippet). Verdicts: `fc_fix`, `fc_drift`, `private_port`, `forbidden`, `baseline`, `interface`, `direct`, `toolchain_required`, `boolean`.
-3. Refuse base-type raw allows without sepolgen unless **`--allow-degraded`** (second stderr banner; `engine=degraded` in output).
-4. Write **`findings.json`** as `{ "sepolgen_status", "sepolgen_detail", "findings": [ … ] }` plus merged `.te`/`.fc`.
-
-Golden cases: **`docs/examples/fixtures/deterministic/`** (nine AVC dirs). Assert locally with **`bash scripts/run_deterministic_fixtures.sh`** (CI job **`deterministic-fixtures`**) and in **`smoke_test.py`**. Optional **`sepolgen_mock.json`** per case for CI without host ifgen.
-
-Default in **`dev_generate_policy.sh`** (`POLICY_ENGINE=deterministic`). See [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md).
-
-### `verify_avc_coverage.py`
-
-Checks that merged AVC needs are **addressed** in generated policy or **`findings.json`** (`fc_fix` / `fc_drift` / `baseline` need no new allow line). Accepts legacy list-only `findings.json`.
-
-### `requirements.txt`
-
-Python deps (`openai`, `pyyaml`, etc.) for the CLI.
-
----
-
-## Shell orchestration (`scripts/`)
-
-### Developer workflow
-
-| Script | What it does | Core logic |
-|--------|----------------|------------|
-| **`dev_generate_policy.sh`** | One command: export AVCs → run engine (**deterministic** default) → optional `--apply` to `selinux/` → assemble PR body → optional `--open-pr`. | Branches on `--use-vm` (Podman), `--engine`, `--skip-export`, `POLICY_ALLOW_DEGRADED`. **`promote_to_selinux()`** copies `policy_out` → `selinux` and fixes version via regex on `policy_module()`. Compile path uses **`ensure_selinux_build_image`** (pull-first). |
-| **`assemble_pr_body.sh`** | Fills PR template placeholders. | 1) Optional **`policy_module_diff.sh --from-merge-base`** → markdown delta. 2) Python replaces `<!-- AUTO:* -->` markers with version, summary, AVC excerpt, diff. **Fails closed** if diff fails (unless `--skip-policy-diff`). |
-| **`setup_staging_env.sh`** | Installs app, stub policy, permissive domain, systemd units. | Prepares host for integration tests and AVC collection. |
-| **`selinux-gen`** | Thin wrapper → `dev_generate_policy.sh --help` / forwards args. | Convenience alias. |
-
-### Compile and validate
-
-| Script | What it does | Core logic |
-|--------|----------------|------------|
-| **`compile_and_validate.sh`** | Wrapper: compile module + basic checks. | Sources **`lib/compile_policy.sh`**. |
-| **`lib/compile_policy.sh`** | **`compile_policy_module`**: native Makefile or prebuilt Podman image (`localhost/selinux-build:stream9`; inline dnf fallback if missing). |
-| **`lib/build_image.sh`** | Local **`ensure_selinux_build_image`** / one-time `podman build` from [`Containerfile.selinux-build`](../packaging/Containerfile.selinux-build). |
-| **`lib/selinux_build_image.sh`** | Optional Hub pull (`SELINUX_BUILD_IMAGE_PULL=1`), then local build. |
-| **`build_selinux_compile_image.sh`** | Force-rebuild helper wrapping **`build_image.sh`**. |
-| **`publish_selinux_compile_image.sh`** | Login + push to Docker Hub (`:stream9`, `:latest`); skips local rebuild if tag exists. |
-| **`repair_podman_machine.sh`** | macOS: recreate Podman Machine; optional `SELINUX_PODMAN_RESET_IN_VM=1`. |
-| **`compile_module.sh`** | CLI wrapper used by **`selinux_gen.py`** and local compiles. |
-| **`validate_forbidden_patterns.sh`** | Fast grep + Python checks on `.te`. | Fails on wildcards, `bin_t` execute, `require { type myapp_* }`, privileged targets, broad `var_t` write. |
-| **`validate_policy_semantics.sh`** | Installs `.pp` in **Podman only**, runs **`sesearch --direct`** probes (no shadow read, no foreign entrypoint). | Ensures compiled policy **means** what reviewers think — not just syntax. |
-| **`validate_version_consistency.sh`** | Compares `policy_version.txt`, `policy_module()` in `.te`, and RPM spec wiring. | Uses **`lib/version.sh`**. |
-| **`verify_file_contexts.sh`** | `matchpathcon` / `restorecon -n` dry-run on app paths. | Catches `.fc` drift before restart. |
-| **`verify_pp_drift.sh`** | Ensures committed `.pp` matches sources (when present). | Optional drift guard. |
-
-### Policy diff and blast radius (soak tiering)
-
-| Script | What it does | Core logic |
-|--------|----------------|------------|
-| **`lib/policy_module_diff.sh`** | Diff **allow rules** for app domains between two module versions. | **Why not `sediff` on `.pp`?** Module packages are not full kernel policies on EL9. Algorithm: compile base + candidate → Podman → **`semodule -i`** each → **`sesearch --allow`** per domain → sort → **`comm`** added/removed lines → markdown. **`--from-merge-base`** extracts base `.te`/`.fc` from git merge-base with `origin/main`. |
-| **`lib/policy_module_sesearch.sh`** | Helper run inside container: dump allows for listed domains from **installed** module store. | Uses policy file as positional arg (not `sesearch -p`, which is permissions on EL9). |
-| **`classify_policy_blast_radius.sh`** | JSON tier recommendation for soak length. | Compile inputs → Podman → **`blast_radius_collect.sh`** (rule diff + type rules) → **`blast_radius_classify.py`**. |
-| **`lib/blast_radius_collect.sh`** | Install base then candidate sequentially; diff sesearch output. | Produces `added_rules.txt` for classifier. |
-| **`lib/blast_radius_classify.py`** | Map each added rule to tier **low / medium / high** → soak days **1 / 3 / 7**. | **`max(tier)`** wins. Target in `BASE_TARGET_TYPES` or entrypoint → **high**. Target `myapp_*` → **low**. Else **medium**. Unparseable line → **fail_closed** (stay at 7 days). |
-| **`run_blast_radius_fixtures.sh`** | CI: run classifier against **`tests/fixtures/blast_radius/`** | Each case has `cand.te` + `expected.json`; corrupt input must yield `fail_closed: true`. |
-| **`check_soak_ready.sh`** | Exit 0 only when soak gate passes. | Checks: marker file age ≥ `min_days`, AVC count since marker ≤ max, deploy report JSON shows endpoints + **domain_context_verified**. Optional **`--auto-tier`**: run classifier; on error use configured **`min_days`** (never shorten on failure). |
-| **`collect_soak_facts.sh`** | Emit JSON facts for Ansible (no classifier). | Same counters as soak check; role compares on controller. |
-| **`monitor_avc.sh`** | Daily soak helper: count AVCs for domain since timestamp. | Uses **`lib/avc_query.sh`**. |
-
-### Deploy helpers (non-Ansible)
-
-| Script | Purpose |
-|--------|---------|
-| **`apply_policy.sh`** | Manual `semodule -i` + restorecon + restart pattern. |
-| **`post_deploy_report.sh`** | Writes `/var/lib/myapp/selinux_deploy_report.json` after smoke. |
-| **`wait_for_endpoints.sh`** | Retry loop: systemd active + curl endpoints + domain check. |
-
-### Demo and Podman
-
-| Script | Purpose |
-|--------|---------|
-| **`demo_present.sh` / `run_demo.sh`** | Workshop presenter; can use **`lib/stage_skip_ai_fixture.sh`** for offline `--skip-ai`. |
-| **`run_on_podman_vm.sh` / `podman_run.sh` / `podman_build.sh` / `fix_podman.sh`** | macOS/Linux Podman VM lifecycle for SELinux-capable testing. |
-| **`container_entrypoint.sh`** | Entrypoint for demo container. |
-
-### Other validation
-
-| Script | Purpose |
-|--------|---------|
-| **`validate_app_manifest.sh`** | Shell wrapper → `app_manifest.py validate`. |
-| **`validate_rpm_ops_parity.sh`** | Ops RPM file list matches repo scripts. |
-| **`smoke_test.py`** | CI on Ubuntu: AVC parsing, prompts, manifest, assemble (with `--skip-policy-diff`), version consistency, classifier fail-closed JSON, deterministic fixture coverage + classify (same nine cases as **`run_deterministic_fixtures.sh`**). |
-| **`run_e2e_tests.sh`** | Higher-level integration driver. |
-
-### CI helper
-
-| Script | Purpose |
-|--------|---------|
-| **`ci/post_pr_policy_diff_comment.sh`** | On PR: run diff, upsert GitHub comment with marker `<!-- selinux-policy-module-diff -->`. |
-
-### Shared shell libraries (`scripts/lib/`)
+**Problem manifests solve:** scripts used to assume every app was named `myapp` and lived under `/opt/myapp`. That caused **wrong AVC filters** for other apps.
 
 | File | Role |
 |------|------|
-| **`version.sh`** | `policy_version()` reads txt; `policy_module_version_from_te()` parses `.te`. |
-| **`avc_query.sh`** | `count_domain_events_since` via **`ausearch --input-logs`** (includes rotated logs). |
-| **`app_manifest.py`** | Manifest validate / resolve / export. |
-| **`vm_ready.sh`** | Podman machine readiness checks. |
+| **`myapp.manifest.yml`** | Demo app: paths, HTTP endpoints, domains, soak marker paths. |
+| **`payments.manifest.example.yml`** | Template for a second app. |
+| **`README.md`** | Field descriptions. |
+
+**Loader:** [`scripts/lib/app_manifest.py`](../scripts/lib/app_manifest.py)
+
+- **`validate`** — checks required YAML keys.
+- **`shell-export`** — prints variables bash scripts can `eval` (domains, path list for AVC filtering, HTTP port, etc.).
+- **`resolve`** — finds manifest from `APP_MANIFEST` or `POLICY_APP`.
+
+Scripts like **`monitor_avc.sh`** and **`export_app_avcs_to_file`** in **`lib/avc_query.sh`** require manifest-derived paths — they **fail loudly** if paths are missing instead of silently using myapp defaults.
 
 ---
 
-## Ansible deployment (`ansible/`)
+## Python CLI (`cli/`) — turning AVC logs into policy edits
 
-Playbooks are **thin**; logic lives in the **`myapp_selinux`** role.
+Two engines share the same **first steps**: read the log, merge duplicate lines, subtract permissions already in `.te`.
+
+### Shared preprocessing — `avc_preprocess.py`
+
+| Step | Plain English |
+|------|----------------|
+| Parse AVC lines | Extract who tried what (source type, target type, permission class). |
+| Merge | Combine duplicate lines into one row with all permissions. |
+| Subtract existing | Drop permissions already allowed in current `myapp.te`. |
+| **Net-new** | What is left is what generation must address. |
+
+### Default: `deterministic_gen.py` (offline)
+
+No API key. For each net-new denial it assigns a **verdict** (fix file labeling, use a boolean, add a safe allow via sepolgen, refuse dangerous allows, etc.) and writes:
+
+- Updated **`policy_out/myapp.te`** / **`.fc`**
+- **`findings.json`** — machine-readable record of each decision
+- **`pr_summary.md`** — text for humans
+
+Run golden tests: **`bash scripts/run_deterministic_fixtures.sh`**. Payments must not leak `myapp` strings: **`bash scripts/run_deterministic_payments_check.sh`**.
+
+Details: [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md).
+
+### Optional: `selinux_gen.py` (LLM)
+
+Same AVC preprocessing, then sends a structured prompt (`prompt_templates.py`) to an OpenAI-compatible API. Requires **`OPENAI_API_KEY`**. Still runs validation similar to CI.
+
+### Other CLI modules (short)
+
+| Module | Role |
+|--------|------|
+| **`fc_labeling.py`** | Detect labeling drift vs new `.fc` lines. |
+| **`policy_rules.py`** | Shared “forbidden target” lists for deterministic mode. |
+| **`verify_avc_coverage.py`** | Checks generated policy covers the exported AVC set. |
+| **`boolean_hints.yml`** (in `config/`) | Curated hints when a **setsebool** is the right fix. |
+
+---
+
+## Shell scripts (`scripts/`) — what to run when
+
+### Day-to-day developer commands
+
+| Script | When you use it |
+|--------|------------------|
+| **`dev_generate_policy.sh`** | Main command: export AVCs → generate → diff → optional copy into `selinux/`. |
+| **`assemble_pr_body.sh`** | Builds GitHub PR description from template + summary + optional rule diff. |
+| **`setup_staging_env.sh`** | Prepare a Linux host for the demo (root). |
+| **`compile_and_validate.sh`** | Compile `.te`/`.fc` to `.pp` and run basic checks. |
+
+**Environment tips:**
+
+- **`POLICY_ENGINE=deterministic`** (default) or **`llm`**
+- **`APP_MANIFEST`** / **`POLICY_APP`** — pick which manifest drives paths and names
+- **`--use-vm`** on macOS — export AVCs from a Podman VM with SELinux
+
+### Safety gates (soak and production)
+
+| Script | Plain English |
+|--------|----------------|
+| **`monitor_avc.sh`** | “How many denials since canary deploy?” Needs **`--manifest`** or explicit domain + paths. |
+| **`check_soak_ready.sh`** | “Has enough time passed, are AVCs low enough, did deploy report pass?” |
+| **`collect_soak_facts.sh`** | JSON facts for Ansible (same ideas as soak check). |
+| **`post_deploy_report.sh`** | Writes deploy report JSON after endpoints are exercised. |
+| **`verify_file_contexts.sh`** | Compare on-disk labels to `.fc` before restart. |
+
+### Compile toolchain (Podman on Mac or CI)
+
+| Script / lib | Role |
+|--------------|------|
+| **`lib/selinux_build_image.sh`** | **Single** `ensure_selinux_build_image()` — optional Hub pull, then local build. |
+| **`lib/build_image.sh`** | Image constants and local `podman build` helper only (no duplicate ensure). |
+| **`lib/compile_policy.sh`** | Compile module natively or inside the Stream 9 tool container. |
+| **`build_selinux_compile_image.sh`** | Force rebuild the compile image. |
+
+See [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) for Mac Podman notes.
+
+### CI-heavy scripts (you may read, rarely run locally)
+
+| Script | Why it exists |
+|--------|----------------|
+| **`validate_forbidden_patterns.sh`** | Block wildcards and risky allows in `.te`. |
+| **`validate_policy_semantics.sh`** | After compile, probe policy in Podman (e.g. no shadow read). |
+| **`validate_version_consistency.sh`** | Version file matches `.te` and packaging. |
+| **`classify_policy_blast_radius.sh`** | Suggest soak length from how risky new allows are. |
+| **`lib/policy_module_diff.sh`** | Markdown diff of allow rules between two module versions (for PR comments). |
+| **`smoke_test.py`** | Fast regression suite on Ubuntu CI. |
+| **`run_e2e_tests.sh`** | Broader integration driver. |
+
+### Demo and VM helpers
+
+| Script | Role |
+|--------|------|
+| **`demo_present.sh`**, **`run_demo.sh`** | Workshop flows. |
+| **`run_on_podman_vm.sh`** | Sync project to Podman Machine, export AVCs with manifest filters. |
+
+---
+
+## Ansible (`ansible/`)
+
+Playbooks are short; behavior lives in the **`myapp_selinux`** role.
 
 | Playbook | Phase |
 |----------|--------|
-| **`deploy_canary.yml`** | Sets `myapp_selinux_phase: canary` |
-| **`enforce_production.yml`** | Sets phase `enforce` |
-| **`emergency_rollback.yml`** | Phase `rollback` |
-| **`reset_host_state.yml`** | Phase `reset_host` |
-| **`generate_emergency_patch.yml`** | Optional LLM patch during incident |
+| **`deploy_canary.yml`** | Install module, permissive domain, smoke endpoints, start soak clock. |
+| **`enforce_production.yml`** | Soak gates passed → enforcing mode. |
+| **`emergency_rollback.yml`** | Break-glass rollback steps. |
+| **`reset_host_state.yml`** | Clean lab state. |
 
-### Role flow (`roles/myapp_selinux/`)
+**Canary (simplified):** validate artifact → optional `semodule -DB` → register ports → permissive domain → install `.pp` → `restorecon` → restart services → write marker + report.
 
-**`tasks/main.yml`**
+**Enforce (simplified):** verify soak facts → remove permissive → rebuild policy store → smoke again.
 
-1. **`lookup('file', policy_artifact_dir/selinux/policy_version.txt')`** → `policy_version` fact (no hardcoded inventory version).
-2. **`import_tasks: {{ myapp_selinux_phase }}.yml`**
-
-**`tasks/canary.yml`** (high level)
-
-1. Validate `policy_pp_src` or RPM path.
-2. **`semodule -DB`** — surface hidden denials during soak (host-wide; restored later).
-3. Register ports with **`seport`**.
-4. **`selinux_permissive`** for app domain only.
-5. Copy/install `.pp`, **`restorecon`**, restart systemd, run **`wait_for_endpoints.sh`**, write soak marker + deploy report.
-6. Optional AVC count gate (`canary_max_avc`).
-
-**`tasks/enforce.yml`**
-
-1. Run soak gate via **`collect_soak_facts.sh`** + assert min days / AVC / report.
-2. Remove permissive domain, **`semodule -B`**, re-smoke endpoints; block/rescue returns permissive on failure.
-
-**`tasks/rollback.yml`**
-
-Permissive relief, optional **`dnf downgrade`** via `rollback_dnf_version`, AVC export, marker reset.
-
-**`defaults/main.yml`**
-
-Paths, soak thresholds, feature flags (`selinux_ops_from_package`, etc.).
-
-Inventories (`inventory.*.example.yml`) show lab vs production variable patterns.
+Inventory examples: **`inventory.staging.example.yml`**, **`inventory.production.example.yml`**.
 
 ---
 
 ## Packaging (`packaging/`)
 
-| File | Purpose |
-|------|---------|
-| **`Containerfile.selinux-build`** | Pre-baked **CentOS Stream 9** image (`selinux-policy-devel`, setools, targeted policy) for fast Podman compiles. See [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md). |
-| **`build_rpms.sh`** | Reads version from **`version.sh`**, runs `rpmbuild` with `modver` define. |
-| **`myapp-selinux.spec`** | Packages `.pp`, `%selinux_modules_install`, relabel macros, `%post` port registration. **`Version: %{modver}`** — not hardcoded. |
-| **`selinux-policy-ops.spec`** | Ships operational scripts to `/usr/libexec` for production hosts without git. |
+| Artifact | Purpose |
+|----------|---------|
+| **`myapp-selinux.spec`** | RPM that ships the compiled module for servers. |
+| **`selinux-policy-ops.spec`** | RPM of operational scripts (`monitor_avc.sh`, etc.) for hosts without a git checkout. |
+| **`Containerfile.selinux-build`** | CentOS Stream 9 image with `selinux-policy-devel` for fast compiles. |
 
 ---
 
-## GitHub workflows (`.github/workflows/`)
+## GitHub Actions (`.github/workflows/`)
 
-| Workflow | When | Main jobs |
-|----------|------|-----------|
-| **`selinux-policy-ci.yml`** | PR / push | `smoke`, `app-manifest`, `forbidden-patterns`, **`version-consistency`**, **`blast-radius`**, `compile` (pull/ensure Stream compile image), `policy-semantics`, **`policy-diff-comment`**, `ansible-lint`, etc. |
-| **`selinux-staging-canary.yml`** | Merge to main | Self-hosted staging canary + endpoint smoke. |
-| **`selinux-deploy.yml`** | Manual dispatch | Admin canary / enforce / rollback on environments. |
+| Workflow | Triggers | What it protects |
+|----------|----------|------------------|
+| **`selinux-policy-ci.yml`** | Pull requests | Smoke tests, compile, forbidden patterns, version drift, blast-radius fixtures, payments generator leak check, policy diff comment, etc. |
+| **`selinux-staging-canary.yml`** | Push to main | Staging deploy smoke. |
+| **`selinux-deploy.yml`** | Manual | Admin canary / enforce / rollback. |
 
-PR template [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md) defines admin checklist; **`assemble_pr_body.sh`** fills **`<!-- AUTO:SEDIFF -->`** with merge-base rule delta.
+PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md).
 
 ---
 
 ## Tests (`tests/`)
 
-| Path | Purpose |
-|------|---------|
-| **`fixtures/blast_radius/_common/`** | Shared base module for fixture compiles. |
-| **`fixtures/blast_radius/*/cand.te`** | Candidate module tweak for one scenario. |
-| **`fixtures/blast_radius/*/expected.json`** | Expected `tier`, `min_days`, `fail_closed` from classifier. |
+**Blast-radius fixtures** under **`tests/fixtures/blast_radius/`** — tiny `.te` changes with expected JSON (tier, soak days, fail-closed). CI ensures the classifier does not silently shorten soak time on errors.
 
-These fixtures **lock in** soak tier logic — change classifier only with fixture updates.
+**Deterministic golden AVCs** live under **`docs/examples/fixtures/deterministic/`** (nine cases).
 
 ---
 
-## Docs and examples (`docs/`)
+## Suggested path for new contributors
 
-| Doc | Audience |
+1. Read [SELINUX_BASICS.md](SELINUX_BASICS.md) sections **1–7** (labels, `.te`/`.fc`, permissive soak idea).
+2. Complete [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) labs **1–7** on a SELinux VM (commands + checkpoints).
+3. Skim [README.md](../README.md) architecture diagram.
+4. Open **`config/myapp.manifest.yml`** and **`app/app.py`** — match each HTTP path to a permission story.
+5. Trace one AVC through **`cli/avc_preprocess.py`**, then try **`bash scripts/dev_generate_policy.sh --skip-export`** with a saved **`policy_out/avc.log`**.
+6. When ready for ops flow: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) + **`check_soak_ready.sh`**.
+
+---
+
+## Quick reference — algorithms in one line each
+
+| Idea | One-line explanation |
+|------|----------------------|
+| AVC merge | Group log lines by source + target + class; union permissions. |
+| Net-new | Permissions in AVC minus permissions already in `.te`. |
+| Policy diff for PRs | Compile old and new module → compare `sesearch` allow lines. |
+| Blast radius | Classify each **new** allow as low/medium/high risk → suggested soak days; errors → stay strict (7 days). |
+| Soak gate | Enough days since canary + few enough AVCs + deploy report OK. |
+| Version SSOT | `policy_version.txt` must match `policy_module()` in `.te`. |
+| Manifest identity | App name, domains, and AVC path filters come from YAML — not silent `myapp` defaults. |
+
+---
+
+## Other docs in `docs/`
+
+| Doc | Best for |
 |-----|----------|
-| **[SELINUX_BASICS.md](SELINUX_BASICS.md)** | SELinux vocabulary and demo endpoint mapping |
-| **[TESTING.md](TESTING.md)** | Test layers and CI job table |
-| **[PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)** | Admin phases, soak, enforce gates |
-| **[SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md)** | Do/don’t for policy authors |
-| **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Live presentation script |
-| **[DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md)** | Default offline engine, sepolgen banners, `findings.json`, fixture index |
-| **[DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md)** | Published Hub image, pull-first, macOS repair, republish |
-| **`examples/fixtures/deterministic/`** | Golden AVC → verdict fixtures (smoke-tested) |
-| **`selinux/payments/`** | Second onboarded module (`payments.{te,fc,if}`); compile with `POLICY_MODULE=payments` |
-| **`examples/`** | Static PR body samples when you cannot run assemble live |
+| [SELINUX_BASICS.md](SELINUX_BASICS.md) | First-time SELinux readers |
+| [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | Hands-on labs before the workshop |
+| [TESTING.md](TESTING.md) | CI jobs and local test commands |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Presenting the workshop |
+| [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) | Offline generator and fixtures |
+| [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Admins rolling out canary → enforce |
+| [ONBOARDING_SECOND_APP.md](ONBOARDING_SECOND_APP.md) | Adding `payments` or your own app name |
 
----
-
-## Suggested reading order for newcomers
-
-1. Skim [README.md](../README.md) architecture diagram.
-2. Read [SELINUX_BASICS.md](SELINUX_BASICS.md) §9 (endpoint → permission mapping).
-3. Trace one denial: `app/app.py` route → AVC line → `cli/avc_preprocess.py` → **`deterministic_gen.py`** (or `selinux_gen.py` LLM path).
-4. Run mentally through **`dev_generate_policy.sh`** and **`assemble_pr_body.sh`** (PR body markers).
-5. Open **`selinux/myapp.te`** and match rules to **`validate_forbidden_patterns.sh`** checks.
-6. Follow **`deploy_canary.yml`** → **`canary.yml`** → **`check_soak_ready.sh`** gates in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
-7. Browse **`.github/workflows/selinux-policy-ci.yml`** to see which script each job runs.
-
----
-
-## Quick reference: important functions and algorithms
-
-| Component | Key idea |
-|-----------|----------|
-| AVC merge | Union permissions per `(source type, target type, class)` |
-| Net-new detection | `avc_perms − existing_allow_perms` |
-| Policy diff | Compile two modules → install → sesearch allow lines → `comm` |
-| Blast radius tier | Worst tier among **added** rules; fail closed on parse errors |
-| Soak gate | `days_since_marker ≥ min_days` AND `avc_count ≤ max` AND deploy report OK |
-| Version SSOT | `policy_version.txt` ↔ `policy_module()` ↔ RPM `modver` |
-| Semantic CI | Compiled module must not allow shadow read or wrong entrypoint type |
-
-If something in this guide drifts from the code, **trust the repository** and open a PR to update this document.
+If this guide disagrees with the code, **trust the repository** and send a PR to update the doc.

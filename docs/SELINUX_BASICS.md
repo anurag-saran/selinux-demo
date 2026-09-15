@@ -2,7 +2,7 @@
 
 This guide explains **SELinux from zero** using the `myapp` demo in this repository. No prior experience required.
 
-**How to read this guide (about 15–20 minutes):**
+**How to read this guide (about 15–20 minutes reading):**
 
 1. Sections 1–4 — what SELinux is and how **labels** work (start here)
 2. Sections 5–7 — **commands** to view labels, **policy files** (`.te`/`.fc`), **`restorecon`**, and the **two-layer model** (OS Enforcing + permissive app domain)
@@ -10,7 +10,9 @@ This guide explains **SELinux from zero** using the `myapp` demo in this reposit
 4. Sections 8–10 — **AVC denials**, export filtering, and a **worked example** tied to the demo
 5. Sections 11+ — reference tables, cheat sheet, and links to the live workshop
 
-**Before the live demo:** read sections 3–7, then follow [DEMO_GUIDE.md](DEMO_GUIDE.md).
+**Hands-on practice (90–120 minutes):** work through **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** — copy/paste commands with expected outputs before the workshop.
+
+**Before the live demo:** complete the training lab (or at least labs 1–7), then follow [DEMO_GUIDE.md](DEMO_GUIDE.md).
 
 **After the demo (production rollout):** [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
 
@@ -730,6 +732,7 @@ sudo semodule -i selinux/myapp.pp              # upgrades in place
 | Guide | Audience |
 |-------|----------|
 | **This file** | New to SELinux — labels, `.te`/`.fc`, commands with examples |
+| [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | **Hands-on labs** — train up for the demo |
 | [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, CI jobs |
 | [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) | Default offline policy generator from AVCs |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Running the live workshop demo |
