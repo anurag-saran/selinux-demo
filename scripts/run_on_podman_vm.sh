@@ -51,12 +51,33 @@ vm_exec() { podman machine ssh -- "cd ${VM_PROJECT} && $1"; }
 
 export_avcs() {
     local output="${1:-${AVC_EXPORT}}"
+    local manifest="${2:-${APP_MANIFEST:-${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml}}"
+    [[ -f "${manifest}" ]] || {
+        log_error "App manifest required for export-avcs: ${manifest}"
+        exit 1
+    }
+    # shellcheck source=lib/manifest_shell.sh
+    source "${SCRIPT_DIR}/lib/manifest_shell.sh"
+    # shellcheck source=lib/avc_query.sh
+    source "${SCRIPT_DIR}/lib/avc_query.sh"
+    source_app_manifest_exports "${manifest}"
     mkdir -p "$(dirname "${output}")"
-    log_info "Exporting AVC logs to ${output}"
-    podman machine ssh -- \
-        "sudo ausearch -m avc -ts boot --raw 2>/dev/null || sudo grep '^type=AVC' /var/log/audit/audit.log" \
-        | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp|/var/opt/myapp" > "${output}" || true
-    [[ -s "${output}" ]] || { log_warn "No AVC lines exported"; return 1; }
+    log_info "Exporting AVC logs to ${output} (domain=${PRIMARY_DOMAIN})"
+    local raw=""
+    raw="$(podman machine ssh -- \
+        "sudo ausearch --input-logs -m AVC,USER_AVC,SELINUX_ERR,USER_SELINUX_ERR -ts boot --subject ${PRIMARY_DOMAIN} --format raw 2>/dev/null || true")"
+    if [[ -n "${BACKEND_DOMAIN}" ]]; then
+        raw+=$'\n'
+        raw+="$(podman machine ssh -- \
+            "sudo ausearch --input-logs -m AVC,USER_AVC,SELINUX_ERR,USER_SELINUX_ERR -ts boot --subject ${BACKEND_DOMAIN} --format raw 2>/dev/null || true")"
+    fi
+    if [[ -z "${raw//[$'\n']/}" ]]; then
+        log_warn "No AVC lines exported"
+        : > "${output}"
+        return 1
+    fi
+    printf '%s\n' "${raw}" | avc_filter_lines_by_paths "${PATHS_CSV}" > "${output}" || true
+    [[ -s "${output}" ]] || { log_warn "No AVC lines matched manifest paths"; return 1; }
     log_info "Exported $(wc -l < "${output}" | tr -d ' ') lines"
 }
 

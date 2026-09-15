@@ -26,6 +26,7 @@ INSTALL_ROOT="${INSTALL_ROOT:-/opt/myapp}"
 VAR_DIR="${VAR_DIR:-/var/lib/myapp}"
 RUNTIME_DIR="${RUNTIME_DIR:-/run/myapp}"
 SOAK_MARKER="${VAR_DIR}/selinux_canary_deployed_at"
+MANIFEST="${APP_MANIFEST:-${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml}"
 VM_PROJECT="/home/core/selinux-demo"
 VM_POLICY_PP="${VM_PROJECT}/policy_out/${APP_NAME}.pp"
 VM_POLICY_DIR="${VM_PROJECT}/policy_out"
@@ -204,9 +205,13 @@ trigger_endpoints_native() {
 
 export_avcs_native() {
     mkdir -p "${POLICY_OUT}"
+    # shellcheck source=lib/manifest_shell.sh
+    source "${SCRIPT_DIR}/lib/manifest_shell.sh"
     # shellcheck source=lib/avc_query.sh
     source "${SCRIPT_DIR}/lib/avc_query.sh"
-    export_app_avcs_to_file "${AVC_LOG}" boot "${DOMAIN}" "${APP_NAME}_backend_t"
+    local manifest="${APP_MANIFEST:-${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml}"
+    source_app_manifest_exports "${manifest}"
+    export_app_avcs_to_file "${AVC_LOG}" boot "${PRIMARY_DOMAIN}" "${BACKEND_DOMAIN:-}" "${PATHS_CSV}"
     if [[ ! -s "${AVC_LOG}" ]]; then
         log_warn "No AVC lines exported to ${AVC_LOG}"
     else
@@ -353,14 +358,14 @@ act_6_canary() {
 act_7_guardrails() {
     act_banner 7 "Production Guardrails" "Verify file contexts and run daily AVC monitor"
     local verify_cmd="sudo bash scripts/verify_file_contexts.sh --install-root ${INSTALL_ROOT} --var-dir ${VAR_DIR} --app-name ${APP_NAME}"
-    local monitor_cmd="sudo bash scripts/monitor_avc.sh --domain ${DOMAIN} --marker-file ${SOAK_MARKER} --max-avc -1"
+    local monitor_cmd="sudo bash scripts/monitor_avc.sh --domain ${DOMAIN} --manifest ${MANIFEST} --marker-file ${SOAK_MARKER} --max-avc -1"
     if [[ "${USE_VM}" -eq 1 ]]; then
         vm_run "${verify_cmd} || ${verify_cmd} --skip-if-unavailable"
         vm_run "${monitor_cmd} --skip-if-unavailable"
     else
         bash "${VERIFY}" --install-root "${INSTALL_ROOT}" --var-dir "${VAR_DIR}" --app-name "${APP_NAME}" \
             || bash "${VERIFY}" --skip-if-unavailable
-        bash "${MONITOR}" --domain "${DOMAIN}" --marker-file "${SOAK_MARKER}" --max-avc -1 \
+        bash "${MONITOR}" --domain "${DOMAIN}" --manifest "${MANIFEST}" --marker-file "${SOAK_MARKER}" --max-avc -1 \
             --skip-if-unavailable || true
     fi
 }

@@ -449,8 +449,17 @@ def test_check_soak_ready_gate() -> None:
 
 def test_monitor_avc_skip() -> None:
     script = PROJECT_ROOT / "scripts" / "monitor_avc.sh"
+    manifest = PROJECT_ROOT / "config" / "myapp.manifest.yml"
     result = subprocess.run(
-        ["bash", str(script), "--skip-if-unavailable", "--max-avc", "-1"],
+        [
+            "bash",
+            str(script),
+            "--skip-if-unavailable",
+            "--max-avc",
+            "-1",
+            "--manifest",
+            str(manifest),
+        ],
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,
@@ -503,6 +512,19 @@ def test_app_manifest() -> None:
     assert export.returncode == 0, export.stderr
     assert "HTTP_PORT=8888" in export.stdout
     assert "PRIMARY_SERVICE=\"myapp.service\"" in export.stdout
+    assert "PATHS_CSV=" in export.stdout
+    assert "/var/opt/myapp" in export.stdout
+
+    paths_csv = subprocess.run(
+        ["python3", str(loader), "paths-csv", str(demo_manifest)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert paths_csv.returncode == 0, paths_csv.stderr
+    assert "/opt/myapp" in paths_csv.stdout
+    assert "myapp" in paths_csv.stdout
+    assert "/opt/payments" not in paths_csv.stdout
 
 
 def test_rpm_ops_parity() -> None:
@@ -786,7 +808,7 @@ def _deterministic_run_args(
         existing_te=te,
         existing_fc=fc,
         out_dir=out_dir,
-        app_name="myapp",
+        app_name=None,
         bump_version=False,
         version_file=PROJECT_ROOT / "selinux" / "policy_version.txt",
         explain=explain,
@@ -1054,6 +1076,35 @@ def test_selinux_build_image_internal_registry() -> None:
     assert result.stdout == internal
 
 
+def test_single_ensure_selinux_build_image_definition() -> None:
+    """ensure_selinux_build_image() must exist in exactly one library (no silent override)."""
+    lib_dir = PROJECT_ROOT / "scripts" / "lib"
+    count = 0
+    owner = ""
+    for path in sorted(lib_dir.glob("*.sh")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("ensure_selinux_build_image()"):
+                count += 1
+                owner = str(path.relative_to(PROJECT_ROOT))
+    assert count == 1, f"expected one ensure_selinux_build_image(), found {count} in {owner or '?'}"
+
+
+def test_export_app_avcs_requires_paths() -> None:
+    avc_lib = PROJECT_ROOT / "scripts" / "lib" / "avc_query.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source '{avc_lib}' && export_app_avcs_to_file /tmp/x.log boot payments_t '' ''",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "paths_csv required" in result.stderr
+
+
 def test_boolean_policy_render() -> None:
     from boolean_hints import BooleanMatch, render_boolean_finding, resolve_booleans_for_need
 
@@ -1207,6 +1258,8 @@ def main() -> int:
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
         ("payments_onboarding_module", test_payments_onboarding_module),
         ("selinux_build_image_internal_registry", test_selinux_build_image_internal_registry),
+        ("single_ensure_selinux_build_image", test_single_ensure_selinux_build_image_definition),
+        ("export_app_avcs_requires_paths", test_export_app_avcs_requires_paths),
         ("boolean_policy_render", test_boolean_policy_render),
         ("boolean_triage_two_matches", test_boolean_triage_two_matches),
         ("boolean_curated_when_policy_unavailable", test_boolean_curated_when_policy_unavailable),

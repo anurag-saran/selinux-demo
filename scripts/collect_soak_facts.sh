@@ -59,12 +59,9 @@ fi
 
 avc_count=-1
 if [[ -f "${MARKER_FILE}" ]]; then
-    avc_json="$(bash "${SCRIPT_DIR}/monitor_avc.sh" \
-        --domain "${DOMAIN}" \
-        --marker-file "${MARKER_FILE}" \
-        --max-avc -1 \
-        --show-lines 0 \
-        --format json 2>/dev/null || echo '{"count":0}')"
+    MONITOR_ARGS=(--domain "${DOMAIN}" --marker-file "${MARKER_FILE}" --max-avc -1 --show-lines 0 --format json)
+    [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]] && MONITOR_ARGS+=(--manifest "${MANIFEST}")
+    avc_json="$(bash "${SCRIPT_DIR}/monitor_avc.sh" "${MONITOR_ARGS[@]}" 2>/dev/null || echo '{"count":0}')"
     avc_count="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("count",0))' <<< "${avc_json}" 2>/dev/null || echo 0)"
 fi
 

@@ -47,18 +47,7 @@ build_selinux_build_image_local() {
         "${PROJECT_ROOT}"
 }
 
-# Local build only — silent when image already present (no network).
-ensure_selinux_build_image() {
-    if [[ "${SELINUX_BUILD_IMAGE_REFRESH:-0}" == "1" ]]; then
-        build_selinux_build_image_local
-        return $?
-    fi
-    if selinux_build_image_ready; then
-        return 0
-    fi
-    build_selinux_build_image_local
-}
-
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    ensure_selinux_build_image
+    echo "[ERROR] Use scripts/lib/selinux_build_image.sh for ensure/pull (build_image.sh is library-only)." >&2
+    exit 1
 fi

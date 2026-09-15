@@ -3,8 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../lib/build_image.sh
-source "${SCRIPT_DIR}/../lib/build_image.sh"
+# shellcheck source=../lib/selinux_build_image.sh
+source "${SCRIPT_DIR}/../lib/selinux_build_image.sh"
 
 CACHE_TAR="${SELINUX_BUILD_IMAGE_CACHE_TAR:-/tmp/selinux-build-image.tar}"
 

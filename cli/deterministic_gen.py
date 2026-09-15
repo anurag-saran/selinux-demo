@@ -658,6 +658,13 @@ def run(args: argparse.Namespace) -> int:
     from app_manifest import load_manifest as load_manifest_checked, policy_source_paths
 
     manifest = load_manifest_checked(args.manifest)
+    if getattr(args, "app_name", None) is not None:
+        if args.app_name != manifest["app_name"]:
+            print(
+                f"[ERROR] --app-name {args.app_name!r} conflicts with manifest app_name {manifest['app_name']!r}",
+                file=sys.stderr,
+            )
+            return 1
     app_name = manifest["app_name"]
     src = policy_source_paths(project_root, manifest)
     te_path = args.existing_te or src["te"]
@@ -809,7 +816,11 @@ def main() -> int:
     parser.add_argument("--existing-te", type=Path, default=None)
     parser.add_argument("--existing-fc", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=Path("policy_out"))
-    parser.add_argument("--app-name", default="myapp")
+    parser.add_argument(
+        "--app-name",
+        default=None,
+        help="Deprecated: app identity comes from --manifest only",
+    )
     parser.add_argument("--bump-version", action="store_true")
     parser.add_argument(
         "--version-file",

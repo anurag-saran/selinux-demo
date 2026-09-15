@@ -8,8 +8,8 @@
 set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=build_image.sh
-source "${LIB_DIR}/build_image.sh"
+# shellcheck source=selinux_build_image.sh
+source "${LIB_DIR}/selinux_build_image.sh"
 
 has_selinux_devel() {
     [[ -f /usr/share/selinux/devel/Makefile ]]

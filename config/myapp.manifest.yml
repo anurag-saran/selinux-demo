@@ -6,6 +6,7 @@ paths:
   var_dir: /var/lib/myapp
   log_dir: /var/log/myapp
   runtime_dir: /run/myapp
+  var_opt_dir: /var/opt/myapp
 
 services:
   primary:

@@ -71,6 +71,7 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
     var_dir = paths_in.get("var_dir", f"/var/lib/{app_name}")
     log_dir = paths_in.get("log_dir", f"/var/log/{app_name}")
     runtime_dir = paths_in.get("runtime_dir", f"/run/{app_name}")
+    var_opt_dir = paths_in.get("var_opt_dir")
 
     services_in = raw.get("services") or {}
     if not isinstance(services_in, dict):
@@ -128,6 +129,7 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
             "var_dir": str(var_dir),
             "log_dir": str(log_dir),
             "runtime_dir": str(runtime_dir),
+            **({"var_opt_dir": str(var_opt_dir)} if var_opt_dir else {}),
         },
         "services": {
             "primary": {"unit": str(primary_unit), "domain": str(primary_domain)},
@@ -198,6 +200,16 @@ def policy_source_paths(project_root: Path, manifest: dict[str, Any]) -> dict[st
     }
 
 
+def manifest_paths_csv(manifest: dict[str, Any]) -> str:
+    """Comma-separated path substrings for AVC filtering (manifest paths only)."""
+    paths = manifest["paths"]
+    order = ("install_root", "var_dir", "log_dir", "runtime_dir", "var_opt_dir")
+    parts = [str(paths[k]) for k in order if paths.get(k)]
+    if not parts:
+        raise ValueError("manifest paths yield no AVC path filters")
+    return ",".join(parts)
+
+
 def service_units_ordered(manifest: dict[str, Any]) -> list[tuple[str, str, str]]:
     """Return list of (role, unit, domain) — backend before primary when present."""
     items: list[tuple[str, str, str]] = []
@@ -210,15 +222,18 @@ def service_units_ordered(manifest: dict[str, Any]) -> list[tuple[str, str, str]
 
 
 def shell_export(manifest: dict[str, Any]) -> str:
+    primary = manifest["services"]["primary"]
+    backend = manifest["services"].get("backend")
     lines = [
         f"APP_NAME={json.dumps(manifest['app_name'])}",
-        f"APP_DOMAIN={json.dumps(manifest['services']['primary']['domain'])}",
-        f"PRIMARY_SERVICE={json.dumps(manifest['services']['primary']['unit'])}",
+        f"APP_DOMAIN={json.dumps(manifest['domain'])}",
+        f"PRIMARY_DOMAIN={json.dumps(primary['domain'])}",
+        f"PATHS_CSV={json.dumps(manifest_paths_csv(manifest))}",
+        f"PRIMARY_SERVICE={json.dumps(primary['unit'])}",
         f"HTTP_HOST={json.dumps(manifest['http']['host'])}",
         f"HTTP_PORT={manifest['http']['port']}",
-        f"ENDPOINT_PATHS={json.dumps(manifest['http']['endpoints'])}",
+        f"ENDPOINT_PATHS={json.dumps(json.dumps(manifest['http']['endpoints']))}",
     ]
-    backend = manifest["services"].get("backend")
     if backend:
         lines.append(f"BACKEND_SERVICE={json.dumps(backend['unit'])}")
         lines.append(f"BACKEND_DOMAIN={json.dumps(backend['domain'])}")
@@ -227,6 +242,7 @@ def shell_export(manifest: dict[str, Any]) -> str:
         lines.append(f"BACKEND_HEALTH_PATH={json.dumps(bh.get('health_path', '/health'))}")
         lines.append("HAS_BACKEND=1")
     else:
+        lines.append("BACKEND_DOMAIN=")
         lines.append("HAS_BACKEND=0")
     return "\n".join(lines)
 
@@ -252,7 +268,7 @@ def service_roles(manifest: dict[str, Any]) -> list[tuple[str, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="App manifest loader")
-    parser.add_argument("command", choices=("json", "validate", "shell-export", "resolve", "check-domain-context"))
+    parser.add_argument("command", choices=("json", "validate", "shell-export", "resolve", "check-domain-context", "paths-csv"))
     parser.add_argument("path", nargs="?", help="Manifest YAML path or endpoint JSON for check-domain-context")
     parser.add_argument("endpoint_json", nargs="?", help="Endpoint JSON path for check-domain-context")
     parser.add_argument("--app-name", default=None)
@@ -297,6 +313,9 @@ def main() -> int:
         return 0
     if args.command == "shell-export":
         print(shell_export(manifest))
+        return 0
+    if args.command == "paths-csv":
+        print(manifest_paths_csv(manifest))
         return 0
     return 1
 

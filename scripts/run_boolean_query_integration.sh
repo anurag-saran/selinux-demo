@@ -13,10 +13,10 @@ if ! command -v podman >/dev/null 2>&1; then
     exit 0
 fi
 
-# shellcheck source=lib/build_image.sh
-source "${SCRIPT_DIR}/lib/build_image.sh"
+# shellcheck source=lib/selinux_build_image.sh
+source "${SCRIPT_DIR}/lib/selinux_build_image.sh"
 if ! selinux_build_image_ready 2>/dev/null; then
-    bash "${SCRIPT_DIR}/lib/build_image.sh" ensure 2>/dev/null || true
+    ensure_selinux_build_image 2>/dev/null || true
 fi
 if ! selinux_build_image_ready 2>/dev/null; then
     echo "SKIP boolean query integration: SELinux build image unavailable"

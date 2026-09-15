@@ -7,13 +7,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/avc_query.sh
 source "${SCRIPT_DIR}/lib/avc_query.sh"
+# shellcheck source=lib/manifest_shell.sh
+source "${SCRIPT_DIR}/lib/manifest_shell.sh"
 
-DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
-PATHS="${MONITOR_PATHS:-/opt/myapp,/var/lib/myapp,/run/myapp}"
+DOMAIN="${SELINUX_DOMAIN:-}"
+PATHS="${MONITOR_PATHS:-}"
 SINCE="${MONITOR_SINCE:-recent}"
 MAX_AVC="${MONITOR_MAX_AVC:--1}"
 SHOW_LINES="${MONITOR_SHOW_LINES:-10}"
 MARKER_FILE="${SOAK_MARKER_FILE:-}"
+MANIFEST="${APP_MANIFEST:-}"
+DOMAIN_CLI=0
+PATHS_CLI=0
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -29,8 +34,9 @@ Usage: $(basename "$0") [options]
 Report SELinux events for a domain during permissive soak. Exit non-zero if count exceeds --max-avc.
 
 Options:
-  --domain NAME         SELinux domain (default: myapp_t)
-  --paths CSV           Path filter substring list (default: /opt/myapp,/var/lib/myapp,/run/myapp)
+  --domain NAME         SELinux domain (or use --manifest)
+  --paths CSV           Path filter substring list (or use --manifest)
+  --manifest PATH       Load domain and paths from app manifest
   --since TS            ausearch -ts value or 'recent' (default: recent; ~10 min window)
   --marker-file PATH    Use canary deploy epoch as ausearch start (overrides --since)
   --max-avc N           Fail if count > N (-1 = report only, default)
@@ -48,8 +54,9 @@ NOTIFY_WEBHOOK=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --domain) DOMAIN="$2"; shift 2 ;;
-        --paths) PATHS="$2"; shift 2 ;;
+        --domain) DOMAIN="$2"; DOMAIN_CLI=1; shift 2 ;;
+        --paths) PATHS="$2"; PATHS_CLI=1; shift 2 ;;
+        --manifest) MANIFEST="$2"; shift 2 ;;
         --since) SINCE="$2"; shift 2 ;;
         --marker-file) MARKER_FILE="$2"; shift 2 ;;
         --max-avc) MAX_AVC="$2"; shift 2 ;;
@@ -61,6 +68,24 @@ while [[ $# -gt 0 ]]; do
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
     esac
 done
+
+if [[ -z "${MANIFEST}" ]]; then
+    MANIFEST="$(resolve_app_manifest_path "" 2>/dev/null || true)"
+fi
+if [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]]; then
+    source_app_manifest_exports "${MANIFEST}"
+    [[ "${DOMAIN_CLI}" -eq 0 ]] && DOMAIN="${PRIMARY_DOMAIN}"
+    [[ "${PATHS_CLI}" -eq 0 ]] && PATHS="${PATHS_CSV}"
+fi
+
+if [[ -z "${DOMAIN}" ]]; then
+    log_error "SELinux domain required (--domain or --manifest / APP_MANIFEST)"
+    exit 1
+fi
+if [[ -z "${PATHS}" ]]; then
+    log_error "Path filters required (--paths or --manifest with paths.*)"
+    exit 1
+fi
 
 if [[ -n "${MARKER_FILE}" && -f "${MARKER_FILE}" ]]; then
     deploy_epoch="$(tr -d '[:space:]' < "${MARKER_FILE}")"

@@ -17,6 +17,8 @@ APP_NAME="${POLICY_APP:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/myapp}"
 VAR_DIR="${VAR_DIR:-/var/lib/myapp}"
+MANIFEST="${APP_MANIFEST:-${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml}"
+[[ -f "${MANIFEST}" ]] || MANIFEST="${PROJECT_ROOT}/config/myapp.manifest.yml"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -45,14 +47,17 @@ trigger_endpoints() {
 
 export_avcs() {
     mkdir -p "${POLICY_OUT}"
+    # shellcheck source=lib/manifest_shell.sh
+    source "${SCRIPT_DIR}/lib/manifest_shell.sh"
     # shellcheck source=lib/avc_query.sh
     source "${SCRIPT_DIR}/lib/avc_query.sh"
+    source_app_manifest_exports "${MANIFEST}"
     if ! command -v ausearch >/dev/null 2>&1 && [[ ! -f /var/log/audit/audit.log ]]; then
         log_error "No audit log tools; run on SELinux host with auditd"
         exit 1
     fi
     log_info "Exporting AVCs (avc_query pipeline)..."
-    export_app_avcs_to_file "${AVC_LOG}" boot "${DOMAIN}" "${APP_NAME}_backend_t"
+    export_app_avcs_to_file "${AVC_LOG}" boot "${PRIMARY_DOMAIN}" "${BACKEND_DOMAIN:-}" "${PATHS_CSV}"
     if [[ ! -s "${AVC_LOG}" ]]; then
         log_warn "No AVC lines exported to ${AVC_LOG}"
     else

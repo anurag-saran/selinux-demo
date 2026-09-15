@@ -30,6 +30,8 @@ TEST_SUITE="${TEST_SUITE:-Integration tests (curl endpoints)}"
 ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
 # shellcheck source=lib/version.sh
 source "${SCRIPT_DIR}/lib/version.sh"
+# shellcheck source=lib/manifest_shell.sh
+source "${SCRIPT_DIR}/lib/manifest_shell.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -91,6 +93,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+sync_identity_from_manifest() {
+    [[ -f "${MANIFEST}" ]] || {
+        log_error "App manifest not found: ${MANIFEST} (set POLICY_APP or APP_MANIFEST)"
+        exit 1
+    }
+    source_app_manifest_exports "${MANIFEST}"
+    APP_NAME="${APP_NAME}"
+    DOMAIN="${PRIMARY_DOMAIN}"
+}
+
 require_api_key() {
     [[ "${ENGINE}" == deterministic ]] && return 0
     [[ -n "${OPENAI_API_KEY:-}" ]] || {
@@ -143,10 +155,11 @@ require_existing_policy() {
 }
 
 export_avcs() {
+    sync_identity_from_manifest
     mkdir -p "${POLICY_OUT}"
     if [[ "${USE_VM}" -eq 1 ]]; then
         log_info "Exporting AVCs from Podman VM..."
-        bash "${SCRIPT_DIR}/run_on_podman_vm.sh" export-avcs "${AVC_LOG}"
+        bash "${SCRIPT_DIR}/run_on_podman_vm.sh" export-avcs "${AVC_LOG}" "${MANIFEST}"
     else
         # shellcheck source=lib/avc_query.sh
         source "${SCRIPT_DIR}/lib/avc_query.sh"
@@ -155,7 +168,7 @@ export_avcs() {
             exit 1
         fi
         log_info "Exporting AVCs from local audit log (avc_query pipeline)..."
-        export_app_avcs_to_file "${AVC_LOG}" boot "${DOMAIN}" "${APP_NAME}_backend_t"
+        export_app_avcs_to_file "${AVC_LOG}" boot "${PRIMARY_DOMAIN}" "${BACKEND_DOMAIN:-}" "${PATHS_CSV}"
     fi
     [[ -s "${AVC_LOG}" ]] || {
         log_error "No AVC lines in ${AVC_LOG}. Run staging tests first:"
@@ -177,7 +190,6 @@ generate_policy() {
             --existing-te "${POLICY_TE}" \
             --existing-fc "${POLICY_FC}" \
             --out-dir "${POLICY_OUT}" \
-            --app-name "${APP_NAME}" \
             --version-file "${POLICY_OUT}/policy_version.txt" \
             --bump-version \
             $( [[ "${POLICY_ALLOW_DEGRADED:-0}" == "1" ]] && echo --allow-degraded )
@@ -319,7 +331,7 @@ run_enforce_check() {
     fi
 
     log_error "enforce-check failed — recent AVCs:"
-    bash "${SCRIPT_DIR}/monitor_avc.sh" --domain "${DOMAIN}" --since recent --max-avc -1 --show-lines 5 || true
+    bash "${SCRIPT_DIR}/monitor_avc.sh" --domain "${DOMAIN}" --manifest "${MANIFEST}" --since recent --max-avc -1 --show-lines 5 || true
     semanage permissive -a "${DOMAIN}" 2>/dev/null || true
     return 1
 }
@@ -354,6 +366,7 @@ EOF
 
 main() {
     require_api_key
+    sync_identity_from_manifest
     require_existing_policy
 
     # shellcheck source=lib/compile_policy.sh

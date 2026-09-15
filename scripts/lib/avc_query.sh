@@ -74,9 +74,18 @@ fetch_domain_avc_raw() {
 export_app_avcs_to_file() {
     local outfile="$1"
     local since_ts="${2:-boot}"
-    local primary_domain="${3:-${SELINUX_DOMAIN:-myapp_t}}"
-    local backend_domain="${4:-${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}}"
-    local paths_csv="${5:-/opt/myapp,/var/lib/myapp,/var/log/myapp,/run/myapp,/var/opt/myapp}"
+    local primary_domain="$3"
+    local backend_domain="${4:-}"
+    local paths_csv="$5"
+
+    if [[ -z "${primary_domain}" ]]; then
+        echo "[ERROR] export_app_avcs_to_file: primary_domain required (manifest PRIMARY_DOMAIN)" >&2
+        return 1
+    fi
+    if [[ -z "${paths_csv}" ]]; then
+        echo "[ERROR] export_app_avcs_to_file: paths_csv required (manifest PATHS_CSV via app_manifest.py)" >&2
+        return 1
+    fi
 
     mkdir -p "$(dirname "${outfile}")"
     : > "${outfile}"
