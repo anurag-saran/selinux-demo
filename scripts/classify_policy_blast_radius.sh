@@ -15,9 +15,36 @@ source "${SCRIPT_DIR}/lib/compile_policy.sh"
 
 BASE_INPUT="${1:-}"
 CANDIDATE_INPUT="${2:-}"
-MODULE_NAME="${POLICY_MODULE:-myapp}"
 CLASSIFY_PY="${SCRIPT_DIR}/lib/blast_radius_classify.py"
 COLLECT_SH="${SCRIPT_DIR}/lib/blast_radius_collect.sh"
+MANIFEST_PY="${SCRIPT_DIR}/lib/app_manifest.py"
+
+module_from_policy_input() {
+    local input="$1"
+    if [[ "${input}" == *.te ]]; then
+        basename "${input}" .te
+    else
+        basename "${input}" .pp
+    fi
+}
+
+resolve_blast_radius_domains() {
+    local module_name="$1"
+    if [[ -n "${BLAST_RADIUS_DOMAINS:-}" ]]; then
+        echo "${BLAST_RADIUS_DOMAINS}"
+        return 0
+    fi
+    local manifest="${APP_MANIFEST:-${BLAST_RADIUS_MANIFEST:-}}"
+    if [[ -z "${manifest}" ]]; then
+        manifest="$(python3 "${MANIFEST_PY}" resolve --app-name "${module_name}" 2>/dev/null || true)"
+    fi
+    if [[ -z "${manifest}" || ! -f "${manifest}" ]]; then
+        echo "classify_policy_blast_radius: cannot resolve domains for module ${module_name}" >&2
+        echo "  Set BLAST_RADIUS_DOMAINS or APP_MANIFEST (config/${module_name}.manifest.yml)" >&2
+        return 1
+    fi
+    python3 "${MANIFEST_PY}" domains-csv "${manifest}"
+}
 
 usage() {
     cat <<EOF
@@ -105,10 +132,17 @@ if ! command -v podman >/dev/null 2>&1; then
     exit 0
 fi
 
+CAND_MODULE="$(module_from_policy_input "${CANDIDATE_INPUT}")"
+MODULE_NAME="${POLICY_MODULE:-${CAND_MODULE}}"
+BLAST_RADIUS_DOMAINS="$(resolve_blast_radius_domains "${MODULE_NAME}")" || {
+    fail_closed_json "Cannot resolve BLAST_RADIUS_DOMAINS for ${MODULE_NAME} — set APP_MANIFEST or BLAST_RADIUS_DOMAINS"
+    exit 0
+}
+
 collect_log="${work_dir}/collect.log"
 if ! run_selinux_container "${work_dir}" \
     -e "BLAST_RADIUS_MODULE=${MODULE_NAME}" \
-    -e "BLAST_RADIUS_DOMAINS=${BLAST_RADIUS_DOMAINS:-myapp_t,myapp_backend_t}" \
+    -e "BLAST_RADIUS_DOMAINS=${BLAST_RADIUS_DOMAINS}" \
     bash -lc 'set -euo pipefail; bash /work/blast_radius_collect.sh /work/base.pp /work/candidate.pp /work/out' \
     >"${collect_log}" 2>&1; then
     excerpt="$(tail -40 "${collect_log}")"

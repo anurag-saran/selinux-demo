@@ -2,8 +2,8 @@
 #
 # run_deterministic_fixtures.sh — Assert golden AVC → verdict fixtures (no Podman).
 #
-# Ten cases under docs/examples/fixtures/deterministic/ (nine verdict types;
-# `direct` has two rows; boolean covered by 04 + 10). Same checks as smoke_test deterministic tests.
+# Eleven cases under docs/examples/fixtures/deterministic/ (every classification verdict
+# has at least one golden row). Same checks as smoke_test deterministic tests.
 #
 set -euo pipefail
 

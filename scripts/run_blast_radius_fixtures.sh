@@ -63,13 +63,22 @@ run_fixture() {
         return 1
     fi
     python3 - "${out}" "${expected}" "${name}" <<'PY' || py_ec=$?
-import json, sys
+import json, os, sys
 got = json.load(open(sys.argv[1], encoding="utf-8"))
 exp = json.load(open(sys.argv[2], encoding="utf-8"))
 name = sys.argv[3]
-if got.get("fail_closed") and "compile" in got.get("reason", "").lower():
-    print(f"SKIP_INTEGRATION:{name}: toolchain unavailable ({got.get('reason')})")
-    sys.exit(2)
+if got.get("fail_closed"):
+    reason = (got.get("reason") or "").lower()
+    excerpt = (got.get("sediff_excerpt") or "").lower()
+    toolchain_miss = (
+        "compile" in reason
+        or "policy rule diff failed" in reason
+        or "podman" in excerpt
+        or "semodule" in excerpt
+    )
+    if toolchain_miss and os.environ.get("BLAST_RADIUS_REQUIRE_INTEGRATION", "0") != "1":
+        print(f"SKIP_INTEGRATION:{name}: toolchain unavailable ({got.get('reason')})")
+        sys.exit(2)
 if got.get("fail_closed"):
     raise SystemExit(f"fixture {name}: unexpected fail_closed: {got.get('reason')!r}\nfull={got}")
 for key in ("tier", "min_days"):

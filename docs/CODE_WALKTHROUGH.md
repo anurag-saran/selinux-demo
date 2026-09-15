@@ -296,7 +296,7 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 
 **Blast-radius fixtures** under **`tests/fixtures/blast_radius/`** — tiny `.te` changes with expected JSON (tier, soak days, fail-closed). CI ensures the classifier does not silently shorten soak time on errors.
 
-**Deterministic golden AVCs** live under **`docs/examples/fixtures/deterministic/`** (nine cases).
+**Deterministic golden AVCs** live under **`docs/examples/fixtures/deterministic/`** (contiguous **`01`–`11`**; every verdict type has at least one case).
 
 ---
 

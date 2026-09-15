@@ -2,6 +2,14 @@
 
 Shift-left DevSecOps workflow: application teams version-control SELinux policy alongside code, generate updates from AVC audit logs with AI, and deploy safely via **per-domain permissive canary**, **enforce**, and **emergency rollback** Ansible playbooks.
 
+**New contributor?** From a clean clone (Python 3.9+; no SELinux or Podman required):
+
+```bash
+make check
+```
+
+`make test` runs golden fixtures, static policy validators, and smoke tests offline. `make lint` runs shellcheck, yamllint, and ansible-lint when those tools are installed (skipped otherwise). Run `make help` for the full target list.
+
 **Security model:** The host stays **`getenforce` = Enforcing** throughout staging and soak. Only the app domain (`myapp_t`) is set permissive via `semanage permissive -a myapp_t` so AVCs are logged without blocking the app. Export filters `policy_out/avc.log` to app-related denials; enforce removes permissive after soak gates pass.
 
 ## Architecture
@@ -184,32 +192,24 @@ Template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`](.github/PUL
 
 ## CI / validation
 
-Runs automatically on PRs via [`.github/workflows/selinux-policy-ci.yml`](.github/workflows/selinux-policy-ci.yml).
+Runs automatically on PRs via [`.github/workflows/selinux-policy-ci.yml`](.github/workflows/selinux-policy-ci.yml) (separate jobs for offline checks, compile, and integration).
 
 | Job | Purpose |
 |-----|---------|
-| `smoke-tests` | Python unit/smoke tests (deterministic **8-verdict** fixtures, version consistency, blast-radius fail-closed) |
+| `smoke-tests` | Python smoke tests (every classification verdict has a golden fixture; version consistency; blast-radius fail-closed) |
 | `forbidden-patterns` | Wildcards and high-privilege denies in `.te` |
 | `version-consistency` | `policy_version.txt`, `policy_module()` in `.te`, and RPM spec wiring agree |
 | `compile-policy` / `policy-semantics` | Refpolicy build + container `sesearch` assertions |
 | `blast-radius` | [`tests/fixtures/blast_radius/`](tests/fixtures/blast_radius/) vs [`classify_policy_blast_radius.sh`](scripts/classify_policy_blast_radius.sh) |
 | `policy-diff-comment` | PR comment with merge-base **sesearch** access delta (not `sediff` on `.pp`) |
-| `ansible-lint`, `yamllint`, `shellcheck`, `app-manifest`, `rpm-ops-parity` | Supporting gates |
+| `ansible-lint`, `yamllint`, `shellcheck`, `app-manifest`, `rpm-ops-parity`, `deterministic-fixtures`, … | Supporting gates (see workflow file) |
 
-Local equivalents:
+Local equivalents (same commands CI uses for offline gates):
 
 ```bash
-pip3 install -r cli/requirements.txt
-source "${HOME}/.local/share/selinux-demo/podman/env.sh"   # macOS Podman + vfs
-bash scripts/lib/selinux_build_image.sh pull
-bash scripts/compile_and_validate.sh selinux
-bash scripts/validate_forbidden_patterns.sh selinux
-bash scripts/validate_policy_semantics.sh selinux
-bash scripts/validate_version_consistency.sh
-bash scripts/run_blast_radius_fixtures.sh
-python3 scripts/smoke_test.py
-bash scripts/assemble_pr_body.sh
-bash scripts/compile_and_validate.sh policy_out   # after generation
+make check          # test + lint (offline-clean test suite)
+make fixtures       # deterministic + payments + blast-radius fixture scripts only
+make integration-compile   # needs podman or selinux-policy-devel
 ```
 
 PR CI also runs **`policy-semantics`** (`sesearch` via `validate_policy_semantics.sh`). Packaged installs: [`packaging/myapp-selinux.spec`](packaging/myapp-selinux.spec) builds an RPM from `selinux/`.

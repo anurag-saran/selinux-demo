@@ -91,9 +91,36 @@ compile_toolchain_available() {
     command -v podman >/dev/null 2>&1
 }
 
+infer_policy_module_name() {
+    local policy_dir="$1"
+    local explicit="${2:-}"
+
+    if [[ -n "${explicit}" ]]; then
+        echo "${explicit}"
+        return 0
+    fi
+    if [[ -n "${POLICY_MODULE:-}" ]]; then
+        echo "${POLICY_MODULE}"
+        return 0
+    fi
+    local te name="" count=0
+    for te in "${policy_dir}"/*.te; do
+        [[ -e "${te}" ]] || continue
+        name="$(basename "${te}" .te)"
+        count=$((count + 1))
+    done
+    if [[ "${count}" -eq 1 ]]; then
+        echo "${name}"
+        return 0
+    fi
+    echo "[ERROR] compile_policy_module: pass module name (${count} .te files in ${policy_dir})" >&2
+    return 1
+}
+
 compile_policy_module() {
     local policy_dir="$1"
-    local module_name="${2:-myapp}"
+    local module_name="${2:-}"
+    module_name="$(infer_policy_module_name "${policy_dir}" "${module_name}")" || return 1
     local output_pp="${3:-${policy_dir}/${module_name}.pp}"
 
     local te="${policy_dir}/${module_name}.te"
@@ -138,7 +165,8 @@ compile_policy_module() {
 
 verify_pp_matches_sources() {
     local policy_dir="$1"
-    local module_name="${2:-myapp}"
+    local module_name="${2:-}"
+    module_name="$(infer_policy_module_name "${policy_dir}" "${module_name}")" || return 1
 
     local committed_pp="${policy_dir}/${module_name}.pp"
     local built_pp

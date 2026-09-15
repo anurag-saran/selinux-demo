@@ -67,14 +67,28 @@ python3 scripts/lib/app_manifest.py shell-export config/myapp.manifest.yml
 
 ---
 
+## 1.6 One command: `make check`
+
+From the repo root (Python 3.9+; no SELinux or Podman):
+
+```bash
+make check    # offline tests + linters (linters SKIP if not installed)
+make test     # offline only
+make help
+```
+
+This runs the same fixture and validator scripts documented below (`make test-fixtures`, `make test-static`, `make test-smoke`).
+
+---
+
 ## 2. `scripts/smoke_test.py` (CI: `smoke-tests`)
 
 Runs on **every PR** on Ubuntu — **no SELinux required** for most tests.
 
 ```bash
-python3 scripts/smoke_test.py              # default: backend required for flask test
-python3 scripts/smoke_test.py --no-require-backend   # skip Tier 6 backend in flask test
-SMOKE_REQUIRE_BACKEND=0 python3 scripts/smoke_test.py
+make test-smoke   # recommended (sets SMOKE_SKIP_FLASK=1)
+# or:
+python3 scripts/smoke_test.py --no-require-backend
 ```
 
 | Test name | What it verifies |
@@ -146,7 +160,7 @@ Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selin
 | Job | Script / action | Pass criteria |
 |-----|-----------------|---------------|
 | `smoke-tests` | `python3 scripts/smoke_test.py` | AVC/prompt/manifest/assemble smoke (incl. deterministic tests when run full suite) |
-| `deterministic-fixtures` | `scripts/run_deterministic_fixtures.sh` | Ten deterministic fixture dirs / nine verdict types (refusal `findings.json` included) |
+| `deterministic-fixtures` | `make deps` + deterministic fixture scripts | Every classification verdict has a golden fixture under `docs/examples/fixtures/deterministic/` |
 | `app-manifest` | `scripts/validate_app_manifest.sh` | Demo + onboarding example manifests validate |
 | `rpm-ops-parity` | `scripts/validate_rpm_ops_parity.sh` | Ops RPM allowlist matches checkout scripts |
 | `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, shadow_t, bin_t execute, etc. |
@@ -239,7 +253,7 @@ Layer 7  emergency_rollback                   outage response
 
 | Check | Command |
 |-------|---------|
-| House-rule fixtures (nine verdict types) | `bash scripts/run_deterministic_fixtures.sh` or `python3 scripts/smoke_test.py` |
+| House-rule golden fixtures | `make test-fixtures` or `make test` |
 | Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
 | Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) |
 | Coverage gate | `bash scripts/verify_avc_coverage.sh` after generation |

@@ -36,7 +36,10 @@ policy_version() {
 
 policy_module_version_from_te() {
     local te_file="${1:?te file required}"
-    local app_name="${2:-myapp}"
+    local app_name="${2:-}"
+    if [[ -z "${app_name}" ]]; then
+        app_name="$(basename "${te_file}" .te)"
+    fi
     [[ -f "${te_file}" ]] || {
         echo "policy_module_version_from_te: missing ${te_file}" >&2
         return 1

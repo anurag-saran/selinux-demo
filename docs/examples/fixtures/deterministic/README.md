@@ -13,7 +13,7 @@ CI runs all cases via **`bash scripts/run_deterministic_fixtures.sh`** (and `smo
 | `02-port-bind` | **`private_port`** — `name_bind` on generic port type |
 | `03-shadow-read` | **`forbidden`** — refuses `shadow_t` (exit 1) |
 | `04-boolean-network-connect` | **`boolean`** — policy query path (sesearch mock; empty curated hints) |
-| `13-private-getopt` | **`direct`** — module-private `myapp_port_t` |
+| `11-private-getopt` | **`direct`** — module-private `myapp_port_t` |
 | `05-baseline-covered` | **`baseline`** — `dev_read_urand` macro covers `random_device_t` (no explicit allow line) |
 | `06-fc-missing-line` | **`fc_fix`** — app path under `install_root` with no matching `.fc` regex yet |
 | `07-toolchain-required` | **`toolchain_required`** — base-type allow blocked without sepolgen (exit 1) |

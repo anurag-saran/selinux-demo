@@ -16,12 +16,40 @@ source "${LIB_DIR}/policy_module_sesearch.sh"
 # shellcheck source=policy_isolated_store.sh
 source "${LIB_DIR}/policy_isolated_store.sh"
 
-MODULE="${BLAST_RADIUS_MODULE:-myapp}"
-DOMAINS="${BLAST_RADIUS_DOMAINS:-myapp_t,myapp_backend_t}"
+if [[ -z "${BLAST_RADIUS_MODULE:-}" ]]; then
+    echo "blast_radius_collect: BLAST_RADIUS_MODULE is required (set by classify_policy_blast_radius.sh)" >&2
+    exit 1
+fi
+if [[ -z "${BLAST_RADIUS_DOMAINS:-}" ]]; then
+    echo "blast_radius_collect: BLAST_RADIUS_DOMAINS is required — set explicitly or via APP_MANIFEST" >&2
+    exit 1
+fi
+
+MODULE="${BLAST_RADIUS_MODULE}"
+DOMAINS="${BLAST_RADIUS_DOMAINS}"
 BASE_PP="${1:?base.pp path}"
 CAND_PP="${2:?candidate.pp path}"
 OUT_DIR="${3:?output dir}"
 mkdir -p "${OUT_DIR}"
+
+filter_type_lines_for_domains() {
+    local raw="$1"
+    local out="$2"
+    local -a doms=()
+    IFS=',' read -r -a doms <<< "${DOMAINS}"
+    : > "${out}"
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        for dom in "${doms[@]}"; do
+            dom="${dom// /}"
+            if [[ -n "${dom}" && "${line}" == *"${dom}"* ]]; then
+                echo "${line}" >> "${out}"
+                break
+            fi
+        done
+    done < "${raw}"
+    sort -u -o "${out}" "${out}"
+}
 
 collect_side() {
     local pp="$1"
@@ -68,8 +96,7 @@ collect_side() {
         return "${ec}"
     fi
     rm -f "${errf}"
-    awk '/myapp_t|myapp_backend_t/' "${type_out}.raw" >"${type_out}"
-    sort -u -o "${type_out}" "${type_out}"
+    filter_type_lines_for_domains "${type_out}.raw" "${type_out}"
     rm -f "${type_out}.raw"
     isolated_store_destroy "${store_prefix}"
 }

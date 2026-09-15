@@ -210,6 +210,19 @@ def manifest_paths_csv(manifest: dict[str, Any]) -> str:
     return ",".join(parts)
 
 
+def manifest_service_domains_csv(manifest: dict[str, Any]) -> str:
+    """Comma-separated process domains for sesearch / blast-radius collection."""
+    domains: set[str] = set()
+    for _role, _unit, domain in service_units_ordered(manifest):
+        domains.add(str(domain))
+    top = manifest.get("domain")
+    if top:
+        domains.add(str(top))
+    if not domains:
+        raise ValueError("manifest has no service domains")
+    return ",".join(sorted(domains))
+
+
 def service_units_ordered(manifest: dict[str, Any]) -> list[tuple[str, str, str]]:
     """Return list of (role, unit, domain) — backend before primary when present."""
     items: list[tuple[str, str, str]] = []
@@ -268,7 +281,7 @@ def service_roles(manifest: dict[str, Any]) -> list[tuple[str, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="App manifest loader")
-    parser.add_argument("command", choices=("json", "validate", "shell-export", "resolve", "check-domain-context", "paths-csv"))
+    parser.add_argument("command", choices=("json", "validate", "shell-export", "resolve", "check-domain-context", "paths-csv", "domains-csv"))
     parser.add_argument("path", nargs="?", help="Manifest YAML path or endpoint JSON for check-domain-context")
     parser.add_argument("endpoint_json", nargs="?", help="Endpoint JSON path for check-domain-context")
     parser.add_argument("--app-name", default=None)
@@ -316,6 +329,9 @@ def main() -> int:
         return 0
     if args.command == "paths-csv":
         print(manifest_paths_csv(manifest))
+        return 0
+    if args.command == "domains-csv":
+        print(manifest_service_domains_csv(manifest))
         return 0
     return 1
 

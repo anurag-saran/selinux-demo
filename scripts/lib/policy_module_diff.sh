@@ -14,7 +14,7 @@ PROJECT_ROOT="$(cd "${LIB_DIR}/../.." && pwd)"
 # shellcheck source=compile_policy.sh
 source "${LIB_DIR}/compile_policy.sh"
 
-APP_NAME="${POLICY_APP:-myapp}"
+APP_NAME="${POLICY_APP:-}"
 DOMAINS="${SELINUX_POLICY_DIFF_DOMAINS:-}"
 BASE_DIR=""
 CAND_DIR=""
@@ -29,7 +29,7 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Options:
-  --app-name NAME           Module name (default: myapp)
+  --app-name NAME           Module name (required if multiple .te in --cand-dir)
   --base-dir PATH           Directory with \${APP_NAME}.{te,fc} for merge-base side
   --cand-dir PATH           Candidate directory (default: selinux/)
   --from-merge-base         Extract base from git merge-base vs origin/main
@@ -57,19 +57,42 @@ done
 [[ -n "${OUTPUT}" ]] || { echo "policy_module_diff: --output is required" >&2; exit 1; }
 CAND_DIR="${CAND_DIR:-${PROJECT_ROOT}/selinux}"
 
-if [[ -z "${DOMAINS}" && -f "${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml" ]]; then
-    DOMAINS="$(python3 - "${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml" <<'PY'
-import sys, yaml
-m = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
-doms = {m["domain"]}
-for svc in (m.get("services") or {}).values():
-    if isinstance(svc, dict) and svc.get("domain"):
-        doms.add(svc["domain"])
-print(",".join(sorted(doms)))
-PY
-)"
+infer_single_te_module() {
+    local dir="$1"
+    local count=0 name=""
+    local te
+    for te in "${dir}"/*.te; do
+        [[ -f "${te}" ]] || continue
+        name="$(basename "${te}" .te)"
+        count=$((count + 1))
+    done
+    if [[ "${count}" -eq 1 ]]; then
+        echo "${name}"
+        return 0
+    fi
+    return 1
+}
+
+if [[ -z "${APP_NAME}" ]]; then
+    APP_NAME="$(infer_single_te_module "${CAND_DIR}")" || {
+        echo "policy_module_diff: pass --app-name or set POLICY_APP (multiple .te in ${CAND_DIR})" >&2
+        exit 1
+    }
 fi
-DOMAINS="${DOMAINS:-${APP_NAME}_t,${APP_NAME}_backend_t}"
+
+MANIFEST_PY="${PROJECT_ROOT}/scripts/lib/app_manifest.py"
+if [[ -z "${DOMAINS}" ]]; then
+    manifest="${APP_MANIFEST:-${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml}"
+    if [[ ! -f "${manifest}" ]]; then
+        manifest="$(python3 "${MANIFEST_PY}" resolve --app-name "${APP_NAME}" 2>/dev/null || true)"
+    fi
+    if [[ -f "${manifest}" ]]; then
+        DOMAINS="$(python3 "${MANIFEST_PY}" domains-csv "${manifest}")"
+    else
+        echo "policy_module_diff: set --domains or provide manifest for ${APP_NAME}" >&2
+        exit 1
+    fi
+fi
 
 resolve_merge_base_ref() {
     local ref=""
