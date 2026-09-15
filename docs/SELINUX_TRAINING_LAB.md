@@ -19,6 +19,14 @@ This is a **practice course**. Each lab follows the same pattern:
 
 **You need:** SELinux-enabled Linux (or Podman VM), `sudo`, this repo cloned, optional internet for Lab 6.
 
+**Automated walkthrough:** from repo root on macOS (after `source …/podman/env.sh` and `run_on_podman_vm.sh setup`):
+
+```bash
+bash scripts/run_training_lab.sh
+```
+
+Use `--auto` for no pauses, `--no-type` to skip the typewriter effect, `--short` for Labs 1+6+7 only. See `bash scripts/run_training_lab.sh --help`.
+
 **Convention:** Example output shows the **shape** of answers — your PIDs and timestamps will differ.
 
 **Repo root** = directory containing `scripts/` and `docs/` (clone path on Mac or Linux; inside the Podman VM it is usually `/home/core/selinux-demo` after `sync`).

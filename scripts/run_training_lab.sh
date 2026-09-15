@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+#
+# run_training_lab.sh — Guided SELinux training lab (typewriter + explanations)
+#
+# Runs labs 1 → 6 verify → 2–5 → 7–9 from docs/SELINUX_TRAINING_LAB.md
+# with Why/What text and simulated typing. Commands execute for real.
+#
+# Usage (from repo root):
+#   bash scripts/run_training_lab.sh              # auto-detect Mac → Podman VM
+#   bash scripts/run_training_lab.sh --use-vm     # force Podman VM (macOS)
+#   bash scripts/run_training_lab.sh --auto       # no pauses between steps
+#   bash scripts/run_training_lab.sh --no-type    # skip typewriter effect
+#   bash scripts/run_training_lab.sh --short      # labs 1, 6, 7 only
+#   bash scripts/run_training_lab.sh --lab4-demo  # Lab 4 chcon + restorecon exercise
+#   bash scripts/run_training_lab.sh --include-lab10
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/training_lab_runner.sh
+source "${SCRIPT_DIR}/lib/training_lab_runner.sh"
+# shellcheck source=lib/vm_ready.sh
+source "${SCRIPT_DIR}/lib/vm_ready.sh"
+
+TLAB_SHORT=0
+TLAB_LAB4_DEMO=0
+TLAB_LAB10=0
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options]
+
+Runs the hands-on training lab with explanations and typed commands.
+See docs/SELINUX_TRAINING_LAB.md for the full course.
+
+Options:
+  --use-vm          Run every command inside Podman Machine (macOS)
+  --native          Run on this Linux host (do not use Podman)
+  --auto            No pauses (demo / recording)
+  --no-type         Print commands instantly (no typewriter)
+  --short           Labs 1, 6 verify, 7 only
+  --lab4-demo       Lab 4: run chcon + restorecon exercise
+  --include-lab10   Run optional Lab 10 (manifest export)
+  -h, --help        Show help
+
+Mac: source ~/.local/share/selinux-demo/podman/env.sh first if podman fails.
+Staging must be installed (run_on_podman_vm.sh setup or setup_staging_env.sh).
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --use-vm) TLAB_USE_VM=1; shift ;;
+        --native) TLAB_USE_VM=0; shift ;;
+        --auto) TLAB_AUTO=1; shift ;;
+        --no-type) TLAB_NO_TYPE=1; shift ;;
+        --short) TLAB_SHORT=1; shift ;;
+        --lab4-demo) TLAB_LAB4_DEMO=1; shift ;;
+        --include-lab10) TLAB_LAB10=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+    esac
+done
+
+if [[ "$(uname -s)" == Darwin ]] && [[ "${TLAB_USE_VM}" -eq 0 ]]; then
+    TLAB_USE_VM=1
+fi
+
+if [[ "${TLAB_USE_VM}" -eq 1 ]]; then
+    source_podman_env
+    if ! command -v podman >/dev/null 2>&1; then
+        echo "Podman not found. Run: bash scripts/fix_podman.sh" >&2
+        exit 1
+    fi
+    ensure_vm_ready || exit 1
+    TLAB_VM_PROJECT="${VM_PROJECT}"
+else
+    if ! tlab_detect_vm; then
+        echo "SELinux not available on this host. Use --use-vm on macOS or a Linux VM." >&2
+        exit 1
+    fi
+    TLAB_VM_PROJECT="${PROJECT_ROOT}"
+fi
+
+tlab_ensure_staging_hint
+
+echo -e "${TLAB_BOLD}SELinux training lab runner${TLAB_NC}"
+if [[ "${TLAB_USE_VM}" -eq 1 ]]; then
+    echo -e "${TLAB_DIM}Commands run inside Podman VM (${TLAB_VM_PROJECT})${TLAB_NC}"
+else
+    echo -e "${TLAB_DIM}Commands run on this Linux host${TLAB_NC}"
+fi
+tlab_pause
+
+lab_1() {
+    tlab_print_section "Lab 1 — Is SELinux on?"
+    tlab_why "Every other step assumes the kernel is enforcing SELinux. If SELinux is off, labels and AVC logs mislead you."
+    tlab_question "Is this machine actually running SELinux right now?"
+    tlab_explain "getenforce asks the kernel for whole-system mode (Enforcing / Permissive / Disabled)."
+    tlab_run_cmd "getenforce"
+    tlab_pause
+    tlab_explain "sestatus confirms SELinux is enabled in config, not just for this boot."
+    tlab_run_cmd "sestatus | head -5"
+    tlab_checkpoint "You should see Enforcing (or Permissive) — not Disabled."
+    tlab_pause_lab
+}
+
+lab_6_verify() {
+    tlab_print_section "Lab 6 — Verify demo staging"
+    tlab_why "The workshop needs Flask + backend under /opt/myapp, stub policy, and permissive myapp_t (or equivalent on FCOS)."
+    tlab_question "Is the demo app running with the staging setup the course expects?"
+    tlab_explain "Both systemd units must be active before Tier 6 curls."
+    tlab_run_cmd "systemctl is-active myapp.service myapp-backend.service"
+    tlab_pause
+    tlab_explain "Health check on port 8888 inside this Linux environment (not your Mac)."
+    tlab_run_cmd "curl -s http://127.0.0.1:8888/ | head -c 200; echo"
+    tlab_pause
+    tlab_explain "Host should stay Enforcing; myapp_t should be permissive when semanage is available."
+    tlab_run_cmd "getenforce"
+    tlab_semanage_permissive_list
+    tlab_checkpoint "Both services active; getenforce Enforcing; staging ready for label/curl labs."
+    tlab_pause_lab
+}
+
+lab_2() {
+    tlab_print_section "Lab 2 — Read file labels"
+    tlab_why "Policy rules talk about types on files (myapp_exec_t, myapp_log_t), not Unix usernames."
+    tlab_question "What type does policy assign to each path?"
+    tlab_explain "ls -Z shows the SELinux context; focus on the third field (the type)."
+    tlab_run_cmd "curl -sf -o /dev/null http://127.0.0.1:8888/save-log || true"
+    tlab_run_cmd "ls -Z /opt/myapp/app.py"
+    tlab_run_cmd "ls -Z /var/lib/myapp"
+    tlab_run_cmd "ls -Z /var/log/myapp/data.log 2>/dev/null || ls -Z /var/log/myapp/"
+    tlab_pause
+    tlab_explain "matchpathcon shows what loaded policy expects for a path (from .fc rules)."
+    tlab_run_cmd "matchpathcon /var/log/myapp/data.log 2>/dev/null || matchpathcon /var/log/myapp"
+    tlab_checkpoint "You can name the type on the app binary vs data/log paths."
+    tlab_pause_lab
+}
+
+lab_3() {
+    tlab_print_section "Lab 3 — Read process labels"
+    tlab_why "Running processes have a domain (type). Rules allow myapp_t to touch files — not the myapp user account."
+    tlab_question "What domain is the Flask (and backend) process running in?"
+    tlab_explain "On Podman FCOS you may see init_t instead of myapp_t — stub policy still allows the demo."
+    tlab_run_cmd "ps -eZ | grep /opt/myapp/app.py || ps -eZ | grep app.py | head -3"
+    tlab_run_cmd "ps -eZ | grep backend_stub || true"
+    tlab_checkpoint "Process domain is not the same as file types on disk."
+    tlab_pause_lab
+}
+
+lab_4() {
+    tlab_print_section "Lab 4 — Policy on disk vs reality"
+    tlab_why "Wrong on-disk labels cause denials even when .te in Git looks correct."
+    tlab_question "Does the label on disk match what policy expects?"
+    tlab_run_cmd "matchpathcon /var/log/myapp/data.log 2>/dev/null || true"
+    tlab_run_cmd "ls -Z /var/log/myapp/data.log 2>/dev/null || true"
+    if [[ "${TLAB_LAB4_DEMO}" -eq 1 ]]; then
+        tlab_explain "chcon simulates a mislabel; restorecon fixes from policy without editing .te."
+        tlab_run_cmd_sudo "chcon -t var_log_t /var/log/myapp/data.log"
+        tlab_run_cmd "ls -Z /var/log/myapp/data.log"
+        tlab_run_cmd_sudo "restorecon -v /var/log/myapp/data.log"
+        tlab_run_cmd "ls -Z /var/log/myapp/data.log"
+    else
+        echo -e "${TLAB_DIM}(Skip chcon demo — re-run with --lab4-demo to break/fix a label.)${TLAB_NC}"
+    fi
+    tlab_checkpoint ".fc defines labels; restorecon applies them to disk."
+    tlab_pause_lab
+}
+
+lab_5() {
+    tlab_print_section "Lab 5 — Two-layer permissive (demo model)"
+    tlab_why "Production keeps the OS Enforcing and only puts the app domain in log-only mode during soak."
+    tlab_question "Is the host protected while the app can still run and log denials?"
+    tlab_explain "getenforce is whole-system; semanage permissive -l is per-domain (when installed)."
+    tlab_run_cmd "getenforce"
+    tlab_semanage_permissive_list
+    tlab_checkpoint "Enforcing globally; app domain permissive for evidence gathering."
+    tlab_pause_lab
+}
+
+lab_7() {
+    tlab_print_section "Lab 7 — Hit HTTP endpoints"
+    tlab_why "Each URL exercises a different SELinux permission (files, script, network, socket)."
+    tlab_question "Does the app work under SELinux and hit all workshop probes?"
+    tlab_explain "Six GETs — curl -sf fails the loop if any path errors."
+    tlab_run_cmd 'for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do echo "=== GET $path ==="; curl -sf "http://127.0.0.1:8888${path}" | head -c 120; echo; done'
+    tlab_run_cmd "curl -sf http://127.0.0.1:8889/health; echo"
+    tlab_checkpoint "All six paths and backend health should succeed (HTTP 200)."
+    tlab_pause_lab
+}
+
+lab_8() {
+    tlab_print_section "Lab 8 — Find and read an AVC"
+    tlab_why "AVC lines are the evidence policy authors use when adding allows."
+    tlab_question "Who tried to do what to whom?"
+    tlab_explain "auditd must be running for ausearch to show denials."
+    tlab_run_cmd_sudo "systemctl status auditd --no-pager | head -3"
+    tlab_run_cmd_sudo "ausearch -m avc -ts recent 2>/dev/null | tail -5 || echo '(no recent AVC lines — often normal after Lab 7)'"
+    tlab_run_cmd_sudo "ausearch -m avc -ts recent 2>/dev/null | grep -E 'myapp|init_t' | tail -3 || true"
+    tlab_checkpoint "You can read scontext, tcontext, and denied { … } on an AVC line."
+    tlab_pause_lab
+}
+
+lab_9() {
+    tlab_print_section "Lab 9 — Map AVC to .te rule"
+    tlab_why "Git selinux/myapp.te is what reviewers approve — connect logs to allow rules."
+    tlab_question "Which rule in Git explains log access?"
+    tlab_explain "grep the Type Enforcement file and file contexts for myapp_log."
+    tlab_run_cmd "cd ${TLAB_VM_PROJECT} && grep -n myapp_log_t selinux/myapp.te | head -10"
+    tlab_run_cmd "cd ${TLAB_VM_PROJECT} && grep myapp_log selinux/myapp.fc"
+    tlab_checkpoint "Given a write to myapp_log_t, you can point at an allow or macro in .te."
+    tlab_pause_lab
+}
+
+lab_10() {
+    tlab_print_section "Lab 10 — Export app AVCs (manifest) [optional]"
+    tlab_why "This repo filters AVCs by manifest paths/domains before generation."
+    tlab_question "How does policy_out/avc.log get built safely?"
+    tlab_run_cmd "cd ${TLAB_VM_PROJECT} && python3 scripts/lib/app_manifest.py validate config/myapp.manifest.yml"
+    tlab_run_cmd "cd ${TLAB_VM_PROJECT} && python3 scripts/lib/app_manifest.py paths-csv config/myapp.manifest.yml"
+    tlab_checkpoint "Manifest drives path filters — not silent myapp defaults."
+    tlab_pause_lab
+}
+
+lab_1
+lab_6_verify
+
+if [[ "${TLAB_SHORT}" -eq 1 ]]; then
+    lab_7
+    echo -e "${TLAB_GREEN}${TLAB_BOLD}Short path complete (Labs 1, 6, 7).${TLAB_NC}"
+    echo "Next: docs/DEMO_GUIDE.md or re-run without --short for Labs 2–5, 8–9."
+    exit 0
+fi
+
+lab_2
+lab_3
+lab_4
+lab_5
+lab_7
+lab_8
+lab_9
+
+if [[ "${TLAB_LAB10}" -eq 1 ]]; then
+    lab_10
+fi
+
+echo
+echo -e "${TLAB_GREEN}${TLAB_BOLD}Full training lab run complete.${TLAB_NC}"
+echo "Finish checklist: docs/SELINUX_TRAINING_LAB.md — ready for DEMO_GUIDE.md"
+echo

@@ -7,7 +7,8 @@ export SMOKE_SKIP_FLASK ?= 1
 
 .PHONY: help deps test check lint fixtures test-smoke test-static test-manifest \
 	test-rpm test-forbidden test-version test-fixtures test-blast-radius \
-	lint-shell lint-yaml lint-ansible image integration-compile integration-semantics
+	lint-shell lint-yaml lint-ansible image integration-compile integration-semantics \
+	training-lab
 
 help: ## List targets (default)
 	@echo "SELinux demo — common targets:"
@@ -90,3 +91,6 @@ integration-blast-radius: ## Blast-radius with Podman integration (CI blast-radi
 	@command -v podman >/dev/null 2>&1 || { echo "SKIP integration-blast-radius: podman not installed"; exit 0; }
 	bash scripts/ci/ensure_selinux_build_image.sh
 	BLAST_RADIUS_REQUIRE_INTEGRATION=1 bash scripts/run_blast_radius_fixtures.sh
+
+training-lab: ## Guided lab walkthrough (typewriter + explanations; Mac uses Podman VM)
+	bash scripts/run_training_lab.sh
