@@ -1,4 +1,4 @@
-policy_module(myapp, 1.1.1)
+policy_module(myapp, 1.1.2)
 
 ########################################
 #
@@ -17,11 +17,9 @@ type myapp_backend_exec_t;
 type myapp_port_t;
 type myapp_backend_port_t;
 
-files_type(myapp_exec_t)
 files_type(myapp_lib_t)
 files_type(myapp_var_lib_t)
 files_pid_file(myapp_var_run_t)
-files_type(myapp_log_t)
 files_type(myapp_script_exec_t)
 files_type(myapp_backend_exec_t)
 
@@ -34,6 +32,26 @@ init_daemon_run_dir(myapp_var_run_t, "myapp")
 
 logging_log_file(myapp_log_t)
 
+require {
+    type init_t;
+    class process { transition dyntransition siginh rlimitinh };
+    class file entrypoint;
+}
+
+# systemd (init_t) starts user units on FCOS — transition on labeled entrypoints
+allow init_t myapp_exec_t:file { execute read open getattr map ioctl execute_no_trans entrypoint };
+allow init_t myapp_t:process { transition dyntransition siginh rlimitinh };
+allow myapp_t myapp_exec_t:file entrypoint;
+type_transition init_t myapp_exec_t:process myapp_t;
+
+allow init_t myapp_lib_t:dir { search getattr open read };
+allow init_t myapp_lib_t:file { read open getattr map ioctl };
+
+allow init_t myapp_backend_exec_t:file { execute read open getattr map ioctl execute_no_trans entrypoint };
+allow init_t myapp_backend_t:process { transition dyntransition siginh rlimitinh };
+allow myapp_backend_t myapp_backend_exec_t:file entrypoint;
+type_transition init_t myapp_backend_exec_t:process myapp_backend_t;
+
 ########################################
 #
 # Daemon baseline — explicit allows every Python service needs under enforce.
@@ -43,12 +61,12 @@ logging_log_file(myapp_log_t)
 files_read_etc_files(myapp_t)
 sysnet_read_config(myapp_t)
 kernel_read_system_state(myapp_t)
-dev_read_rand(myapp_t)
+dev_read_urand(myapp_t)
 
 files_read_etc_files(myapp_backend_t)
 sysnet_read_config(myapp_backend_t)
 kernel_read_system_state(myapp_backend_t)
-dev_read_rand(myapp_backend_t)
+dev_read_urand(myapp_backend_t)
 
 ########################################
 #
@@ -75,13 +93,13 @@ allow myapp_t myapp_exec_t:dir { getattr open read search };
 allow myapp_t myapp_exec_t:file { read open getattr execute execute_no_trans map ioctl };
 allow myapp_t myapp_exec_t:lnk_file read;
 
-allow myapp_t myapp_var_lib_t:dir { create write add_name remove_name search getattr open rmdir rename unlink };
-allow myapp_t myapp_var_lib_t:file { create write append open getattr lock ioctl rename unlink };
+manage_dirs_pattern(myapp_t, myapp_var_lib_t, myapp_var_lib_t)
+manage_files_pattern(myapp_t, myapp_var_lib_t, myapp_var_lib_t)
 
 logging_log_filetrans(myapp_t, myapp_log_t, file)
 logging_log_filetrans(myapp_t, myapp_log_t, dir)
-allow myapp_t myapp_log_t:dir { search getattr open read write add_name remove_name };
-allow myapp_t myapp_log_t:file { create write append open getattr lock rename unlink ioctl };
+manage_dirs_pattern(myapp_t, myapp_log_t, myapp_log_t)
+manage_files_pattern(myapp_t, myapp_log_t, myapp_log_t)
 
 allow myapp_t myapp_script_exec_t:file { read open getattr execute execute_no_trans ioctl map };
 
