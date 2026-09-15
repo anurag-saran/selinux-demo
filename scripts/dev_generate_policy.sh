@@ -2,7 +2,7 @@
 #
 # dev_generate_policy.sh — One-command developer self-service policy generation
 #
-# Exports AVC logs, runs cli/selinux_gen.py, diffs against selinux/, optionally
+# Exports AVC logs, runs cli/deterministic_gen.py (+ optional summarize_pr.py), diffs against selinux/
 # promotes generated policy into selinux/ for PR commit.
 #
 set -euo pipefail
@@ -18,6 +18,7 @@ AVC_LOG="${POLICY_OUT}/avc.log"
 APP_NAME="${POLICY_APP:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 ENGINE="${POLICY_ENGINE:-deterministic}"
+LLM_SUMMARY="${POLICY_SUMMARY_LLM:-0}"
 MANIFEST="${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml"
 [[ -f "${MANIFEST}" ]] || MANIFEST="${PROJECT_ROOT}/config/myapp.manifest.yml"
 USE_VM=0
@@ -32,6 +33,8 @@ ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
 source "${SCRIPT_DIR}/lib/version.sh"
 # shellcheck source=lib/manifest_shell.sh
 source "${SCRIPT_DIR}/lib/manifest_shell.sh"
+# shellcheck source=lib/policy_generation.sh
+source "${SCRIPT_DIR}/lib/policy_generation.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -49,7 +52,8 @@ Usage: $(basename "$0") [options]
 Developer self-service: export AVCs → generate policy → diff → optional promote to selinux/
 
 Options:
-  --engine MODE    deterministic (default) or llm (requires OPENAI_API_KEY)
+  --engine MODE    deterministic (default); llm is deprecated → deterministic + --llm-summary
+  --llm-summary    After generation, polish pr_summary.md narrative via OpenAI (needs OPENAI_API_KEY)
   --apply          Copy policy_out/{app}.te/.fc into selinux/ after generation
   --enforce-check  Load candidate policy enforcing and run endpoint + domain checks
   --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
@@ -61,8 +65,9 @@ Options:
   -h, --help       Show this help
 
 Environment:
-  OPENAI_API_KEY   Required for --engine llm
-  POLICY_ENGINE    Default engine if --engine omitted (deterministic|llm)
+  OPENAI_API_KEY   Required only for --llm-summary (or POLICY_SUMMARY_LLM=1)
+  POLICY_ENGINE    Default: deterministic
+  POLICY_SUMMARY_LLM  Set to 1 to run cli/summarize_pr.py after generation
   POLICY_ALLOW_DEGRADED  Pass --allow-degraded to deterministic_gen when sepolgen missing
   SELINUX_BUILD_IMAGE  Prebuilt compile image (default: docker.io/asaran/…:stream9; override for internal registry)
   SELINUX_BUILD_IMAGE_PULL  Pull from registry before local build (default: 1; set 0 for air-gapped local build only)
@@ -71,9 +76,9 @@ Environment:
   OPENAI_API_MODEL Optional model override
 
 Example:
-  export OPENAI_API_KEY="your-key"
   bash scripts/dev_generate_policy.sh --use-vm --apply
-  git checkout -b policy/update && git add selinux/ && gh pr create --body-file policy_out/pr_summary.md
+  bash scripts/dev_generate_policy.sh --llm-summary --skip-export   # optional admin prose
+  git checkout -b policy/update && git add selinux/ && gh pr create --body-file policy_out/pr_body.md
 EOF
 }
 
@@ -85,6 +90,7 @@ while [[ $# -gt 0 ]]; do
         --use-vm) USE_VM=1; shift ;;
         --skip-export) SKIP_EXPORT=1; shift ;;
         --engine) ENGINE="$2"; shift 2 ;;
+        --llm-summary) LLM_SUMMARY=1; shift ;;
         --app-name) APP_NAME="$2"; DOMAIN="${APP_NAME}_t"; shift 2 ;;
         --staging-host) STAGING_HOST="$2"; shift 2 ;;
         --test-suite) TEST_SUITE="$2"; shift 2 ;;
@@ -104,9 +110,9 @@ sync_identity_from_manifest() {
 }
 
 require_api_key() {
-    [[ "${ENGINE}" == deterministic ]] && return 0
+    [[ "${LLM_SUMMARY}" -eq 1 ]] || return 0
     [[ -n "${OPENAI_API_KEY:-}" ]] || {
-        log_error "Set OPENAI_API_KEY or use --engine deterministic"
+        log_error "Set OPENAI_API_KEY for --llm-summary (or unset POLICY_SUMMARY_LLM)"
         exit 1
     }
 }
@@ -180,34 +186,21 @@ export_avcs() {
 }
 
 generate_policy() {
-    if [[ "${ENGINE}" == deterministic ]]; then
-        log_info "Running cli/deterministic_gen.py (offline)..."
-        mkdir -p "${POLICY_OUT}"
-        cp "${POLICY_VERSION_FILE}" "${POLICY_OUT}/policy_version.txt"
-        python3 "${DETERMINISTIC}" \
-            --avc-log "${AVC_LOG}" \
-            --manifest "${MANIFEST}" \
-            --existing-te "${POLICY_TE}" \
-            --existing-fc "${POLICY_FC}" \
-            --out-dir "${POLICY_OUT}" \
-            --version-file "${POLICY_OUT}/policy_version.txt" \
-            --bump-version \
-            $( [[ "${POLICY_ALLOW_DEGRADED:-0}" == "1" ]] && echo --allow-degraded )
-        bash "${SCRIPT_DIR}/validate_forbidden_patterns.sh" "${POLICY_OUT}"
-        bash "${SCRIPT_DIR}/compile_and_validate.sh" "${POLICY_OUT}"
-        return 0
+    if [[ "${ENGINE}" == llm ]]; then
+        log_warn "--engine llm is deprecated; using deterministic + --llm-summary"
+        ENGINE=deterministic
+        LLM_SUMMARY=1
     fi
-    log_info "Running cli/selinux_gen.py..."
-    python3 "${GEN}" \
-        --app-name "${APP_NAME}" \
-        --domain "${DOMAIN}" \
-        --audit-log "${AVC_LOG}" \
-        --existing-te "${POLICY_TE}" \
-        --existing-fc "${POLICY_FC}" \
-        --bump-version \
-        --validate-compile \
-        --generate-only \
-        --output-dir "${POLICY_OUT}"
+    log_info "Running cli/deterministic_gen.py (policy)..."
+    run_deterministic_policy_gen \
+        "${AVC_LOG}" \
+        "${MANIFEST}" \
+        "${POLICY_TE}" \
+        "${POLICY_FC}" \
+        "${POLICY_VERSION_FILE}" \
+        "${POLICY_OUT}" \
+        "${APP_NAME}"
+    run_llm_pr_summary_if_requested "${POLICY_OUT}" "${APP_NAME}"
 }
 
 show_diff() {

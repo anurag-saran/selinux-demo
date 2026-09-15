@@ -505,8 +505,7 @@ During soak (`semanage permissive -a myapp_t`), the write **still succeeds**; th
 ### Step 4 — Demo pipeline picks it up
 
 ```text
-curl /save-log  →  AVC in audit.log  →  export to policy_out/avc.log
-    →  AI merges fix into selinux/myapp.te  →  PR + CI  →  canary  →  soak  →  enforce
+integration probes (all HTTP paths)  →  export to policy_out/avc.log  →  merge into selinux/myapp.te  →  PR + CI  →  canary  →  soak  →  enforce
 ```
 
 Same pattern applies to `/run-script` (execute `myapp_script_exec_t`), `/rotate-log` (rename/create under `myapp_log_t`), `/probe-backend` (outbound TCP to `myapp_backend_t` on port 8889), and `/notify-socket` (Unix stream to `/run/myapp/notify.sock`).

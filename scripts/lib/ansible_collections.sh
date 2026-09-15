@@ -21,9 +21,10 @@ ensure_ansible_collections() {
 
     if [[ "${USE_VM:-0}" -eq 1 ]]; then
         log_info "Ensuring Ansible collections on Podman VM (required for acts 6–10)…"
-        if ! bash "${VM_HELPER}" exec "ansible-galaxy collection install -r ansible/requirements.yml"; then
+        local vproj="${VM_PROJECT:-/home/core/selinux-demo}"
+        if ! podman machine ssh -- "cd ${vproj} && ansible-galaxy collection install -r ansible/requirements.yml"; then
             log_error "Could not install collections in the VM."
-            echo "  bash scripts/run_on_podman_vm.sh exec 'ansible-galaxy collection install -r ansible/requirements.yml'" >&2
+            echo "  podman machine ssh -- \"cd ${vproj} && ansible-galaxy collection install -r ansible/requirements.yml\"" >&2
             exit 1
         fi
         return 0

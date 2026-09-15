@@ -42,7 +42,7 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 | `http.backend.port` | if backend | Backend health port |
 | `http.backend.health_path` | if backend | Default `/health` |
 | `selinux_ports` | recommended | Port → type for canary `seport` / RPM |
-| `integration_tests.command` | no | Documented soak/discovery test command |
+| `integration_tests.command` | no | Documented soak/discovery test command (demo: `integration_probes.sh`) |
 | `policy.module_dir` | no | Default `selinux` |
 | `deploy.soak_marker_file` | no | Default `{var_dir}/selinux_canary_deployed_at` |
 | `deploy.deploy_report_file` | no | Default `{var_dir}/selinux_deploy_report.json` |
@@ -51,6 +51,7 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 
 | Consumer | Purpose |
 |----------|---------|
+| [`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) | Staged staging discovery curls + AVC peeks (workshop Act 1 / Lab 7) |
 | [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) | systemd units, HTTP probes, domain verification |
 | [`scripts/post_deploy_report.sh`](../scripts/post_deploy_report.sh) | Deploy JSON service/domain fields |
 | [`scripts/check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Domain context keys in deploy report; optional **`--auto-tier`** with policy pair paths |

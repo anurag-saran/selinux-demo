@@ -14,6 +14,7 @@ ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
 VERIFY="${SCRIPT_DIR}/verify_file_contexts.sh"
 MONITOR="${SCRIPT_DIR}/monitor_avc.sh"
 SOAK="${SCRIPT_DIR}/check_soak_ready.sh"
+WAIT_FOR="${SCRIPT_DIR}/wait_for_endpoints.sh"
 VM_HELPER="${SCRIPT_DIR}/run_on_podman_vm.sh"
 ANSIBLE="${PROJECT_ROOT}/ansible"
 INVENTORY="${ANSIBLE}/inventory.example.yml"
@@ -30,11 +31,14 @@ MANIFEST="${APP_MANIFEST:-${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml}"
 VM_PROJECT="/home/core/selinux-demo"
 VM_POLICY_PP="${VM_PROJECT}/policy_out/${APP_NAME}.pp"
 VM_POLICY_DIR="${VM_PROJECT}/policy_out"
+# shellcheck source=lib/policy_generation.sh
+source "${SCRIPT_DIR}/lib/policy_generation.sh"
 
 AUTO=0
 DEMO_MODE=0
 USE_VM=0
 SKIP_AI=0
+LLM_SUMMARY=0
 PREFETCH=0
 ACTS_SPEC="1-10"
 ACT_MIN=1
@@ -62,14 +66,15 @@ Options:
   --auto           Skip "Press Enter" pauses (rehearsal / CI)
   --demo-mode      Workshop shortcuts: pre-seed soak marker; force_enforce on enforce step
   --use-vm         Run staging/canary/enforce inside Podman Machine VM (macOS)
-  --skip-ai        Offline demo: fixtures from docs/examples/fixtures/skip_ai/ (no OPENAI_API_KEY)
+  --skip-ai        Offline demo: fixtures from docs/examples/fixtures/skip_ai/ (no generation)
+  --llm-summary    Polish pr_summary.md with OpenAI after deterministic generation (needs OPENAI_API_KEY)
   --acts RANGE     Run subset of acts, e.g. 1-6 or 1,3,5 (default: 1-10)
   -h, --help       Show help
 
 Acts:
   1  Staging setup + integration tests (permissive)
   2  Export AVC denials
-  3  AI policy generation
+  3  Deterministic policy generation (+ optional LLM pr_summary)
   4  Assemble PR body for admin review
   5  CI gates (forbidden patterns + compile)
   6  Ansible canary deploy
@@ -127,6 +132,7 @@ while [[ $# -gt 0 ]]; do
         --demo-mode) DEMO_MODE=1; shift ;;
         --use-vm) USE_VM=1; shift ;;
         --skip-ai) SKIP_AI=1; shift ;;
+        --llm-summary) LLM_SUMMARY=1; shift ;;
         --prefetch) PREFETCH=1; shift ;;
         --acts) ACTS_SPEC="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -166,7 +172,10 @@ pause_step() {
 
 require_api_key() {
     [[ "${SKIP_AI}" -eq 1 ]] && return 0
-    [[ -n "${OPENAI_API_KEY:-}" ]] || { log_error "Set OPENAI_API_KEY or use --skip-ai"; exit 1; }
+    if [[ "${LLM_SUMMARY}" -eq 1 ]] && [[ -z "${OPENAI_API_KEY:-}" ]]; then
+        log_warn "OPENAI_API_KEY unset — skipping LLM pr_summary polish"
+        LLM_SUMMARY=0
+    fi
 }
 
 require_root_if_native() {
@@ -196,11 +205,13 @@ vm_ensure_ready() {
     ensure_vm_ready
 }
 
-trigger_endpoints_native() {
-    for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
-        curl -sf "http://127.0.0.1:8888${path}" || log_warn "${path} non-2xx"
-        echo ""
-    done
+run_staged_integration_probes() {
+    # shellcheck source=lib/integration_probes.sh
+    source "${SCRIPT_DIR}/lib/integration_probes.sh"
+    INTEGRATION_UI=demo
+    INTEGRATION_AUTO="${AUTO}"
+    INTEGRATION_VM_PROJECT="${VM_PROJECT}"
+    staged_integration_probes
 }
 
 export_avcs_native() {
@@ -243,18 +254,44 @@ act_1_staging() {
     act_banner 1 "Staging" "App team runs integration tests with myapp_t in permissive mode"
     if [[ "${USE_VM}" -eq 1 ]]; then
         ensure_vm_ready || exit 1
-        if podman machine ssh -- "systemctl is-active myapp.service myapp-backend.service >/dev/null 2>&1"; then
-            log_info "Staging already active on VM — skipping setup (curl probes only)"
-            bash "${VM_HELPER}" trigger
-        else
+        if ! podman machine ssh -- "systemctl is-active myapp.service myapp-backend.service >/dev/null 2>&1"; then
             bash "${VM_HELPER}" setup
-            sleep 2
-            bash "${VM_HELPER}" trigger
         fi
+        if ! podman machine ssh -- "systemctl is-active myapp.service myapp-backend.service >/dev/null 2>&1"; then
+            log_error "Staging units not active after setup. Run: bash scripts/run_on_podman_vm.sh setup"
+            exit 1
+        fi
+        log_info "Waiting for HTTP endpoints before integration probes (domain check skipped on stub staging)"
+        if ! vm_run "bash scripts/wait_for_endpoints.sh --manifest ${VM_PROJECT}/config/${APP_NAME}.manifest.yml --skip-domain-check --retries 15 --delay 2"; then
+            log_error "Staging endpoints not ready. Run: bash scripts/run_on_podman_vm.sh setup"
+            exit 1
+        fi
+        log_info "Staging active on VM — running integration probes, then AVC log preview"
+        run_staged_integration_probes
+        act_1_show_avc_log_preview
     else
         bash "${SETUP}"
         sleep 2
-        trigger_endpoints_native
+        run_staged_integration_probes
+        act_1_show_avc_log_preview
+    fi
+}
+
+act_1_show_avc_log_preview() {
+    if [[ "${SKIP_AI}" -eq 1 ]]; then
+        log_info "policy_out/avc.log (offline fixture — populated at demo start)"
+    elif [[ "${USE_VM}" -eq 1 ]]; then
+        log_info "Exporting myapp AVCs to policy_out/avc.log after integration tests"
+        bash "${VM_HELPER}" export-avcs "${AVC_LOG}" || log_warn "export-avcs returned non-zero (empty audit is OK on stub)"
+    else
+        export_avcs_native || true
+    fi
+    if [[ -f "${AVC_LOG}" ]]; then
+        echo -e "\033[0;32m\$\033[0m wc -l ${AVC_LOG}; head -1 ${AVC_LOG}"
+        wc -l "${AVC_LOG}" 2>/dev/null || true
+        head -1 "${AVC_LOG}" 2>/dev/null | cut -c1-220 || true
+    else
+        log_warn "No ${AVC_LOG} yet — Act 2 will export from the VM audit log"
     fi
 }
 
@@ -273,7 +310,7 @@ act_2_export() {
 }
 
 act_3_generate() {
-    act_banner 3 "AI Generate" "Policy-as-Code CLI merges AVCs into selinux/ module"
+    act_banner 3 "Policy generation" "Deterministic engine merges AVCs into selinux/ (optional LLM for pr_summary)"
     if [[ "${SKIP_AI}" -eq 1 ]]; then
         bash "${SCRIPT_DIR}/lib/stage_skip_ai_fixture.sh"
         log_info "Offline generation (--skip-ai): staged fixture → policy_out/"
@@ -289,16 +326,32 @@ act_3_generate() {
         pause_step
         return 0
     fi
-    python3 "${GEN}" \
-        --app-name "${APP_NAME}" \
-        --domain "${DOMAIN}" \
-        --audit-log "${AVC_LOG}" \
-        --existing-te "${PROJECT_ROOT}/selinux/${APP_NAME}.te" \
-        --existing-fc "${PROJECT_ROOT}/selinux/${APP_NAME}.fc" \
-        --bump-version \
-        --validate-compile \
-        --generate-only \
-        --output-dir "${POLICY_OUT}"
+    local policy_te="${PROJECT_ROOT}/selinux/${APP_NAME}.te"
+    local policy_fc="${PROJECT_ROOT}/selinux/${APP_NAME}.fc"
+    local policy_version="${PROJECT_ROOT}/selinux/policy_version.txt"
+    [[ -s "${AVC_LOG}" ]] || {
+        log_error "Missing ${AVC_LOG} — run Act 2 export first"
+        exit 1
+    }
+    run_deterministic_policy_gen \
+        "${AVC_LOG}" \
+        "${MANIFEST}" \
+        "${policy_te}" \
+        "${policy_fc}" \
+        "${policy_version}" \
+        "${POLICY_OUT}" \
+        "${APP_NAME}"
+    if [[ "${LLM_SUMMARY}" -eq 1 ]]; then
+        run_llm_pr_summary_if_requested "${POLICY_OUT}" "${APP_NAME}"
+    else
+        log_info "Template pr_summary.md from deterministic engine (use --llm-summary + OPENAI_API_KEY to polish prose)"
+    fi
+    log_info "Diff selinux/ → policy_out/:"
+    if command -v git >/dev/null 2>&1; then
+        git -C "${PROJECT_ROOT}" diff --no-index "${policy_te}" "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
+    else
+        diff -u "${policy_te}" "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
+    fi
 }
 
 act_4_pr_handoff() {
@@ -326,7 +379,7 @@ act_5_ci_gates() {
 run_canary_playbook() {
     if [[ "${USE_VM}" -eq 1 ]]; then
         [[ "${VM_SYNCED}" -eq 1 ]] || vm_sync
-        local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/deploy_canary.yml -e policy_pp_src=${VM_POLICY_PP} -e policy_artifact_dir=${VM_POLICY_DIR}"
+        local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/deploy_canary.yml -e policy_pp_src=${VM_POLICY_PP} -e policy_artifact_dir=${VM_POLICY_DIR} -e app_manifest_path=${VM_PROJECT}/config/${APP_NAME}.manifest.yml"
         for arg in "$@"; do cmd+=" ${arg}"; done
         vm_run "${cmd}"
     else
@@ -339,7 +392,7 @@ run_canary_playbook() {
 run_enforce_playbook() {
     if [[ "${USE_VM}" -eq 1 ]]; then
         [[ "${VM_SYNCED}" -eq 1 ]] || vm_sync
-        local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/enforce_production.yml -e policy_pp_src=${VM_POLICY_PP} -e policy_artifact_dir=${VM_POLICY_DIR}"
+        local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/enforce_production.yml -e policy_pp_src=${VM_POLICY_PP} -e policy_artifact_dir=${VM_POLICY_DIR} -e app_manifest_path=${VM_PROJECT}/config/${APP_NAME}.manifest.yml"
         for arg in "$@"; do cmd+=" ${arg}"; done
         vm_run "${cmd}"
     else
@@ -353,6 +406,11 @@ act_6_canary() {
     act_banner 6 "Canary Deploy" "Admin installs policy with semanage permissive -a ${DOMAIN}"
     if [[ "${USE_VM}" -eq 1 ]]; then
         vm_sync
+        log_info "Building FCOS permissive overlay (myapp_canary.pp) on VM if needed"
+        vm_run "POLICY_MODULE=${APP_NAME}_canary bash scripts/compile_and_validate.sh selinux"
+    elif [[ ! -f "${PROJECT_ROOT}/selinux/myapp_canary.pp" ]]; then
+        log_info "Building myapp_canary.pp for FCOS canary overlay"
+        POLICY_MODULE=myapp_canary bash "${COMPILE}" "${PROJECT_ROOT}/selinux"
     fi
     if command -v ansible-playbook >/dev/null 2>&1 || [[ "${USE_VM}" -eq 1 ]]; then
         run_canary_playbook

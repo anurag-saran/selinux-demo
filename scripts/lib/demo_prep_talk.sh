@@ -50,8 +50,8 @@ demop_preamble() {
             ;;
         3)
             demop_role_app
-            demop_plain "The CLI merges AVCs, subtracts what is already in selinux/myapp.te, and proposes net-new allows."
-            demop_say "Policy is merged into the existing module — not replaced blindly. CI will reject wildcards and allows to shadow_t, unconfined_t, sysadm_t."
+            demop_plain "Deterministic engine merges AVCs into selinux/myapp.te; optional LLM polishes pr_summary.md for admins."
+            demop_say "Policy is merged into the existing module — not replaced blindly. CI and house rules write .te/.fc; the model only helps with PR prose when we turn it on."
             ;;
         4)
             demop_role_app
@@ -102,7 +102,9 @@ demop_show_screen() {
             demop_show_heading
             tlab_run_cmd "getenforce"
             tlab_semanage_permissive_list
-            tlab_run_cmd "curl -sf http://127.0.0.1:8888/save-log | head -c 160; echo"
+            echo -e "${TLAB_DIM}(Act 1 runs all integration curls, then shows policy_out/avc.log — see wc/head below after the act.)${TLAB_NC}"
+            demop_run_local "wc -l '${po}/avc.log' 2>/dev/null || echo '(avc.log after Act 1)'"
+            demop_run_local "head -1 '${po}/avc.log' 2>/dev/null | cut -c1-200 || true"
             ;;
         2)
             demop_show_heading

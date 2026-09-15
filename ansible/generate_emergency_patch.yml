@@ -7,25 +7,52 @@
   vars:
     policy_artifact_dir: "{{ playbook_dir }}/.."
     emergency_log: "{{ emergency_avc_log | default('/tmp/emergency_avc.log') }}"
-    gen_script: "{{ policy_artifact_dir }}/cli/selinux_gen.py"
+    manifest: "{{ policy_artifact_dir }}/config/{{ app_name | default('myapp') }}.manifest.yml"
   tasks:
-    - name: Require OPENAI_API_KEY for generation
-      ansible.builtin.fail:
-        msg: "Set OPENAI_API_KEY on the controller to generate an emergency patch"
-      when: lookup('env', 'OPENAI_API_KEY') | default('', true) | length == 0
+    - name: Require emergency AVC log
+      ansible.builtin.stat:
+        path: "{{ emergency_log }}"
+      register: emergency_avc_stat
 
-    - name: Generate emergency policy patch (generate-only)
+    - name: Fail when emergency log missing
+      ansible.builtin.fail:
+        msg: "Export AVCs first: ausearch … > {{ emergency_log }}"
+      when: not emergency_avc_stat.stat.exists
+
+    - name: Generate policy patch (deterministic — no LLM on .te/.fc)
       ansible.builtin.command: >
-        python3 {{ gen_script }}
-        --app-name {{ app_name | default('myapp') }}
-        --domain {{ domain | default('myapp_t') }}
-        --audit-log {{ emergency_log }}
+        python3 {{ policy_artifact_dir }}/cli/deterministic_gen.py
+        --avc-log {{ emergency_log }}
+        --manifest {{ manifest }}
         --existing-te {{ policy_artifact_dir }}/selinux/{{ app_name | default('myapp') }}.te
         --existing-fc {{ policy_artifact_dir }}/selinux/{{ app_name | default('myapp') }}.fc
+        --out-dir {{ policy_artifact_dir }}/policy_out
         --bump-version
-        --generate-only
-        --output-dir {{ policy_artifact_dir }}/policy_out
+      register: det_gen
+      changed_when: det_gen.rc == 0
+
+    - name: Validate forbidden patterns on candidate
+      ansible.builtin.command: >
+        bash {{ policy_artifact_dir }}/scripts/validate_forbidden_patterns.sh
+        {{ policy_artifact_dir }}/policy_out
+
+    - name: Optional LLM polish for pr_summary.md only
+      when: lookup('env', 'OPENAI_API_KEY') | default('', true) | length > 0
+      ansible.builtin.command: >
+        python3 {{ policy_artifact_dir }}/cli/summarize_pr.py
+        --template {{ policy_artifact_dir }}/policy_out/pr_summary.md
+        --findings {{ policy_artifact_dir }}/policy_out/findings.json
+        --avc-summary {{ policy_artifact_dir }}/policy_out/avc_summary.txt
+        --out {{ policy_artifact_dir }}/policy_out/pr_summary.md
+        --app-name {{ app_name | default('myapp') }}
       environment:
         OPENAI_API_KEY: "{{ lookup('env', 'OPENAI_API_KEY') }}"
         OPENAI_BASE_URL: "{{ lookup('env', 'OPENAI_BASE_URL') | default('', true) }}"
         OPENAI_API_MODEL: "{{ lookup('env', 'OPENAI_API_MODEL') | default('gpt-4o-mini', true) }}"
+
+    - name: Note when OPENAI_API_KEY absent
+      ansible.builtin.debug:
+        msg: >-
+          policy_out/ updated via deterministic_gen; pr_summary.md is template-only
+          (set OPENAI_API_KEY on controller for optional prose polish).
+      when: lookup('env', 'OPENAI_API_KEY') | default('', true) | length == 0

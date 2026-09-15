@@ -34,11 +34,13 @@ Options:
   --runtime-dir PATH    Runtime directory (default: /run/myapp)
   --app-name NAME       Module name (default: myapp)
   --skip-if-unavailable Exit 0 when SELinux tools or paths absent (for CI smoke)
+  --pre-service-restart Skip runtime dir matchpathcon (canary before systemd restart)
   -h, --help            Show help
 EOF
 }
 
 SKIP_IF_UNAVAILABLE=0
+PRE_SERVICE_RESTART=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -48,6 +50,7 @@ while [[ $# -gt 0 ]]; do
         --runtime-dir) RUNTIME_DIR="$2"; shift 2 ;;
         --app-name) APP_NAME="$2"; shift 2 ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
+        --pre-service-restart) PRE_SERVICE_RESTART=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -106,7 +109,7 @@ fi
 if [[ -d "${LOG_DIR}" ]]; then
     check_path "${LOG_DIR}"
 fi
-if [[ -d "${RUNTIME_DIR}" ]]; then
+if [[ -d "${RUNTIME_DIR}" ]] && [[ "${PRE_SERVICE_RESTART}" -eq 0 ]]; then
     check_path "${RUNTIME_DIR}"
 fi
 

@@ -139,6 +139,9 @@ compile_stub_policy() {
     pp_path="${work_dir}/myapp.pp"
 
     log_info "Compiling stub SELinux policy module..."
+    for mod in myapp_ports myapp_canary myapp; do
+        semodule -r "${mod}" 2>/dev/null || true
+    done
     cp "${STUB_DIR}/myapp.te" "${work_dir}/myapp.te"
     cp "${STUB_DIR}/myapp.fc" "${work_dir}/myapp.fc"
 
@@ -268,6 +271,10 @@ main() {
     create_service_user
     install_application
     compile_stub_policy
+    if [[ -f "${PROJECT_ROOT}/selinux/myapp_canary.te" ]]; then
+        log_info "Building FCOS canary overlay (myapp_canary.pp)..."
+        POLICY_MODULE=myapp_canary bash "${PROJECT_ROOT}/scripts/compile_and_validate.sh" "${PROJECT_ROOT}/selinux"
+    fi
     install_python_deps
     set_permissive_domain
     restore_contexts

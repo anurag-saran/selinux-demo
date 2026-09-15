@@ -28,7 +28,8 @@ Demo prep / showcase mode — no options required.
 Defaults (you do not pass flags):
   • Full acts 1–10 with presenter pauses
   • --demo-mode (soak calendar shortcut for acts 8–9)
-  • --skip-ai (fixture policy; no OPENAI_API_KEY)
+  • --skip-ai (fixture policy; no generation at Act 3)
+  • Optional: --llm-summary + OPENAI_API_KEY polishes pr_summary.md after deterministic gen
   • --use-vm on macOS; native Linux needs sudo on this script
 
 Before first run on Mac:

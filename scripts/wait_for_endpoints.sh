@@ -36,7 +36,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
+log_info() { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 usage() {
@@ -166,6 +166,13 @@ verify_service_domain() {
     done
 
     log_error "FATAL: ${unit} running as ${observed:-unknown}, not ${expected}"
+    local pid
+    pid="$(systemctl show -p MainPID --value "${unit}" 2>/dev/null || echo 0)"
+    log_error "${unit} MainPID=${pid}"
+    systemctl status "${unit}" --no-pager 2>/dev/null | head -20 || true
+    if command -v journalctl >/dev/null 2>&1; then
+        journalctl -u "${unit}" -n 20 --no-pager 2>/dev/null || true
+    fi
     return 4
 }
 

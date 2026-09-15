@@ -15,5 +15,10 @@ all:
     selinux_ops_dir: "{{ playbook_dir }}/../scripts"
     policy_artifact_dir: "{{ playbook_dir }}/.."
     policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name }}.pp"
-    app_manifest_path: "{{ policy_artifact_dir }}/config/{{ app_name }}.manifest.yml"
+    app_manifest_path: >-
+      {{
+        (policy_artifact_dir | dirname) ~ '/config/' ~ app_name ~ '.manifest.yml'
+        if (policy_artifact_dir | basename) == 'policy_out'
+        else policy_artifact_dir ~ '/config/' ~ app_name ~ '.manifest.yml'
+      }}
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

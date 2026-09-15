@@ -34,6 +34,10 @@ from prompt_templates import (  # noqa: E402
     build_user_prompt,
 )
 from fc_labeling import strip_redundant_fc_lines  # noqa: E402
+from pr_summary_common import (  # noqa: E402
+    PR_SUMMARY_REQUIRED_HEADINGS,
+    validate_pr_summary,
+)
 
 DEFAULT_APP_NAME = "myapp"
 DEFAULT_DOMAIN = "myapp_t"
@@ -63,13 +67,6 @@ FORBIDDEN_TE_PATTERNS = [
 INVALID_REQUIRE_TYPE = re.compile(r"require\s*\{[^}]*\btype\s+myapp_", re.DOTALL)
 
 FORBIDDEN_PRIVILEGED_TYPES = ("shadow_t", "unconfined_t", "sysadm_t")
-
-PR_SUMMARY_REQUIRED_HEADINGS = (
-    "### Network Bindings",
-    "### File System Access",
-    "### Process Execution",
-    "### Explicit Denials Maintained",
-)
 
 
 @dataclass
@@ -444,13 +441,9 @@ def parse_policy_json(content: str) -> dict:
 
 
 def validate_pr_summary(pr_summary: str) -> None:
-    missing = [heading for heading in PR_SUMMARY_REQUIRED_HEADINGS if heading not in pr_summary]
-    if missing:
-        raise RuntimeError(
-            "pr_summary missing required headings: "
-            + ", ".join(missing)
-            + ". Use Network Bindings / File System Access / Process Execution / Explicit Denials Maintained."
-        )
+    from pr_summary_common import validate_pr_summary as _validate
+
+    _validate(pr_summary)
 
 
 def validate_policy_content(te_content: str, fc_content: str, domain: str, app_name: str) -> None:
@@ -665,12 +658,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write structured AVC summary (default: <output-dir>/avc_summary.txt)",
     )
+    parser.add_argument(
+        "--legacy-full-policy",
+        action="store_true",
+        help="Deprecated: LLM generates full .te/.fc (use dev_generate_policy.sh + summarize_pr.py)",
+    )
     return parser
 
 
 def main() -> int:
     parser = build_arg_parser()
     args = parser.parse_args()
+
+    if not args.legacy_full_policy:
+        eprint(
+            "selinux_gen.py: full LLM policy generation is deprecated.\n"
+            "  Policy:  bash scripts/dev_generate_policy.sh   (deterministic, default)\n"
+            "  Summary: python3 cli/summarize_pr.py         (optional LLM prose)\n"
+            "  Or pass --legacy-full-policy to run the old all-in-one LLM path."
+        )
+        return 2
 
     if args.api_key:
         os.environ["OPENAI_API_KEY"] = args.api_key

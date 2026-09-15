@@ -90,7 +90,7 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/myapp_s
 | `log_dir` | `/var/log/myapp` | Log directory (`LogsDirectory`) — **must be set in inventory** (not a self-referential play var) |
 | `runtime_dir` | `/run/myapp` | Runtime dir (`RuntimeDirectory`) |
 | `service_name` | `myapp.service` | Primary systemd unit |
-| `policy_version` | _(from `selinux/policy_version.txt` at runtime)_ | SemVer for RPM name and deploy report |
+| `policy_version` | _(from `policy_artifact_dir/policy_version.txt` or `../selinux/policy_version.txt`)_ | SemVer for RPM name and deploy report |
 | `selinux_ops_dir` | `/usr/libexec/selinux-policy-ops` | Target path to ops scripts (lab: `…/scripts`) |
 | `selinux_ops_from_package` | `true` / `false` | When `true`, role runs `dnf install selinux-policy-ops` (+ app RPM) |
 | `policy_artifact_dir` | controller repo or `dist/` | **Controller only** — never used in remote `command` paths |
@@ -110,7 +110,7 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/myapp_s
 
 **Ansible enforce role** uses fixed **`soak_min_days`** via **`collect_soak_facts.sh`** unless you extend the role to pass tiering inputs.
 
-**Deprecated:** hardcoding `policy_version` in inventory — the role loads **`selinux/policy_version.txt`** from `policy_artifact_dir` at runtime.
+**Deprecated:** hardcoding `policy_version` in inventory — the role loads **`policy_version.txt`** from `policy_artifact_dir` (e.g. `policy_out/`) or **`selinux/policy_version.txt`** beside it.
 
 ---
 
@@ -142,7 +142,7 @@ Implements role phase **`canary`** ([`roles/myapp_selinux/tasks/canary.yml`](rol
 | 2 | Stage `.pp` from controller → `semodule -i` | When `policy_pp_src` set |
 | 3 | `semodule -DB` | Host-wide dontaudit off for soak |
 | 4 | `seport` 8888 / 8889 | When semanage available |
-| 5 | Permissive domain (+ FCOS stub if needed) | |
+| 5 | Permissive domain (+ FCOS overlay if needed) | RHEL: `semanage permissive`. FCOS (no `semanage`): install compiled **`selinux/myapp_canary.pp`** from controller (`stub_policy_src`, not under `policy_out/`). Build with `POLICY_MODULE=myapp_canary bash scripts/compile_and_validate.sh selinux`. FCOS also loads **`selinux/myapp_ports.cil`** when `seport` is skipped (8888/8889). |
 | 6 | Ensure `var_dir` + `log_dir`; `restorecon` (no pre-restart `/run/myapp`) | |
 | 7 | `{{ selinux_ops_dir }}/verify_file_contexts.sh` | |
 | 8 | Soak marker; restart services; `restorecon` on `runtime_dir` | |

@@ -56,11 +56,53 @@
         state: present
       when: semanage_bin.stat.exists
 
+    - name: Stat workshop TCP port CIL on controller
+      ansible.builtin.stat:
+        path: "{{ ports_cil_src }}"
+      register: ports_cil_stat
+      delegate_to: localhost
+      become: false
+      when: not semanage_bin.stat.exists
+
+    - name: Stage workshop TCP port CIL
+      ansible.builtin.copy:
+        src: "{{ ports_cil_src }}"
+        dest: "{{ ports_cil_staging }}"
+        mode: "0644"
+      when:
+        - not semanage_bin.stat.exists
+        - ports_cil_stat.stat.exists
+
+    - name: Install workshop TCP port labels (CIL)
+      ansible.builtin.command: "semodule -i {{ ports_cil_staging }}"
+      when:
+        - not semanage_bin.stat.exists
+        - ports_cil_stat.stat.exists
+      register: ports_cil_install
+      changed_when: ports_cil_install.rc == 0
+
     - name: Enable permissive domain for canary
       community.general.selinux_permissive:
         name: "{{ domain }}"
         permissive: true
       when: semanage_bin.stat.exists
+
+    - name: Stat FCOS permissive overlay on controller
+      ansible.builtin.stat:
+        path: "{{ stub_policy_src }}"
+      register: stub_pp_stat
+      delegate_to: localhost
+      become: false
+      when: not semanage_bin.stat.exists
+
+    - name: Fail when FCOS overlay module missing on controller
+      ansible.builtin.fail:
+        msg: >-
+          Build {{ stub_policy_src }} first:
+          POLICY_MODULE=myapp_canary bash scripts/compile_and_validate.sh selinux
+      when:
+        - not semanage_bin.stat.exists
+        - not stub_pp_stat.stat.exists
 
     - name: Stage FCOS permissive overlay
       ansible.builtin.copy:
@@ -86,6 +128,22 @@
         - { path: "{{ var_dir }}", mode: "0750" }
         - { path: "{{ log_dir | default('/var/log/myapp') }}", mode: "0750" }
 
+    - name: Install backend systemd unit
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../app/myapp-backend.service"
+        dest: /etc/systemd/system/myapp-backend.service
+        mode: "0644"
+
+    - name: Install primary systemd unit
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../app/myapp.service"
+        dest: /etc/systemd/system/{{ service_name }}
+        mode: "0644"
+
+    - name: Reload systemd after unit updates
+      ansible.builtin.systemd:
+        daemon_reload: true
+
     - name: Restore file contexts on persistent application paths
       ansible.builtin.command: >-
         restorecon -Rv {{ install_root }} {{ var_dir }}
@@ -100,11 +158,17 @@
         --var-dir {{ var_dir }}
         --log-dir {{ log_dir | default('/var/log/myapp') }}
         --app-name {{ app_name }}
+        --pre-service-restart
       changed_when: false
 
     - name: Record canary deploy timestamp for soak gate
       ansible.builtin.shell: "date +%s > {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }}"
       changed_when: true
+
+    - name: Reset systemd failure counters before service restart
+      ansible.builtin.command: systemctl reset-failed myapp-backend.service {{ service_name }}
+      changed_when: false
+      failed_when: false
 
     - name: Restart application services via systemd
       ansible.builtin.systemd:
@@ -125,6 +189,7 @@
         {{ selinux_ops_dir }}/wait_for_endpoints.sh
         --manifest {{ app_manifest_path }}
         --host 127.0.0.1 --retries 15 --delay 2
+        {{ '' if semanage_bin.stat.exists else '--skip-domain-check' }}
       changed_when: false
 
     - name: Check for new domain AVC events (recent window)
@@ -132,7 +197,7 @@
         set -o pipefail
         {{ selinux_ops_dir }}/monitor_avc.sh \
           --domain {{ domain }} \
-          --since recent \
+          --marker-file {{ soak_marker_file | default(var_dir + '/selinux_canary_deployed_at') }} \
           --max-avc -1 \
           --show-lines 0 \
           --format json

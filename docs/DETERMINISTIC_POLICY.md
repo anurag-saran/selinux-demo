@@ -109,6 +109,7 @@ Golden fixtures: **`bash scripts/run_deterministic_fixtures.sh`** (CI job **`det
 | Command | Engine |
 |---------|--------|
 | `dev_generate_policy.sh` (default) | `cli/deterministic_gen.py` |
-| `dev_generate_policy.sh --engine llm` | LLM (`cli/selinux_gen.py`) |
+| `dev_generate_policy.sh --llm-summary` | above + `cli/summarize_pr.py` (narrative only) |
+| Legacy | `cli/selinux_gen.py --legacy-full-policy` (deprecated) |
 
 Fixtures: [`docs/examples/fixtures/deterministic/`](examples/fixtures/deterministic/) — contiguous **`01`–`11`** AVC directories; **every classification verdict** has at least one golden row (`avc.log` + `expected.json`). CI: **`make test-fixtures`** / job **`deterministic-fixtures`**, plus smoke tests. Cases `08`/`09` use optional `sepolgen_mock.json` so CI does not require host ifgen. Boolean coverage: `04-boolean-network-connect` and `10-boolean-hint`.

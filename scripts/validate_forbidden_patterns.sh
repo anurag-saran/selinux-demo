@@ -84,11 +84,14 @@ if ! grep -q "${DOMAIN}" "${te}"; then
     check_fail "Domain ${DOMAIN} not referenced in ${te}"
 fi
 
-for token in "/opt/${MODULE_NAME}" "/var/lib/${MODULE_NAME}" "${MODULE_NAME}_exec_t" "${MODULE_NAME}_var_lib_t"; do
-    if ! grep -q "${token}" "${fc}"; then
-        check_fail "fc_content missing expected path/type: ${token}"
-    fi
-done
+# FCOS permissive overlay — no file contexts; main myapp.fc labels paths.
+if [[ "${MODULE_NAME}" != "myapp_canary" ]]; then
+    for token in "/opt/${MODULE_NAME}" "/var/lib/${MODULE_NAME}" "${MODULE_NAME}_exec_t" "${MODULE_NAME}_var_lib_t"; do
+        if ! grep -q "${token}" "${fc}"; then
+            check_fail "fc_content missing expected path/type: ${token}"
+        fi
+    done
+fi
 
 if [[ "${fail}" -ne 0 ]]; then
     exit 1

@@ -180,6 +180,54 @@ def test_no_changes_needed_summary() -> None:
     assert "no te_content changes required" in summary.lower() or "No te_content changes" in summary
 
 
+def test_pr_summary_split_and_validate() -> None:
+    from pr_summary_common import (
+        merge_pr_summary,
+        split_pr_summary_sections,
+        validate_narrative_section,
+        validate_pr_summary,
+    )
+
+    narrative = "\n".join(
+        [
+            "### Network Bindings",
+            "- port 8888",
+            "",
+            "### File System Access",
+            "- /var/lib/myapp",
+            "",
+            "### Process Execution",
+            "- myapp_exec_t",
+            "",
+            "### Explicit Denials Maintained",
+            "- no wildcards",
+        ]
+    )
+    tail = "\n".join(
+        [
+            "### Host administrative actions (not shipped in RPM)",
+            "- None",
+            "",
+            "### Classification audit (engine)",
+            "| Verdict | Target | Engine | Note |",
+            "| --- | --- | --- | --- |",
+            "| direct | myapp_log_t | rules | ok |",
+        ]
+    )
+    template = narrative + "\n\n" + tail
+    got_narr, got_tail = split_pr_summary_sections(template)
+    assert "### Host administrative" in got_tail
+    assert "Classification audit" in got_tail
+    merged = merge_pr_summary(got_narr, got_tail)
+    validate_pr_summary(merged)
+    validate_narrative_section(got_narr)
+    try:
+        validate_narrative_section("allow myapp_t shadow_t:file read;")
+        raise AssertionError("expected validate_narrative_section to fail")
+    except RuntimeError:
+        pass
+
+
 def test_policy_json_validation() -> None:
     payload = {
         "module_name": "myapp",
@@ -1234,6 +1282,7 @@ def main() -> int:
         ("preprocess_stats", test_preprocess_stats),
         ("prompt_uses_summary", test_prompt_uses_summary),
         ("no_changes_needed_summary", test_no_changes_needed_summary),
+        ("pr_summary_split_and_validate", test_pr_summary_split_and_validate),
         ("policy_json_validation", test_policy_json_validation),
         ("version_bump", test_version_bump),
         ("flask_endpoints", lambda: test_flask_endpoints(require_backend=require_backend)),

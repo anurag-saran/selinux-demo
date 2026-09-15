@@ -18,8 +18,8 @@ Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](SELINUX_BASICS.md) �
 
 The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is a deliberate probe of one SELinux permission surface. They are exercised by:
 
-- Developers during staging (`curl`, Act 1 in the demo)
-- [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) (canary, enforce, rollback)
+- Developers during staging ([`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) — all paths in one pass; Act 1 then shows **`policy_out/avc.log`**)
+- [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) (canary, enforce, rollback — batch readiness, no AVC narration)
 - [`scripts/smoke_test.py`](../scripts/smoke_test.py) (`test_flask_endpoints`)
 - [`scripts/run_demo.sh`](../scripts/run_demo.sh)
 
@@ -47,12 +47,36 @@ The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is 
 | **Where** | On the **same Linux machine** where Flask listens on **8888** — staging server or Podman VM after Lab 6 / `setup_staging_env.sh` |
 | **Why** | Each URL is a deliberate SELinux probe; failures show up as HTTP errors or AVC lines |
 
+**Workshop order (Act 1 / Lab 7 — one batch, then AVC file):**
+
+```bash
+for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
+  echo "=== GET $path ==="
+  curl -sf "http://127.0.0.1:8888${path}" | head -c 120
+  echo
+done
+curl -sf http://127.0.0.1:8889/health; echo
+
+# Presenter demo (Mac VM): export + preview on the Mac
+bash scripts/run_on_podman_vm.sh export-avcs
+wc -l policy_out/avc.log
+head -1 policy_out/avc.log
+```
+
+Or on the VM only:
+
+```bash
+bash scripts/run_on_podman_vm.sh trigger
+```
+
+**Batch loop (gates only — same paths):**
+
 ```bash
 for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
   curl -sf "http://127.0.0.1:8888${path}" | head -c 120
   echo
 done
-curl -sf http://127.0.0.1:8889/health
+curl -sf http://127.0.0.1:8889/health; echo
 ```
 
 ---
@@ -241,7 +265,7 @@ Admin runbook with pass/fail examples: [`PRODUCTION_READINESS.md`](PRODUCTION_RE
 ```text
 Layer 1  smoke_test.py + forbidden-patterns     PR / laptop (no SELinux)
 Layer 2  compile + policy-semantics + version-consistency + blast-radius + ansible-lint   PR (Podman)
-Layer 3  six HTTP endpoints + AVC export      staging discovery (permissive)
+Layer 3  integration probes + policy_out/avc.log   staging discovery (permissive)
 Layer 4  deploy_canary + wait_for_endpoints   staging/prod canary host
 Layer 5  monitor_avc + check_soak_ready       soak period
 Layer 6  enforce_production + wait_for_endpoints   production cutover

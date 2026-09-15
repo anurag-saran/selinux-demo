@@ -20,6 +20,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=lib/training_lab_runner.sh
 source "${SCRIPT_DIR}/lib/training_lab_runner.sh"
+# shellcheck source=lib/integration_probes.sh
+source "${SCRIPT_DIR}/lib/integration_probes.sh"
 # shellcheck source=lib/vm_ready.sh
 source "${SCRIPT_DIR}/lib/vm_ready.sh"
 
@@ -128,6 +130,7 @@ lab_2() {
     tlab_why "Policy rules talk about types on files (myapp_exec_t, myapp_log_t), not Unix usernames."
     tlab_question "What type does policy assign to each path?"
     tlab_explain "ls -Z shows the SELinux context; focus on the third field (the type)."
+    tlab_explain "Create the log file once so ls -Z can show myapp_log_t (full staged HTTP probes are in Lab 7)."
     tlab_run_cmd "curl -sf -o /dev/null http://127.0.0.1:8888/save-log || true"
     tlab_run_cmd "ls -Z /opt/myapp/app.py"
     tlab_run_cmd "ls -Z /var/lib/myapp"
@@ -182,12 +185,9 @@ lab_5() {
 
 lab_7() {
     tlab_print_section "Lab 7 — Hit HTTP endpoints"
-    tlab_why "Each URL exercises a different SELinux permission (files, script, network, socket)."
-    tlab_question "Does the app work under SELinux and hit all workshop probes?"
-    tlab_explain "Six GETs — curl -sf fails the loop if any path errors."
-    tlab_run_cmd 'for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do echo "=== GET $path ==="; curl -sf "http://127.0.0.1:8888${path}" | head -c 120; echo; done'
-    tlab_run_cmd "curl -sf http://127.0.0.1:8889/health; echo"
-    tlab_checkpoint "All six paths and backend health should succeed (HTTP 200)."
+    INTEGRATION_UI=training
+    INTEGRATION_AUTO="${TLAB_AUTO}"
+    run_integration_probes
     tlab_pause_lab
 }
 

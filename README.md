@@ -23,7 +23,7 @@ make check
 
 ```text
 App change → staging (permissive myapp_t) → AVC logs
-    → cli/deterministic_gen.py (default) or selinux_gen.py (LLM)
+    → cli/deterministic_gen.py (default policy) + optional cli/summarize_pr.py (LLM prose)
     → merge + version bump + pr_summary.md + findings.json
     → PR review → compile_and_validate.sh (CentOS Stream 9 compile image, pull-first)
     → ansible/deploy_canary.yml → ansible/enforce_production.yml
@@ -37,7 +37,7 @@ selinux-demo/
 │   ├── app.py              Six demo HTTP endpoints (incl. Tier 6 network probes)
 │   ├── backend_stub.py     Backend on :8889 + /run/myapp/notify.sock (myapp_backend_t)
 │   └── bin/backup.sh       Executed by /run-script (bash builtins only)
-├── cli/                    deterministic_gen.py (default), selinux_gen.py (LLM), verify_avc_coverage.py
+├── cli/                    deterministic_gen.py (policy), summarize_pr.py (optional LLM summary), verify_avc_coverage.py
 ├── config/                 App manifests (paths, probes, deploy artifacts)
 │   ├── myapp.manifest.yml  Demo app manifest (drives readiness scripts)
 │   └── README.md           Schema + onboarding for new apps
@@ -58,7 +58,7 @@ selinux-demo/
 ```text
 ┌─────────────────────────────────────────────────────────┐
 │ APPLICATION TEAM                                        │
-│  1. setup_staging_env.sh (permissive) + integration tests│
+│  1. setup_staging_env.sh (permissive) + staged integration tests (integration_probes.sh)│
 │  2. dev_generate_policy.sh → selinux/ + pr_summary.md   │
 │  3. Open PR (CI validates compile + forbidden patterns) │
 └───────────────────────────┬─────────────────────────────┘
@@ -75,9 +75,8 @@ selinux-demo/
 | Role | Command |
 |------|---------|
 | **Developer (offline / no API)** | `bash scripts/dev_generate_policy.sh --skip-export` — deterministic engine is default; see [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) |
-| **Developer (LLM path)** | `bash scripts/dev_generate_policy.sh --engine llm --use-vm --apply` |
+| **Developer (optional LLM summary)** | `bash scripts/dev_generate_policy.sh --llm-summary` — polishes `pr_summary.md` only |
 | **Developer (open PR)** | `bash scripts/dev_generate_policy.sh --use-vm --apply --open-pr` |
-| **Developer (CLI alias)** | `bash scripts/selinux-gen --help` |
 | **PR body assembly** | `bash scripts/assemble_pr_body.sh` → `policy_out/pr_body.md` |
 | **CI (automatic on PR)** | `.github/workflows/selinux-policy-ci.yml` |
 | **Admin canary** | GitHub Actions → **SELinux Policy Deploy** → `canary` / `staging` |
@@ -113,7 +112,7 @@ Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansibl
 
 ```bash
 pip3 install -r cli/requirements.txt
-export OPENAI_API_KEY="your-key"   # only for --engine llm
+# Optional: export OPENAI_API_KEY before --llm-summary (admin prose only; policy stays deterministic)
 
 # macOS / laptop: pull prebuilt CentOS Stream 9 compile image from Docker Hub (~seconds)
 source "${HOME}/.local/share/selinux-demo/podman/env.sh"   # once per shell on Mac
@@ -121,13 +120,10 @@ export SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-docker.io/asaran/selinux-demo
 bash scripts/lib/selinux_build_image.sh pull
 # See [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) (build/publish/repair)
 
-# Staging + tests (native Linux)
+# Staging + tests (native Linux) — one batch; workshop shows policy_out/avc.log after Act 1
 sudo bash scripts/setup_staging_env.sh
-curl http://127.0.0.1:8888/save-log
-curl http://127.0.0.1:8888/run-script
-curl http://127.0.0.1:8888/rotate-log
-curl http://127.0.0.1:8888/probe-backend
-curl http://127.0.0.1:8888/notify-socket
+bash -lc 'source scripts/lib/integration_probes.sh && INTEGRATION_UI=vm INTEGRATION_AUTO=1 run_integration_probes'
+bash scripts/dev_generate_policy.sh --skip-export   # or export-avcs first; see docs/TESTING.md §1
 
 # Tier 6 endpoints require myapp-backend.service (installed by setup_staging_env.sh):
 #   /probe-backend  → TCP client to 127.0.0.1:8889 (myapp_backend_t)
@@ -143,7 +139,7 @@ bash scripts/dev_generate_policy.sh --use-vm --apply --enforce-check
 bash scripts/dev_generate_policy.sh --use-vm --apply --open-pr
 ```
 
-This exports AVCs, runs AI generation, copies results into `selinux/`, assembles `policy_out/pr_body.md`, and prints PR steps.
+This exports AVCs, runs **deterministic** generation, copies results into `selinux/`, assembles `policy_out/pr_body.md`, and prints PR steps.
 
 ### 1. Staging environment (permissive)
 
@@ -173,21 +169,25 @@ bash scripts/run_on_podman_vm.sh export-avcs
 ### 3. Generate policy update
 
 ```bash
-pip3 install -r cli/requirements.txt
-export OPENAI_API_KEY="your-key"
-# Optional LiteLLM / workshop endpoint:
-export OPENAI_BASE_URL="https://your-litellm-host/v1"
-export OPENAI_API_MODEL="qwen3-14b"
+bash scripts/dev_generate_policy.sh --use-vm --apply
+# Optional admin-facing prose (does not change .te/.fc):
+# export OPENAI_API_KEY="your-key"
+# bash scripts/dev_generate_policy.sh --use-vm --apply --llm-summary
+```
 
-python3 cli/selinux_gen.py \
-  --app-name myapp \
-  --audit-log policy_out/avc.log \
+Or run the pieces manually:
+
+```bash
+python3 cli/deterministic_gen.py \
+  --avc-log policy_out/avc.log \
+  --manifest config/myapp.manifest.yml \
   --existing-te selinux/myapp.te \
   --existing-fc selinux/myapp.fc \
-  --bump-version \
-  --validate-compile \
-  --generate-only \
-  --output-dir policy_out
+  --out-dir policy_out \
+  --bump-version
+bash scripts/validate_forbidden_patterns.sh policy_out
+bash scripts/compile_and_validate.sh policy_out
+python3 cli/summarize_pr.py   # optional; needs OPENAI_API_KEY
 ```
 
 Outputs: `policy_out/myapp.te`, `myapp.fc`, `pr_summary.md`, `pr_body.md`, and updated `selinux/policy_version.txt` when promoted with `--apply`. PR access delta is filled by [`assemble_pr_body.sh`](scripts/assemble_pr_body.sh) (merge-base **sesearch** diff via [`policy_module_diff.sh`](scripts/lib/policy_module_diff.sh)).
@@ -330,6 +330,8 @@ macOS has no SELinux. Run these in **Terminal at the repo root** after one-time 
 ```bash
 source ~/.local/share/selinux-demo/podman/env.sh   # each new shell; puts user-local podman on PATH
 bash scripts/lib/selinux_build_image.sh pull   # docker.io/asaran/selinux-demo-selinux-build:stream9
+bash scripts/run_on_podman_vm.sh setup
+bash scripts/run_on_podman_vm.sh trigger   # all curls inside VM (sync first)
 bash scripts/demo_present.sh --use-vm --demo-mode
 bash scripts/run_on_podman_vm.sh export-avcs
 export OPENAI_API_KEY="your-key"

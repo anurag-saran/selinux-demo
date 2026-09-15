@@ -32,10 +32,10 @@ All guides in this folder use the same **beginner-friendly pattern** where it ma
 | Document | Best for |
 |----------|----------|
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | First-time SELinux: labels, policy files, permissive soak |
-| [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | Hands-on commands before the workshop |
+| [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | Hands-on commands before the workshop (Lab 7: staged probes + AVC peeks) |
 | [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md) | Repo layout and which script to run when |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Presenting or following the 10-act workshop |
-| [TESTING.md](TESTING.md) | CI, `make check`, integration endpoints |
+| [TESTING.md](TESTING.md) | CI, `make check`, integration endpoints (staged + batch) |
 | [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) | Offline AVC → policy engine (default) |
 | [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) | Compile policy in a container (Mac or CI) |
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Canary → soak → enforce on real servers |

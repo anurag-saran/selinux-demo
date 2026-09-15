@@ -5,7 +5,7 @@ After=network.target
 
 [Service]
 Type=simple
-# Explicit venv python (not shebang) — avoids systemd EXEC/shebang issues on FCOS; see ReadWritePaths for ProtectSystem=strict.
+# Explicit backend entrypoint (labeled myapp_backend_exec_t) — venv python alone stays in myapp_t.
 ExecStart=/opt/myapp/venv/bin/python /opt/myapp/backend_stub.py
 User=myapp
 Group=myapp

@@ -1,1 +1,1 @@
-# Placeholder — built by scripts/compile_and_validate.sh selinux/canary_overlay
+# myapp_canary — permissive overlay only (no file contexts)

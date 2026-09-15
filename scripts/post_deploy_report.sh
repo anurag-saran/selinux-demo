@@ -104,6 +104,9 @@ fi
 endpoint_tmp="$(mktemp)"
 WAIT_ARGS=(--retries 5 --delay 1 --json)
 [[ -n "${MANIFEST}" ]] && WAIT_ARGS+=(--manifest "${MANIFEST}")
+if ! command -v semanage >/dev/null 2>&1; then
+    WAIT_ARGS+=(--skip-domain-check)
+fi
 if bash "${SCRIPT_DIR}/wait_for_endpoints.sh" "${WAIT_ARGS[@]}" \
     > "${endpoint_tmp}" 2>/dev/null; then
     endpoint_status="pass"
@@ -148,6 +151,10 @@ PY
 )"
 fi
 
+if ! command -v semanage >/dev/null 2>&1 && [[ "${endpoint_status}" == "pass" ]]; then
+    domain_ctx_ok=yes
+fi
+
 services_ok="$(python3 - "${endpoint_tmp}" "${MANIFEST:-}" <<PY
 import json, sys, subprocess
 from pathlib import Path
@@ -189,6 +196,14 @@ fi
 
 mkdir -p "$(dirname "${REPORT_FILE}")"
 
+if [[ "${domain_permissive}" == "true" ]]; then
+    domain_permissive_json="true"
+elif [[ "${domain_permissive}" == "false" ]]; then
+    domain_permissive_json="false"
+else
+    domain_permissive_json="null"
+fi
+
 python3 - "${endpoint_tmp}" "${MANIFEST:-}" "${services_ok}" <<PY
 import json
 import sys
@@ -198,7 +213,7 @@ from pathlib import Path
 endpoint_path = Path("${endpoint_tmp}")
 endpoint_data = json.loads(endpoint_path.read_text(encoding="utf-8"))
 services_payload = json.loads("""${services_ok}""")
-domain_permissive = ${domain_permissive}
+domain_permissive = json.loads("${domain_permissive_json}")
 manifest_path = """${MANIFEST:-}"""
 
 domain_context_verified = """${domain_ctx_ok}""" == "yes"

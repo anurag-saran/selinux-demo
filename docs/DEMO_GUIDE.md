@@ -21,8 +21,8 @@ This demo shows how an application team and a security admin work together to up
 
 1. A small Flask app runs on a Linux host with SELinux **on** — the **whole OS stays Enforcing** (`getenforce`).
 2. Only the app domain (`myapp_t`) is set **permissive** — the app keeps working, but its denials are **logged** (SSH, cron, and other domains stay fully enforcing).
-3. Integration tests hit HTTP endpoints; denials are exported to a file.
-4. An **AI CLI** reads those denials and proposes updates to policy files in Git.
+3. Integration tests hit all HTTP endpoints in order; **`policy_out/avc.log`** is shown after the run (export or offline fixture).
+4. **Deterministic policy CLI** merges AVCs into Git-ready `.te`/`.fc`; optional **LLM** polishes `pr_summary.md` only.
 5. A **Pull Request body** is assembled with a plain-English summary for admins.
 6. **CI** checks the policy compiles and blocks dangerous rules.
 7. An admin **deploys a canary** — real policy installed, domain still permissive.
@@ -77,7 +77,7 @@ The **Order Processor** is a Flask app on port **8888**. Each endpoint exercises
 
 Full SELinux walkthrough of `/save-log`: [SELINUX_BASICS.md §9](SELINUX_BASICS.md).
 
-During Act 1 the demo curls all six endpoints so AVCs are captured for the AI step.
+**Act 1 flow:** [`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) curls all six paths + backend health in **one pass**, then Act 1 prints **`wc -l`** and **`head -1`** of **`policy_out/avc.log`** (live export on Mac VM, or offline fixture with `--skip-ai`). Act 2 narrates the same file for policy generation.
 
 ---
 
@@ -101,13 +101,13 @@ Acts 1–5 = app team story. Acts 6–10 = admin story. The presenter script cov
 | **`run_demo.sh`** | Quick unattended run on native Linux | No | Partial — skips PR narration |
 | **`dev_generate_policy.sh`** | Real developer workflow (not a staged demo) | No | Developer path only |
 
-**Demo prep (recommended first run):** from repo root, no flags — built-in demo-mode, offline fixtures, and Podman VM on macOS:
+**Demo prep (recommended first run):** from repo root, no flags — built-in demo-mode, offline fixtures, and Podman VM on macOS. Act 1 uses **staged integration probes** (see §3).
 
 ```bash
 bash scripts/run_demo_prep.sh
 ```
 
-Or `make demo-prep`. Talking points print before each act; show commands are typed for you after each act.
+Or `make demo-prep`. Talking points print before each act; show commands are typed for you after each act (Act 1 includes an AVC peek after `/save-log`). Hands-on prep: `make training-lab` — Lab 7 runs the same staged probe flow.
 
 ```mermaid
 flowchart TD
@@ -266,9 +266,9 @@ Each act prints a blue banner. Below: plain English, what runs, what you should 
 
 **In plain English:** Install the app, turn on permissive mode for `myapp_t`, and run integration tests.
 
-**What runs:** `setup_staging_env.sh` + curl to all four endpoints.
+**What runs:** `setup_staging_env.sh` (if needed) + **all integration curls in one batch**, then preview of **`policy_out/avc.log`**.
 
-**What you should see:**
+**What you should see (excerpt):**
 
 ```bash
 $ getenforce
@@ -277,8 +277,18 @@ Enforcing
 $ sudo semanage permissive -l
 myapp_t
 
-$ curl -sf http://127.0.0.1:8888/save-log
-{"status":"ok","message":"Log entry saved",...}
+=== GET /save-log ===
+{"status":"ok",...}
+=== GET /run-script ===
+...
+=== GET :8889/health ===
+{"status":"ok",...}
+
+$ wc -l policy_out/avc.log
+42
+
+$ head -1 policy_out/avc.log
+type=AVC msg=audit(...): avc: denied { write } ...
 ```
 
 **SELinux concept:** Per-domain permissive (two-layer model) — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
@@ -315,25 +325,25 @@ All exported lines should show `myapp_t` in `scontext` and `permissive=1` during
 
 ---
 
-### Act 3 — AI policy generation (Application team)
+### Act 3 — Policy generation (Application team)
 
-**In plain English:** The CLI merges duplicate AVC lines, subtracts permissions already in the existing `.te`, and sends only net-new access needs to the LLM.
+**In plain English:** The **deterministic** engine merges duplicate AVC lines, subtracts permissions already in `selinux/myapp.te`, and writes candidate `.te`/`.fc` to `policy_out/`. Optionally, **`cli/summarize_pr.py`** rewrites the admin narrative in `pr_summary.md` (classification table stays deterministic).
 
-**What runs:** `cli/selinux_gen.py` with `--generate-only`.
+**What runs:** `cli/deterministic_gen.py` (+ `bash scripts/validate_forbidden_patterns.sh` / compile). With `--llm-summary` and `OPENAI_API_KEY`: `cli/summarize_pr.py`.
 
 **What you should see:**
 
 ```text
-AVC preprocess: raw=42 merged=6 net_new=2
-Wrote policy_out/avc_summary.txt
-[INFO] Wrote policy_out/myapp.te
-[INFO] Wrote policy_out/pr_summary.md
-[INFO] Policy version bumped to 1.1.2
+Wrote policy_out/avc_summary.txt (raw=42 merged=6 net_new=2)
+Wrote policy_out/myapp.{te,fc} (N net-new denial(s) classified)
+Wrote policy_out/pr_summary.md
+# optional:
+Calling model 'gpt-4o-mini' for pr_summary narrative only...
 ```
 
 **SELinux concept:** `.te` allow rules — [SELINUX_BASICS.md §5](SELINUX_BASICS.md).
 
-**Talking point:** *"Policy is merged into the existing module — not replaced blindly. CI will reject wildcards and allows to shadow_t, unconfined_t, sysadm_t."*
+**Talking point:** *"Policy is merged into the existing module — not replaced blindly. CI writes the rules; the model only helps admins read the PR summary if we enable it."*
 
 **Show on screen:** `head -30 policy_out/pr_summary.md` (look for `### Network Bindings` headings).
 
@@ -384,7 +394,7 @@ $ grep -E 'Policy access delta|Rules ADDED|Network Bindings|forbidden-patterns' 
 
 **In plain English:** Install the **full** policy module (not the staging stub) but keep `myapp_t` permissive for **canary soak**. This is a different permissive phase from Acts 1–2 (discovery).
 
-**What runs:** `ansible/deploy_canary.yml` (or `apply_policy.sh --canary` fallback).
+**What runs:** `ansible/deploy_canary.yml` (or `apply_policy.sh --canary` fallback). On the Podman FCOS VM, Act 6 syncs the repo then builds **`selinux/myapp_canary.pp`** (permissive overlay for `myapp_t` when `semanage` is absent) before the playbook runs.
 
 **What you should see:**
 
@@ -409,6 +419,8 @@ $ curl -sf http://127.0.0.1:8888/notify-socket
 **Talking point:** *"We deploy the real module early, but we don't enforce until we've watched production-like workloads for a full business cycle."*
 
 Soak marker written: `/var/lib/myapp/selinux_canary_deployed_at` (soak clock starts here). Canary also runs **`semodule -DB`** so dontaudit rules do not hide soak AVCs.
+
+**FCOS note:** You will not see `semanage permissive -l`; permissive soak comes from the **`myapp_canary`** module (`semodule -l | grep myapp_canary`). Enforce (Act 9) removes that overlay with **`semodule -r myapp_canary`** when `semanage` is unavailable.
 
 ---
 
@@ -567,7 +579,8 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `ansible/deploy_canary.yml` | Permissive canary deploy — see [ansible/README.md](../ansible/README.md) |
 | `ansible/enforce_production.yml` | Remove permissive + enforce — see [ansible/README.md](../ansible/README.md) |
 | `ansible/emergency_rollback.yml` | Outage response — see [ansible/README.md](../ansible/README.md) |
-| `scripts/wait_for_endpoints.sh` | Unified systemd + six HTTP endpoint readiness |
+| `scripts/lib/integration_probes.sh` | Act 1 / Lab 7 / VM `trigger` — all HTTP probes in one pass |
+| `scripts/wait_for_endpoints.sh` | Unified systemd + six HTTP endpoint readiness (canary/enforce gates) |
 | `docs/TESTING.md` | Full test matrix (endpoints, smoke_test.py, CI, gates) |
 | `scripts/post_deploy_report.sh` | JSON deploy feedback → `/var/lib/myapp/selinux_deploy_report.json` |
 | `scripts/lib/vm_ready.sh` | Podman VM SSH readiness + recovery hints |

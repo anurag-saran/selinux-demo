@@ -1,7 +1,38 @@
 ---
-- name: Load policy version from selinux/policy_version.txt (controller checkout)
+- name: Stat policy_version.txt in policy artifact dir (policy_out layout)
+  ansible.builtin.stat:
+    path: "{{ policy_artifact_dir }}/policy_version.txt"
+  register: myapp_pv_artifact
+  run_once: true
+
+- name: Stat selinux/policy_version.txt next to artifact dir (repo checkout)
+  ansible.builtin.stat:
+    path: "{{ policy_artifact_dir }}/../selinux/policy_version.txt"
+  register: myapp_pv_selinux
+  when: not myapp_pv_artifact.stat.exists
+  run_once: true
+
+- name: Fail when policy version file is missing
+  ansible.builtin.fail:
+    msg: >-
+      No policy_version.txt under {{ policy_artifact_dir }}
+      or {{ policy_artifact_dir }}/../selinux/ — run dev_generate_policy or stage_skip_ai_fixture
+  when:
+    - not myapp_pv_artifact.stat.exists
+    - not (myapp_pv_selinux.stat.exists | default(false))
+  run_once: true
+
+- name: Load policy version
   ansible.builtin.set_fact:
-    policy_version: "{{ lookup('file', policy_artifact_dir ~ '/selinux/policy_version.txt') | trim }}"
+    policy_version: >-
+      {{
+        lookup(
+          'file',
+          (policy_artifact_dir ~ '/policy_version.txt')
+          if myapp_pv_artifact.stat.exists
+          else (policy_artifact_dir ~ '/../selinux/policy_version.txt')
+        ) | trim
+      }}
   run_once: true
 
 - name: Run myapp_selinux role phase

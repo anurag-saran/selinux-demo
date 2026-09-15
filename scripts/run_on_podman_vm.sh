@@ -28,8 +28,8 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") <command>
 
-VM: sync, setup, trigger, avcs, export-avcs, apply-policy, demo, shell, exec
-Mac: generate-policy (cli/selinux_gen.py)
+VM: sync, setup, trigger (all integration curls on guest), avcs, export-avcs, apply-policy, demo, shell, exec
+Mac: generate-policy (deterministic_gen; optional POLICY_SUMMARY_LLM=1)
 Legacy: ai
 EOF
 }
@@ -37,8 +37,10 @@ EOF
 sync_project() {
     log_info "Syncing ${PROJECT_ROOT} -> VM:${VM_PROJECT}"
     podman machine ssh -- mkdir -p "${VM_PROJECT}"
+    # COPYFILE_DISABLE avoids AppleDouble; guest tar may warn on xattr keywords — filter noise.
     if ! COPYFILE_DISABLE=1 tar czf - -C "${PROJECT_ROOT}" . \
-        | podman machine ssh -- tar xzf - -C "${VM_PROJECT}"; then
+        | podman machine ssh -- "tar --warning=no-unknown-keyword -xzf - -C ${VM_PROJECT} 2>/dev/null \
+            || tar xzf - -C ${VM_PROJECT} 2>/dev/null"; then
         log_error "Project sync to VM failed"
         print_vm_recovery_card
         exit 1
@@ -82,21 +84,27 @@ export_avcs() {
 }
 
 generate_policy() {
-    [[ -n "${OPENAI_API_KEY:-}" ]] || { log_error "OPENAI_API_KEY not set"; exit 1; }
     [[ -s "${AVC_EXPORT}" ]] || { log_error "Run export-avcs first"; exit 1; }
     ensure_vm_ready || exit 1
-    log_info "Generating policy via cli/selinux_gen.py..."
-    python3 "${PROJECT_ROOT}/cli/selinux_gen.py" \
-        --app-name "${APP_NAME}" \
-        --domain "${DOMAIN}" \
-        --audit-log "${AVC_EXPORT}" \
-        --existing-te "${SELINUX_DIR}/${APP_NAME}.te" \
-        --existing-fc "${SELINUX_DIR}/${APP_NAME}.fc" \
-        --bump-version \
-        --validate-compile \
-        --generate-only \
-        --output-dir "${POLICY_OUT}" \
-        --api-model "${OPENAI_API_MODEL:-gpt-4o-mini}"
+    log_info "Generating policy via cli/deterministic_gen.py..."
+    # shellcheck source=lib/policy_generation.sh
+    source "${SCRIPT_DIR}/lib/policy_generation.sh"
+    local policy_te="${SELINUX_DIR}/${APP_NAME}.te"
+    local policy_fc="${SELINUX_DIR}/${APP_NAME}.fc"
+    local policy_version="${SELINUX_DIR}/policy_version.txt"
+    local manifest="${APP_MANIFEST:-${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml}"
+    run_deterministic_policy_gen \
+        "${AVC_EXPORT}" \
+        "${manifest}" \
+        "${policy_te}" \
+        "${policy_fc}" \
+        "${policy_version}" \
+        "${POLICY_OUT}" \
+        "${APP_NAME}"
+    if [[ "${POLICY_SUMMARY_LLM:-0}" == "1" ]] && [[ -n "${OPENAI_API_KEY:-}" ]]; then
+        LLM_SUMMARY=1
+        run_llm_pr_summary_if_requested "${POLICY_OUT}" "${APP_NAME}"
+    fi
 }
 
 apply_policy_on_vm() {
@@ -107,8 +115,8 @@ apply_policy_on_vm() {
 }
 
 trigger_curls() {
-    # FCOS/Podman stub path: processes may stay init_t until full policy; endpoints still must pass.
-    vm_exec "sudo bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 10 --delay 2 --skip-domain-check"
+    sync_project
+    vm_exec "bash -lc 'source ${VM_PROJECT}/scripts/lib/integration_probes.sh && INTEGRATION_UI=vm INTEGRATION_AUTO=1 run_integration_probes'"
 }
 
 cmd="${1:-}"
@@ -135,9 +143,11 @@ case "${cmd}" in
         vm_exec "$*"
         ;;
     ai)
-        ensure_vm_ready || exit 1
-        sync_project
-        vm_exec "sudo -E env OPENAI_API_KEY='${OPENAI_API_KEY}' python3 cli/selinux_gen.py --apply --domain ${DOMAIN} --output-dir ${VM_PROJECT}/policy_out"
+        log_error "Legacy 'ai' command removed. Use:"
+        log_error "  bash scripts/run_on_podman_vm.sh export-avcs"
+        log_error "  bash scripts/run_on_podman_vm.sh generate-policy"
+        log_error "  bash scripts/dev_generate_policy.sh --use-vm --apply"
+        exit 1
         ;;
     shell) ensure_vm_ready || exit 1; podman machine ssh ;;
     -h|--help|help|"") usage ;;

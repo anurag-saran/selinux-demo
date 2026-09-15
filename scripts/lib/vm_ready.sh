@@ -39,7 +39,6 @@ EOF
 wait_for_vm_ssh() {
     local timeout="${1:-${VM_SSH_TIMEOUT_SEC}}"
     local elapsed=0
-    local rc=1
 
     while [[ "${elapsed}" -lt "${timeout}" ]]; do
         if podman machine ssh -- true >/dev/null 2>&1; then
@@ -55,6 +54,7 @@ wait_for_vm_ssh() {
     return 1
 }
 
+# Start default machine if needed; never stop/restart when SSH already works.
 ensure_vm_ready() {
     source_podman_env
     if ! command -v podman >/dev/null 2>&1; then
@@ -62,14 +62,22 @@ ensure_vm_ready() {
         return 1
     fi
 
-    if ! podman machine start; then
-        _vm_log_warn "podman machine start failed; retrying after stop"
-        podman machine stop 2>/dev/null || true
-        podman machine start || {
-            _vm_log_error "podman machine start failed after retry"
-            print_vm_recovery_card
-            return 1
-        }
+    local state=""
+    state="$(podman machine inspect --format '{{.State}}' 2>/dev/null || true)"
+    if [[ "${state}" == "running" ]] && podman machine ssh -- true >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [[ "${state}" != "running" ]]; then
+        if ! podman machine start >/dev/null 2>&1; then
+            _vm_log_warn "podman machine start failed; retrying after stop"
+            podman machine stop 2>/dev/null || true
+            podman machine start || {
+                _vm_log_error "podman machine start failed after retry"
+                print_vm_recovery_card
+                return 1
+            }
+        fi
     fi
 
     wait_for_vm_ssh "${VM_SSH_TIMEOUT_SEC}"

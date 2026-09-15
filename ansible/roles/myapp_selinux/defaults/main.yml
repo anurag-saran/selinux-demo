@@ -17,8 +17,16 @@ myapp_selinux_package: "myapp-selinux-{{ policy_version }}"
 # Rollback via dnf (e.g. 1.1.1-1); empty skips downgrade.
 rollback_dnf_version: ""
 
-# FCOS stub when semanage absent (controller path copied at runtime).
-stub_policy_src: "{{ policy_artifact_dir }}/selinux/stub/myapp_canary.pp"
+# FCOS overlay when semanage absent — compiled myapp_canary.pp under repo selinux/.
+selinux_repo_dir: >-
+  {{
+    (policy_artifact_dir | dirname) ~ '/selinux'
+    if (policy_artifact_dir | basename) == 'policy_out'
+    else policy_artifact_dir ~ '/selinux'
+  }}
+stub_policy_src: "{{ selinux_repo_dir }}/myapp_canary.pp"
 stub_policy_staging: /var/lib/selinux-policy-staging/myapp_canary.pp
+ports_cil_src: "{{ selinux_repo_dir }}/myapp_ports.cil"
+ports_cil_staging: /var/lib/selinux-policy-staging/myapp_ports.cil
 
 myapp_selinux_phase: canary

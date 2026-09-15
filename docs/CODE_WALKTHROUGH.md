@@ -133,7 +133,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 | **`myapp.service`**, **`myapp-backend.service`** | Tell systemd how to start the app and create state/log/run directories. |
 | **`backup.sh`** | Script the `/run-script` route executes (bash-only on purpose). |
 
-**Why six HTTP paths?** Each path tries to use a different resource (port, log file, script file, network, socket). When policy is incomplete, you get an AVC that points to the **missing allow rule**. Integration checks use [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) to curl those paths and confirm the process still runs as the right **domain**.
+**Why six HTTP paths?** Each path tries to use a different resource (port, log file, script file, network, socket). When policy is incomplete, you get an AVC that points to the **missing allow rule**. **Workshop staging** runs [`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) (all HTTP paths in one pass; Act 1 previews **`policy_out/avc.log`**). **Deploy gates** use [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) to curl those paths and confirm the process still runs as the right **domain**.
 
 ---
 
@@ -267,8 +267,10 @@ See [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) for Mac Podman no
 
 | Script | Role |
 |--------|------|
-| **`demo_present.sh`**, **`run_demo.sh`** | Workshop flows. |
-| **`run_on_podman_vm.sh`** | Sync project to Podman Machine, export AVCs with manifest filters. |
+| **`run_training_lab.sh`**, **`run_demo_prep.sh`** | Guided lab / demo prep talk track (Lab 7 uses staged probes). |
+| **`demo_present.sh`**, **`run_demo.sh`** | Workshop flows (Act 1 staged integration). |
+| **`lib/integration_probes.sh`** | All workshop curls in one pass; Act 1 shows **`avc.log`**. |
+| **`run_on_podman_vm.sh`** | Sync project to Podman Machine, **`trigger`** (staged probes), export AVCs with manifest filters. |
 
 ---
 

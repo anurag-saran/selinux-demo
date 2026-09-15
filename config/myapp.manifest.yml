@@ -40,8 +40,8 @@ selinux_ports:
 
 # Optional: run under permissive on staging to collect AVCs (documented workflow)
 integration_tests:
-  description: Order Processor demo curls + backend stub
-  command: bash scripts/run_demo.sh --endpoints-only
+  description: Order Processor demo curls (all paths) + export to policy_out/avc.log
+  command: bash -lc 'source scripts/lib/integration_probes.sh && INTEGRATION_UI=vm INTEGRATION_AUTO=1 run_integration_probes'
   notes: Use real app test suite in production; see config/README.md
 
 policy:
