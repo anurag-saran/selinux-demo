@@ -182,11 +182,11 @@ vm_sync() {
 }
 
 vm_run() {
-    local sync_first="${1:-}"
-    shift || true
-    if [[ "${sync_first}" == "--sync" ]]; then
+    if [[ "${1:-}" == "--sync" ]]; then
+        shift
         vm_sync
     fi
+    [[ $# -gt 0 ]] || { log_error "vm_run: missing remote command"; exit 1; }
     bash "${VM_HELPER}" exec "$*"
 }
 
@@ -242,9 +242,15 @@ EOF
 act_1_staging() {
     act_banner 1 "Staging" "App team runs integration tests with myapp_t in permissive mode"
     if [[ "${USE_VM}" -eq 1 ]]; then
-        bash "${VM_HELPER}" setup
-        sleep 2
-        bash "${VM_HELPER}" trigger
+        ensure_vm_ready || exit 1
+        if podman machine ssh -- "systemctl is-active myapp.service myapp-backend.service >/dev/null 2>&1"; then
+            log_info "Staging already active on VM — skipping setup (curl probes only)"
+            bash "${VM_HELPER}" trigger
+        else
+            bash "${VM_HELPER}" setup
+            sleep 2
+            bash "${VM_HELPER}" trigger
+        fi
     else
         bash "${SETUP}"
         sleep 2
@@ -298,10 +304,15 @@ act_3_generate() {
 act_4_pr_handoff() {
     act_banner 4 "PR Handoff" "Assemble PR body with AI summary + AVC excerpt for admin review"
     ensure_pr_summary_for_assemble
-    bash "${ASSEMBLE}" \
-        --app-name "${APP_NAME}" \
-        --staging-host "workshop-staging" \
+    local assemble_args=(
+        --app-name "${APP_NAME}"
+        --staging-host "workshop-staging"
         --test-suite "Presenter demo integration tests"
+    )
+    if [[ "${SKIP_AI}" -eq 1 ]]; then
+        assemble_args+=(--skip-policy-diff)
+    fi
+    bash "${ASSEMBLE}" "${assemble_args[@]}"
     log_info "PR body preview (first 25 lines):"
     head -n 25 "${PR_BODY}" || true
 }
@@ -315,9 +326,7 @@ act_5_ci_gates() {
 run_canary_playbook() {
     if [[ "${USE_VM}" -eq 1 ]]; then
         [[ "${VM_SYNCED}" -eq 1 ]] || vm_sync
-        local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/deploy_canary.yml \
-            -e policy_pp_src=${VM_POLICY_PP} \
-            -e policy_artifact_dir=${VM_POLICY_DIR}"
+        local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/deploy_canary.yml -e policy_pp_src=${VM_POLICY_PP} -e policy_artifact_dir=${VM_POLICY_DIR}"
         for arg in "$@"; do cmd+=" ${arg}"; done
         vm_run "${cmd}"
     else
@@ -330,9 +339,7 @@ run_canary_playbook() {
 run_enforce_playbook() {
     if [[ "${USE_VM}" -eq 1 ]]; then
         [[ "${VM_SYNCED}" -eq 1 ]] || vm_sync
-        local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/enforce_production.yml \
-            -e policy_pp_src=${VM_POLICY_PP} \
-            -e policy_artifact_dir=${VM_POLICY_DIR}"
+        local cmd="sudo ansible-playbook -i ansible/inventory.example.yml ansible/enforce_production.yml -e policy_pp_src=${VM_POLICY_PP} -e policy_artifact_dir=${VM_POLICY_DIR}"
         for arg in "$@"; do cmd+=" ${arg}"; done
         vm_run "${cmd}"
     else
@@ -433,6 +440,9 @@ See docs/PRODUCTION_READINESS.md for the full runbook.
 EOF
 }
 
+# shellcheck source=lib/ansible_collections.sh
+source "${SCRIPT_DIR}/lib/ansible_collections.sh"
+
 main() {
     echo -e "${BOLD}SELinux Policy-as-Code — Presenter Demo${NC}"
     if [[ "${DEMO_MODE}" -eq 1 ]]; then
@@ -455,8 +465,16 @@ main() {
         vm_ensure_ready
     fi
 
+    if demo_needs_ansible_collections; then
+        ensure_ansible_collections
+    fi
+
     for act in 1 2 3 4 5 6 7 8 9 10; do
         act_enabled "${act}" || continue
+        if [[ "${DEMO_PREP:-0}" -eq 1 ]]; then
+            demop_preamble "${act}"
+            pause_step
+        fi
         case "${act}" in
             1) act_1_staging ;;
             2) act_2_export ;;
@@ -469,6 +487,9 @@ main() {
             9) act_9_enforce ;;
             10) act_10_rollback ;;
         esac
+        if [[ "${DEMO_PREP:-0}" -eq 1 ]]; then
+            demop_show_screen "${act}"
+        fi
         pause_step
     done
 
@@ -480,4 +501,6 @@ main() {
     echo "  Runbook: docs/PRODUCTION_READINESS.md"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

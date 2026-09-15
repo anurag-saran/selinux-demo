@@ -96,9 +96,18 @@ Acts 1–5 = app team story. Acts 6–10 = admin story. The presenter script cov
 
 | Script | Best for | Pauses? | Full story? |
 |--------|----------|---------|-------------|
+| **`run_demo_prep.sh`** | Rehearsal / showcase with **talking points** (no flags) | Yes | Yes — acts 1–10 + typed show commands |
 | **`demo_present.sh`** | Live workshops, first-time audiences | Yes (skip with `--auto`) | Yes — 10 acts |
 | **`run_demo.sh`** | Quick unattended run on native Linux | No | Partial — skips PR narration |
 | **`dev_generate_policy.sh`** | Real developer workflow (not a staged demo) | No | Developer path only |
+
+**Demo prep (recommended first run):** from repo root, no flags — built-in demo-mode, offline fixtures, and Podman VM on macOS:
+
+```bash
+bash scripts/run_demo_prep.sh
+```
+
+Or `make demo-prep`. Talking points print before each act; show commands are typed for you after each act.
 
 ```mermaid
 flowchart TD
@@ -132,6 +141,7 @@ flowchart TD
 - Root or `sudo` (SELinux policy install requires it)
 - SELinux **Enforcing** at OS level (app domain set permissive separately — see Basics §7)
 - Packages: `audit`, `policycoreutils-python-utils`, `checkpolicy`, `selinux-policy-devel`, `ansible`, `curl`
+- Acts **6–10** need Ansible collections: `ansible-galaxy collection install -r ansible/requirements.yml` (or let `demo_present.sh` / `run_demo_prep.sh` install them before act 6)
 - Port **8888** free on localhost
 
 ### macOS
@@ -164,26 +174,31 @@ Step-by-step tables: [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAI
 ### First rehearsal (recommended)
 
 ```bash
-# Native Linux — repo root, user with sudo
-export OPENAI_API_KEY="your-key"
-sudo bash scripts/demo_present.sh --demo-mode --auto
-
-# macOS — repo root, Podman VM must be running
-export OPENAI_API_KEY="your-key"
-bash scripts/demo_present.sh --use-vm --demo-mode --auto
+# Talk track + pauses + offline fixtures — no flags (Mac: source env.sh first if needed)
+bash scripts/run_demo_prep.sh
+# Native Linux: sudo bash scripts/run_demo_prep.sh
 ```
 
-**Expected start of output:**
+Fast unattended dry run (low-level script with flags):
+
+```bash
+bash scripts/demo_present.sh --demo-mode --skip-ai --auto
+# macOS add: --use-vm
+```
+
+With live OpenAI generation instead of fixtures:
+
+```bash
+export OPENAI_API_KEY="your-key"
+sudo bash scripts/demo_present.sh --demo-mode --auto          # Linux
+bash scripts/demo_present.sh --use-vm --demo-mode --auto      # macOS
+```
+
+**Expected start of output (run_demo_prep.sh):**
 
 ```text
-SELinux Policy-as-Code — Presenter Demo
-Demo mode ON — soak timer bypassed for acts 8–9 only
-Acts: 1-10 | use-vm=0 | skip-ai=0 | auto=1
-
-════════════════════════════════════════════════════════════
-  ACT 1: Staging
-  App team runs integration tests with myapp_t in permissive mode
-════════════════════════════════════════════════════════════
+SELinux workshop — demo prep / showcase
+Talking points + typed show commands + full presenter demo (acts 1–10).
 ```
 
 Typical duration: **15–25 minutes** with pauses; **8–12 minutes** with `--auto`.

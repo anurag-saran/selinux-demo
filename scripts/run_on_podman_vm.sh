@@ -107,7 +107,8 @@ apply_policy_on_vm() {
 }
 
 trigger_curls() {
-    vm_exec "sudo bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 10 --delay 2"
+    # FCOS/Podman stub path: processes may stay init_t until full policy; endpoints still must pass.
+    vm_exec "sudo bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 10 --delay 2 --skip-domain-check"
 }
 
 cmd="${1:-}"

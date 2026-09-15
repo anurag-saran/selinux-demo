@@ -8,7 +8,7 @@ export SMOKE_SKIP_FLASK ?= 1
 .PHONY: help deps test check lint fixtures test-smoke test-static test-manifest \
 	test-rpm test-forbidden test-version test-fixtures test-blast-radius \
 	lint-shell lint-yaml lint-ansible image integration-compile integration-semantics \
-	training-lab
+	training-lab demo-prep
 
 help: ## List targets (default)
 	@echo "SELinux demo — common targets:"
@@ -94,3 +94,6 @@ integration-blast-radius: ## Blast-radius with Podman integration (CI blast-radi
 
 training-lab: ## Guided lab walkthrough (typewriter + explanations; Mac uses Podman VM)
 	bash scripts/run_training_lab.sh
+
+demo-prep: ## Workshop demo prep: talk track + typed show commands (no flags)
+	bash scripts/run_demo_prep.sh
