@@ -309,8 +309,10 @@ sudo bash scripts/apply_policy.sh policy_out
 
 ## macOS developers (Podman VM)
 
+macOS has no SELinux. Run these in **Terminal at the repo root** after one-time setup: `bash scripts/fix_podman.sh`, then `source` the env file (see [docs/SELINUX_TRAINING_LAB.md — Running on macOS](docs/SELINUX_TRAINING_LAB.md#running-on-macos) for where/why each step).
+
 ```bash
-source ~/.local/share/selinux-demo/podman/env.sh
+source ~/.local/share/selinux-demo/podman/env.sh   # each new shell; puts user-local podman on PATH
 bash scripts/lib/selinux_build_image.sh pull   # docker.io/asaran/selinux-demo-selinux-build:stream9
 bash scripts/demo_present.sh --use-vm --demo-mode
 bash scripts/run_on_podman_vm.sh export-avcs

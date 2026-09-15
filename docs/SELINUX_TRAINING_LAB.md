@@ -37,26 +37,104 @@ Lab 6 installs the demo app. Labs 2–5 need those files and services — do **L
 | **Label / context** | Full tag on a file or process; focus on the **type** (third field) |
 | **AVC** | Audit line: “SELinux blocked (or would block) this access” |
 | **Permissive domain** | That process type keeps running; denials are **logged** for policy authors |
+| **semanage** | Command on **Linux** that updates SELinux’s **live policy database** (e.g. “make `myapp_t` permissive”, add a port label). Labs 5–6 use it; it is **not** available on macOS itself |
 
 ---
 
 ## Running on macOS
 
-macOS has **no SELinux**. Run all lab commands **inside the Podman Machine Linux VM**, not in Mac Terminal.
+macOS has **no SELinux** — no `getenforce`, no AVC audit stack, no `semanage`. You still **prepare** the lab from your Mac, but you **run every lab command inside a small Linux VM** that Podman starts for you.
 
-**Why Podman?** The demo needs a real RHEL-like kernel with SELinux, audit, and `semanage` — the VM provides that without a separate cloud server.
+**Why Podman?** The demo needs a real RHEL-like kernel with SELinux turned on, the **audit** subsystem (where AVC lines are written), and **`semanage`**. That tool talks to the kernel’s policy database so you can do things like list or change **per-domain permissive** mode (Lab 5) without turning off enforcement for the whole OS. A Podman Machine VM gives you that Linux environment on a laptop without renting a cloud server.
+
+| Where you type | What runs there |
+|----------------|-----------------|
+| **Mac Terminal** (zsh), at the **repo root** after `git clone` | Podman install, `source env.sh`, `run_on_podman_vm.sh sync/setup/shell` — these talk to the VM from the host |
+| **Inside the VM** (`run_on_podman_vm.sh shell`, prompt looks like Linux) | Lab 1–10: `getenforce`, `sudo semanage …`, `curl 127.0.0.1:8888`, etc. |
+
+**Repo root on Mac** means the folder that contains `scripts/` and `docs/` — for example:
+
+```bash
+cd ~/selinux-demo    # your clone path may differ
+pwd                  # should end in selinux-demo
+```
+
+### One-time setup (Mac Terminal, repo root)
+
+Run these **on the Mac**, in order. Open **Terminal.app** (or iTerm), `cd` to the clone, then:
+
+#### 1. Install or repair Podman and start the Linux VM
 
 ```bash
 bash scripts/fix_podman.sh
-source "${HOME}/.local/share/selinux-demo/podman/env.sh"
-bash scripts/run_on_podman_vm.sh sync    # copy repo into VM
-bash scripts/run_on_podman_vm.sh setup   # same as Lab 6, inside VM
-bash scripts/run_on_podman_vm.sh shell   # interactive VM shell for labs
 ```
 
-Inside the VM: `cd /home/core/selinux-demo` and continue with Lab 1.  
-Curl **`127.0.0.1:8888` inside the VM** — the app does not listen on your Mac.  
-Details: [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md).
+| | |
+|--|--|
+| **Where** | Mac Terminal, current directory = repo root (`…/selinux-demo`) |
+| **Why** | Downloads a supported Podman if needed, writes `~/.local/share/selinux-demo/podman/`, creates **`env.sh`**, and runs `podman machine init/start` so a SELinux-capable Linux VM exists |
+| **Good sign** | Script ends with “Podman fixed” and `podman machine ls` shows a running machine |
+
+First run can take several minutes (download + VM init).
+
+#### 2. Point this shell at that Podman
+
+```bash
+source "${HOME}/.local/share/selinux-demo/podman/env.sh"
+```
+
+| | |
+|--|--|
+| **Where** | Same Mac Terminal session **after** step 1 (repo root not required for the path, but you will run step 3 from repo root) |
+| **Why** | Puts the user-local `podman` binary on `PATH` and sets `CONTAINERS_CONF` so `podman machine ssh` works. **New Terminal windows do not inherit this** — run `source …/env.sh` again, or add that line to `~/.zshrc` |
+| **Check** | `podman --version` prints 4.x or 5.x; `podman machine ls` shows **Running** |
+
+#### 3. Copy the repo into the VM
+
+```bash
+cd ~/selinux-demo   # repo root again if you left it
+bash scripts/run_on_podman_vm.sh sync
+```
+
+| | |
+|--|--|
+| **Where** | Mac Terminal, repo root, **after** sourcing `env.sh` |
+| **Why** | The VM has its own disk; `sync` tarballs your working tree to `/home/core/selinux-demo` inside the VM so labs see the same files as on your Mac |
+
+#### 4. Install demo staging inside the VM (Lab 6 from the host)
+
+```bash
+bash scripts/run_on_podman_vm.sh setup
+```
+
+| | |
+|--|--|
+| **Where** | Mac Terminal, repo root |
+| **Why** | Runs `setup_staging_env.sh` **inside** the VM via SSH — same outcome as Lab 6 on bare Linux |
+
+#### 5. Open a VM shell for hands-on labs
+
+```bash
+bash scripts/run_on_podman_vm.sh shell
+```
+
+| | |
+|--|--|
+| **Where** | Mac Terminal starts it; your **prompt and commands from here on are inside Linux** |
+| **Why** | Interactive SSH session so you run Lab 1’s `getenforce`, Lab 5’s `sudo semanage permissive -l`, etc. in the right OS |
+
+Inside the VM:
+
+```bash
+cd /home/core/selinux-demo
+getenforce    # Lab 1 — must not run this on the Mac host
+```
+
+**Checkpoint:** You can say which of the five setup commands run on the Mac vs which run only after `shell`.
+
+**While in the VM:** curl **`http://127.0.0.1:8888`** there — the demo app listens inside the VM, not on your Mac’s localhost.
+
+More Podman/image detail: [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md).
 
 ---
 
