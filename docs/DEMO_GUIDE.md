@@ -11,7 +11,7 @@ This guide helps **newcomers**, **presenters**, and **observers** understand and
 | **Presenting the workshop** | Whole guide + rehearse with `--auto --demo-mode` | Presenter checklist (section 13) |
 | **Running the app team workflow after the demo** | [README.md](../README.md) developer section | `dev_generate_policy.sh` |
 
-**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (hands-on) → **this guide** (workshop) → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) (admin rollout).
+**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (hands-on) → **this guide** (workshop) → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) (admin rollout). **All docs:** [README.md](README.md).
 
 ---
 
@@ -42,6 +42,7 @@ The presenter script [`scripts/demo_present.sh`](../scripts/demo_present.sh) wal
 | **Domain / `myapp_t`** | The SELinux label on the **running** Flask process |
 | **AVC** | A log line when SELinux blocks (or would block) an operation — evidence for policy updates |
 | **Permissive (domain)** | App keeps running; denials are logged only (`semanage permissive -a myapp_t`) |
+| **semanage** | Linux command that edits SELinux’s **live policy database** (per-domain permissive, ports, booleans) — not the same as editing `.te` in Git |
 | **Enforce** | Remove permissive — denials now **block** the app (`semanage permissive -d myapp_t`) |
 | **Canary deploy** | Install real policy on a host, but keep the domain permissive while you watch for problems |
 | **Soak** | Run in permissive canary for **7–14 days** (production) to catch weekly jobs, cron, logrotate |
@@ -135,7 +136,13 @@ flowchart TD
 
 ### macOS
 
-SELinux does **not** run natively on macOS. Use **Podman Machine**:
+SELinux does **not** run natively on macOS. Use **Podman Machine** — same flow as the training lab.
+
+| Step | Where | Why |
+|------|--------|-----|
+| `bash scripts/fix_podman.sh` | Mac Terminal, **repo root** | Install/start Podman + Linux VM |
+| `source ~/.local/share/selinux-demo/podman/env.sh` | Same Mac shell (repeat in new windows) | Put Podman on `PATH` |
+| `bash scripts/demo_present.sh --use-vm …` | Mac Terminal, repo root | Demo script runs SELinux acts **inside** the VM via SSH |
 
 ```bash
 bash scripts/fix_podman.sh
@@ -143,18 +150,25 @@ source ~/.local/share/selinux-demo/podman/env.sh
 bash scripts/demo_present.sh --use-vm --demo-mode
 ```
 
+Step-by-step tables: [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos).
+
 ---
 
 ## 7. How to run the demo
 
+| Platform | Where you type | Command pattern |
+|----------|----------------|-----------------|
+| **Native Linux** | SSH or console on SELinux host, **repo root** | `sudo bash scripts/demo_present.sh …` |
+| **macOS** | Mac Terminal, **repo root** (after `source env.sh`) | `bash scripts/demo_present.sh --use-vm …` (no `sudo` on Mac) |
+
 ### First rehearsal (recommended)
 
 ```bash
-# Native Linux
+# Native Linux — repo root, user with sudo
 export OPENAI_API_KEY="your-key"
 sudo bash scripts/demo_present.sh --demo-mode --auto
 
-# macOS
+# macOS — repo root, Podman VM must be running
 export OPENAI_API_KEY="your-key"
 bash scripts/demo_present.sh --use-vm --demo-mode --auto
 ```

@@ -5,6 +5,10 @@ Each directory has `avc.log` + `expected.json` (golden `verdict` / `tgt` rows). 
 - **`case.meta.json`** — `exit_code` (default 0), `stderr_substrings` for blocked runs
 - **`sepolgen_mock.json`** — in-process mock for CI hosts without `sepolgen-ifgen` (`behavior`: `match` | `no_match`)
 
+**Where to run:** **repo root** on any OS (no SELinux required). Full suite: `make test-fixtures` or `bash scripts/run_deterministic_fixtures.sh`.
+
+**Why:** CI compares generator output to `expected.json` so verdict logic cannot drift silently.
+
 CI runs all cases via **`bash scripts/run_deterministic_fixtures.sh`** (and `smoke_test.py` in **`smoke-tests`**). Job: **`deterministic-fixtures`**.
 
 | Case | Verdict exercised |
@@ -22,6 +26,11 @@ CI runs all cases via **`bash scripts/run_deterministic_fixtures.sh`** (and `smo
 | `10-boolean-hint` | **`boolean`** — curated override in `config/boolean_hints.yml` (offline; no live policy) |
 
 Run classification without writing policy:
+
+| | |
+|--|--|
+| **Where** | **Repo root** |
+| **Why** | Learn one verdict (`fc_drift`, `boolean`, etc.) without running staging |
 
 ```bash
 python3 cli/deterministic_gen.py --explain \

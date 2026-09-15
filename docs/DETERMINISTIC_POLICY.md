@@ -2,11 +2,22 @@
 
 Offline AVC → `.te` / `.fc` updates using **house rules** and optional **sepolgen** interface matching (same stack as `audit2allow -R`). This is the **default** engine in `dev_generate_policy.sh` (no `--engine` flag required).
 
+**Who this is for:** policy authors who want **no API key** and reproducible verdicts (CI uses the same engine).
+
+**Where commands run:** `--explain` and fixture tests work at **repo root** on any OS. Full `dev_generate_policy.sh` with AVC export needs **SELinux Linux** or **`--use-vm`** on Mac. RHEL **`sepolgen-ifgen`** step runs on a **Linux host with policy devel packages**, not on macOS.
+
+**Doc index:** [README.md](README.md).
+
 Before refpolicy interfaces or raw allows on base types, the generator applies **`config/boolean_hints.yml`** overrides (optional `src_type` / `{domain}` templates), then queries the loaded targeted policy with `sesearch --allow --bool …` (`cli/boolean_hints.py`). All matching booleans are listed (sorted); none is auto-selected when several apply. Policy RPM/version is recorded in the `.te` header and `pr_summary.md`. If neither override nor policy query can run, generation refuses a silent direct allow.
 
 Optional live check (Stream 9 container): **`bash scripts/run_boolean_query_integration.sh`** (skips when Podman/policy unavailable).
 
 ## Quick start
+
+| | |
+|--|--|
+| **Where** | **Repo root** |
+| **Why** | Regenerate `policy_out/` from committed `selinux/` + a fixture or existing `avc.log` without calling an LLM |
 
 ```bash
 # Export AVCs (or use policy_out/avc.log) — deterministic is already the default
@@ -22,6 +33,11 @@ python3 cli/deterministic_gen.py --explain \
 
 ## RHEL one-time setup (interface matching)
 
+| | |
+|--|--|
+| **Where** | RHEL / CentOS Stream **VM or server** with `sudo` — not macOS |
+| **Why** | Builds `/var/lib/sepolgen/interface_info` so the generator can suggest refpolicy **interface** macros instead of raw allows |
+
 ```bash
 sudo dnf install -y policycoreutils-devel setools-console
 sudo sepolgen-ifgen
@@ -33,6 +49,11 @@ Without ifgen, the generator prints a **stderr banner** on every run (`SEPOLGEN 
 Do not confuse missing ifgen with “no interface matched” — the latter is logged when ifgen data exists but no macro fits the denial.
 
 ## Fast compiles (Podman / Red Hat demo)
+
+| | |
+|--|--|
+| **Where** | **Repo root**; on Mac, `source …/podman/env.sh` first |
+| **Why** | Compiles run inside the Stream 9 tool container — see [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) |
 
 **Demo default:** pull pre-built **CentOS Stream 9** image from Docker Hub (seconds):
 

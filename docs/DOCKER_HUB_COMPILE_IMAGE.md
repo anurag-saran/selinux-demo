@@ -2,6 +2,10 @@
 
 Pre-baked **CentOS Stream 9** image with `selinux-policy-devel`, `setools-console`, and targeted policy. Matches **RHEL 9 deploys** (Stream is RHEL upstream). No per-run `dnf` on compile.
 
+**Who this is for:** developers who need to **compile** `.te`/`.fc` into `.pp` on a laptop without installing full SELinux devel packages on the host.
+
+**Doc index:** [README.md](README.md).
+
 **Registry:** Demo tags are published on Docker Hub; production shops set **`SELINUX_BUILD_IMAGE`** to an internal mirror (no script edits). See [Internal registry](#internal-registry-regulated-environments) below.
 
 ## Published image (pull-first)
@@ -19,8 +23,14 @@ docker.io/asaran/selinux-demo-selinux-build:stream9
 
 ## Quick use (demo laptop)
 
+| | |
+|--|--|
+| **Where (Mac)** | Terminal at **repo root** after `bash scripts/fix_podman.sh` and `source …/env.sh` — see [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos) |
+| **Where (Linux)** | Repo root; Podman or Docker if you use the container compile path |
+| **Why** | Pulling the image is faster than building Stream 9 + `selinux-policy-devel` on every compile |
+
 ```bash
-source "${HOME}/.local/share/selinux-demo/podman/env.sh"   # macOS: sets vfs + Podman 5 path
+source "${HOME}/.local/share/selinux-demo/podman/env.sh"   # macOS: each new shell; puts Podman 5 on PATH
 bash scripts/lib/selinux_build_image.sh pull    # seconds — or: ensure
 bash scripts/compile_and_validate.sh selinux
 ```
@@ -29,7 +39,10 @@ Compiles invoked via `dev_generate_policy.sh`, `compile_and_validate.sh`, `valid
 
 ## Rebuild and publish (maintainers)
 
-When `selinux-policy-devel` or the Containerfile changes:
+| | |
+|--|--|
+| **Where** | Maintainer machine with Podman and Docker Hub credentials |
+| **Why** | Rebuild when `Containerfile.selinux-build` or base policy packages change |
 
 ```bash
 source "${HOME}/.local/share/selinux-demo/podman/env.sh"
@@ -57,6 +70,8 @@ export SELINUX_BUILD_BASE_IMAGE=quay.io/centos/centos:stream9
 ```
 
 ## macOS Podman notes
+
+Full first-time setup (where each command runs): **[SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos)**.
 
 | Issue | Fix |
 |-------|-----|

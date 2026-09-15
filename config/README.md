@@ -2,6 +2,12 @@
 
 Each application onboarded to the SELinux Policy-as-Code pipeline declares an **app manifest** — a YAML file that drives readiness checks, deploy reports, and inventory defaults.
 
+**Why manifests exist:** scripts and Ansible need one place for app name, paths, domains, and HTTP probes — so nothing silently assumes **`myapp`**.
+
+**Where you edit files:** `config/<app>.manifest.yml` in your **git clone** (repo root). **Where validation runs:** same machine as your shell at repo root (`validate_app_manifest.sh`, CI).
+
+**More context:** [ONBOARDING_SECOND_APP.md](../docs/ONBOARDING_SECOND_APP.md), [docs/README.md](../docs/README.md).
+
 ## Quick start
 
 1. Copy [`payments.manifest.example.yml`](payments.manifest.example.yml) to `config/<app_name>.manifest.yml`.

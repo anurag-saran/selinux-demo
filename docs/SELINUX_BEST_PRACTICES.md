@@ -10,6 +10,8 @@ This guide captures **design principles and anti-patterns** enforced in this rep
 | **Testing / CI author** | Endpoint matrix, smoke tests, gates | [TESTING.md](TESTING.md) |
 | **New to SELinux concepts** | Labels, soak, permissive domains | [SELINUX_BASICS.md](SELINUX_BASICS.md) |
 
+**Doc index and reading order:** [README.md](README.md).
+
 Current module version: read **`selinux/policy_version.txt`** (SemVer). Keep the `policy_module(myapp, …)` line in **`selinux/myapp.te`** in sync — CI job **`version-consistency`** fails on drift. Do not duplicate the version in Ansible inventory or the RPM spec (spec uses `Version: %{modver}` from `build_rpms.sh`).
 
 ---

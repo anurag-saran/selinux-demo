@@ -16,6 +16,18 @@ This guide explains **SELinux from zero** using the `myapp` demo in this reposit
 
 **After the demo (production rollout):** [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
 
+**All documentation:** [docs/README.md](README.md).
+
+### Where to run commands in this guide
+
+| What you are doing | Where |
+|--------------------|--------|
+| Reading sections 1–7 | Anywhere — no Linux required |
+| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, Labs in [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | **Linux with SELinux** (physical VM, cloud instance, or Podman Machine on Mac) |
+| **`make check`**, reading `.te` files | **Repo root** on your laptop |
+
+macOS: you never run SELinux commands on the Mac itself — use [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos).
+
 ---
 
 ## 1. What is SELinux?

@@ -2,6 +2,16 @@
 
 Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real RHEL/FCOS hosts. It does **not** install the application for the first time — use [`scripts/setup_staging_env.sh`](../scripts/setup_staging_env.sh) for that.
 
+**Where commands run:**
+
+| What | Where |
+|------|--------|
+| `ansible-playbook …` | **Controller** (your laptop or CI runner) with SSH to inventory hosts |
+| `semanage`, `semodule`, soak scripts on hosts | **Target RHEL/Stream machines** in inventory |
+| `compile_and_validate.sh` before deploy | **Repo root** on controller (often with Podman — [DOCKER_HUB_COMPILE_IMAGE.md](../docs/DOCKER_HUB_COMPILE_IMAGE.md)) |
+
+**Doc index:** [docs/README.md](../docs/README.md).
+
 | Playbook | Purpose |
 |----------|---------|
 | [`deploy_canary.yml`](deploy_canary.yml) | Install policy, permissive soak start, smoke tests |

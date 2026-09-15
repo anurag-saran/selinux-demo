@@ -11,7 +11,9 @@ This guide is for **RHEL/Fedora admins** who reviewed the workshop demo and are 
 | **Running day-to-day deploys** | Section 5 (deploy paths) | Phases 1–6 as your checklist |
 | **Reviewing policy PRs** | [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) §8 | PR template + CI mapping §15 |
 
-**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → [DEMO_GUIDE.md](DEMO_GUIDE.md) (workshop) → [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) (principles) → **this guide** (admin rollout).
+**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → [DEMO_GUIDE.md](DEMO_GUIDE.md) (workshop) → [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) (principles) → **this guide** (admin rollout). **Doc index:** [README.md](README.md).
+
+**Where this guide applies:** commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **your RHEL/Fedora/Stream servers** (or lab VMs) — not on macOS unless you use a Podman VM for practice only.
 
 ---
 
@@ -41,8 +43,9 @@ High-blast-radius SELinux changes need **per-domain permissive soak**, **path la
 | **Break-glass** | `force_enforce=true` — bypass soak gate; use only in emergencies with approval |
 | **Path labeling** | Files on disk must match `.fc` rules (`restorecon` + verify before restart) |
 | **Per-domain permissive** | Only `myapp_t` is permissive; the OS stays **Enforcing** globally |
+| **semanage** | Tool on the **server** that adds/removes domains from the permissive list (`-a` / `-d`) and manages ports/booleans in the live policy DB |
 
-SELinux theory (labels, `.te`/`.fc`, `semanage`): [SELINUX_BASICS.md](SELINUX_BASICS.md).
+SELinux theory (labels, `.te`/`.fc`, `semanage` examples): [SELINUX_BASICS.md](SELINUX_BASICS.md).
 
 ---
 

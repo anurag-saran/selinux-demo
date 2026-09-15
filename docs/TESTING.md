@@ -8,7 +8,9 @@ This document is the **single reference** for how this repository tests SELinux 
 | **Policy author opening a PR** | §4 CI on pull requests | §5 Shell gate scripts |
 | **Admin / SRE** | §6 Staging and production gates | [`ansible/README.md`](../ansible/README.md), [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
 
-Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](SELINUX_BASICS.md) §9; hands-on prep in [`SELINUX_TRAINING_LAB.md`](SELINUX_TRAINING_LAB.md); workshop flow in [`DEMO_GUIDE.md`](DEMO_GUIDE.md) Acts 1–10; **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
+Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](SELINUX_BASICS.md) §9; hands-on prep in [`SELINUX_TRAINING_LAB.md`](SELINUX_TRAINING_LAB.md); workshop flow in [`DEMO_GUIDE.md`](DEMO_GUIDE.md) Acts 1–10; **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md). **Doc index:** [`README.md`](README.md).
+
+**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Integration curls and `setup_staging_env.sh` run on a **SELinux Linux host** (or Podman VM), not on macOS alone.
 
 ---
 
@@ -40,6 +42,11 @@ The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is 
 
 **Manual run (staging host):**
 
+| | |
+|--|--|
+| **Where** | On the **same Linux machine** where Flask listens on **8888** — staging server or Podman VM after Lab 6 / `setup_staging_env.sh` |
+| **Why** | Each URL is a deliberate SELinux probe; failures show up as HTTP errors or AVC lines |
+
 ```bash
 for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
   curl -sf "http://127.0.0.1:8888${path}" | head -c 120
@@ -68,6 +75,11 @@ python3 scripts/lib/app_manifest.py shell-export config/myapp.manifest.yml
 ---
 
 ## 1.6 One command: `make check`
+
+| | |
+|--|--|
+| **Where** | **Repo root** on your laptop or CI — macOS is fine |
+| **Why** | Same golden fixtures and static validators CI uses, without SELinux or Podman |
 
 From the repo root (Python 3.9+; no SELinux or Podman):
 

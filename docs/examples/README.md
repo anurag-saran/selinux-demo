@@ -2,12 +2,19 @@
 
 Static copies of CLI output for **workshop presentations** when you cannot run staging or `assemble_pr_body.sh` live.
 
+**Where to regenerate live output:** SELinux **Linux host** or Mac with **`dev_generate_policy.sh --use-vm`** at **repo root**. Offline-only: use [`fixtures/skip_ai/`](fixtures/skip_ai/) — no VM required.
+
 | File | Live equivalent | Use in demo |
 |------|-----------------|-------------|
 | [`pr_summary.example.md`](pr_summary.example.md) | `policy_out/pr_summary.md` | Act 4 — plain-English admin summary |
 | [`pr_body.example.md`](pr_body.example.md) | `policy_out/pr_body.md` | Act 4 — full GitHub PR body + checklist |
 
 These reflect **policy v1.1.2** (FHS paths, dedicated port types, domain-context gates, merge-base access delta in PR body). Regenerate fresh output on a SELinux host with:
+
+| | |
+|--|--|
+| **Where** | **Repo root** on native Linux (`sudo` staging) or Mac with `--use-vm` |
+| **Why** | Refreshes `policy_out/pr_summary.md` and `pr_body.md` to match current `selinux/` |
 
 ```bash
 # Default engine is deterministic (no OPENAI_API_KEY required for generation)

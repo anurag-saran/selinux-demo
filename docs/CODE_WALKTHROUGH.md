@@ -15,6 +15,24 @@ You do **not** need to know every script on day one. Read this in order, pause w
 
 **Time:** about 30–45 minutes if you read the basics doc first; 60+ minutes if you read both cover to cover.
 
+**Doc map:** [docs/README.md](README.md) — reading order for all guides.
+
+---
+
+## Where to run commands (read this once)
+
+| Environment | When to use it | Typical commands from this guide |
+|-------------|----------------|----------------------------------|
+| **Repo root on any OS** | Offline tests, Python CLI, reading git | `make check`, `python3 cli/deterministic_gen.py --explain …` |
+| **Native Linux with SELinux** (RHEL, Fedora, Stream VM) | Staging, demo, soak, `semanage` | `sudo bash scripts/setup_staging_env.sh`, `curl 127.0.0.1:8888/…` |
+| **Mac Terminal at repo root** | Podman only — drives a Linux VM | `bash scripts/fix_podman.sh`, `source …/env.sh`, `run_on_podman_vm.sh …` |
+| **Inside Podman Machine VM** | Same as native Linux for labs/demo | `cd /home/core/selinux-demo`, `getenforce`, `sudo semanage …` |
+| **Production / staging servers** | Ansible deploy lifecycle | Playbooks in `ansible/` — not your laptop unless inventory says so |
+
+macOS step-by-step (host vs VM): [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos).
+
+**Repo root** = directory containing `scripts/` and `docs/` (after `git clone`).
+
 ---
 
 ## Words you will see in this repo
@@ -30,6 +48,7 @@ If any term is fuzzy, open [SELINUX_BASICS.md](SELINUX_BASICS.md). Quick reminde
 | **AVC** | A log line: “this process tried to do X and policy said no.” |
 | **Domain** | The SELinux type of a **running** process (e.g. `myapp_t`). |
 | **Manifest** | YAML file listing app name, paths, HTTP test URLs, and domains — so scripts do not hardcode `myapp`. |
+| **semanage** | Linux admin tool that changes SELinux’s **live** settings (per-domain permissive, port labels, booleans) — see [SELINUX_BASICS.md §7](SELINUX_BASICS.md) |
 | **`policy_out/`** | Local scratch folder for generated files (not committed to git). |
 | **`selinux/`** | The **real** policy source your team reviews in pull requests. |
 
@@ -194,6 +213,8 @@ Same AVC preprocessing, then sends a structured prompt (`prompt_templates.py`) t
 
 ## Shell scripts (`scripts/`) — what to run when
 
+Most scripts expect your shell’s **current directory** to be the **repo root** unless the doc says otherwise. Staging and demo scripts need **Linux + SELinux** (native or Podman VM). Compile scripts use **Podman** on Mac or Linux when the Stream 9 tool image is pulled.
+
 ### Day-to-day developer commands
 
 | Script | When you use it |
@@ -329,6 +350,7 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 
 | Doc | Best for |
 |-----|----------|
+| [README.md](README.md) | **Start here** — doc map and reading order |
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | First-time SELinux readers |
 | [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | Hands-on labs before the workshop |
 | [TESTING.md](TESTING.md) | CI jobs and local test commands |

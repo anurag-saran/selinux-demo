@@ -13,6 +13,7 @@ This is a **practice course**. Each lab follows the same pattern:
 | **This file** | Hands-on practice on a Linux host with SELinux |
 | **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Full workshop after the labs |
 | **[CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md)** | Where repo scripts and tools live |
+| **[README.md](README.md)** | Index of all docs and reading order |
 
 **Time:** about **90–120 minutes** on a prepared VM (add time for Podman setup on macOS).
 

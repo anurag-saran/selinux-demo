@@ -2,7 +2,14 @@
 
 Shift-left DevSecOps workflow: application teams version-control SELinux policy alongside code, generate updates from AVC audit logs with AI, and deploy safely via **per-domain permissive canary**, **enforce**, and **emergency rollback** Ansible playbooks.
 
+**New here?** Read in order: [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) → [docs/SELINUX_TRAINING_LAB.md](docs/SELINUX_TRAINING_LAB.md) → [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md). Full doc index: [docs/README.md](docs/README.md).
+
 **New contributor?** From a clean clone (Python 3.9+; no SELinux or Podman required):
+
+| | |
+|--|--|
+| **Where** | Any OS — **repo root** (folder with `Makefile` and `scripts/`) |
+| **Why** | Fast regression check before you touch policy or open a PR |
 
 ```bash
 make check
@@ -10,7 +17,7 @@ make check
 
 `make test` runs golden fixtures, static policy validators, and smoke tests offline. `make lint` runs shellcheck, yamllint, and ansible-lint when those tools are installed (skipped otherwise). Run `make help` for the full target list.
 
-**Security model:** The host stays **`getenforce` = Enforcing** throughout staging and soak. Only the app domain (`myapp_t`) is set permissive via `semanage permissive -a myapp_t` so AVCs are logged without blocking the app. Export filters `policy_out/avc.log` to app-related denials; enforce removes permissive after soak gates pass.
+**Security model:** The host stays **`getenforce` = Enforcing** throughout staging and soak. Only the app domain (`myapp_t`) is set permissive via **`semanage permissive -a myapp_t`** (Linux only — updates the kernel policy database so that **one process type** logs denials instead of blocking). Export filters `policy_out/avc.log` to app-related denials; enforce removes permissive after soak gates pass.
 
 ## Architecture
 
@@ -92,6 +99,15 @@ Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansibl
 ---
 
 ## Developers
+
+### Where these commands run
+
+| Block below | Where |
+|-------------|--------|
+| `pip3`, `make check`, `deterministic_gen.py --explain` | **Repo root** on Mac, Linux, or WSL — no SELinux required |
+| `source …/env.sh`, `selinux_build_image.sh pull` | **Mac Terminal** at repo root (Podman); see [SELINUX_TRAINING_LAB.md](docs/SELINUX_TRAINING_LAB.md#running-on-macos) |
+| `setup_staging_env.sh`, `curl 127.0.0.1:8888` | **Linux with SELinux** — native host or **inside Podman VM** after `run_on_podman_vm.sh shell` |
+| `dev_generate_policy.sh --use-vm` | **Mac** at repo root; script SSHs into the VM for AVC export |
 
 ### Quick start (self-service)
 
@@ -393,6 +409,7 @@ This is a **proof of concept**. All AI-generated policy requires human security 
 
 | Guide | For |
 |-------|-----|
+| [docs/README.md](docs/README.md) | **Start here** — reading order, where/why convention, index of all guides |
 | [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) | **Default generator** — house rules, sepolgen banners, `findings.json`, fixture catalog |
 | [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) | **Published** `asaran/selinux-demo-selinux-build:stream9` — pull-first, Mac repair, republish |
 | [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | **Code tour (beginner-friendly)** — repo map, plain-English pipeline, then scripts/CLI/CI |
