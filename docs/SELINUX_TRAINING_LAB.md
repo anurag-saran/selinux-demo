@@ -386,7 +386,7 @@ ps -eZ | grep backend_stub
 
 | What it does | `ps -eZ` lists all processes with SELinux contexts; `grep` finds our demo processes |
 | `-Z` vs `-z` | Capital **`-Z`** is SELinux; lowercase `-z` is unrelated — do not mix them up |
-| **Stub staging (Lab 6 default)** | Both Flask and **`backend_stub.py`** often run as **`myapp_t`** (stub labels both entrypoints as `myapp_exec_t`) |
+| **Podman FCOS VM (macOS lab)** | Services may stay in **`init_t`** instead of **`myapp_t`** — stub policy includes **`init_t`** allows for staging; **`permissive myapp_t`** still applies when transition works |
 | **Full policy in Git / workshop enforce path** | Flask → **`myapp_t`**; backend → **`myapp_backend_t`** (second domain for Tier 6) |
 
 **Example output (full policy installed):**

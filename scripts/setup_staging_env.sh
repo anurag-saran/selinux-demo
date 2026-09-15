@@ -226,11 +226,13 @@ set_permissive_domain() {
 
 restore_contexts() {
     log_info "Restoring SELinux contexts on ${INSTALL_ROOT}, ${VAR_DIR}, ${LOG_DIR}, and ${RUNTIME_DIR}"
-    restorecon -Rv "${INSTALL_ROOT}" "${VAR_DIR}" "${LOG_DIR}" "${RUNTIME_DIR}" 2>/dev/null || true
+    restorecon -Rv "${INSTALL_ROOT}/app.py" "${INSTALL_ROOT}/backend_stub.py" "${BIN_DIR}" "${INSTALL_ROOT}/venv" \
+        "${VAR_DIR}" "${LOG_DIR}" "${RUNTIME_DIR}" 2>/dev/null || true
 }
 
 wait_for_service() {
     bash "${SCRIPT_DIR}/wait_for_endpoints.sh" --host 127.0.0.1 --retries 15 --delay 1 \
+        --skip-domain-check \
         || log_warn "Services did not respond yet. Check: systemctl status myapp-backend ${SERVICE_NAME}"
 }
 

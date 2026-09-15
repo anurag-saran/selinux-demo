@@ -22,7 +22,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/myapp /run/myapp /var/log/myapp
+ReadWritePaths=/opt/myapp /var/lib/myapp /run/myapp /var/log/myapp
 
 # Run under dedicated domain after stub/AI policy labels the entrypoint.
 

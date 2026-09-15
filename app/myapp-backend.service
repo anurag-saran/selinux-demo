@@ -5,7 +5,7 @@ After=network.target
 
 [Service]
 Type=simple
-# Match myapp.service: explicit venv python avoids systemd EXEC/shebang + SELinux denials (status 203/EXEC).
+# Explicit venv python (not shebang) — avoids systemd EXEC/shebang issues on FCOS; see ReadWritePaths for ProtectSystem=strict.
 ExecStart=/opt/myapp/venv/bin/python /opt/myapp/backend_stub.py
 User=myapp
 Group=myapp
