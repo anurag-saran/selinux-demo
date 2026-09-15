@@ -368,6 +368,15 @@ $ grep -E 'Policy access delta|Rules ADDED|Network Bindings|forbidden-patterns' 
 
 **Show on screen:** Admin Pass/Reject table in `policy_out/pr_body.md`.
 
+**Real GitHub PR (recommended for Act 4–5):** `main` already includes policy v1.1.2, so open a **review PR** against base branch `demo/policy-base-1.1.1` (v1.1.1 snapshot):
+
+```bash
+bash scripts/open_demo_policy_pr.sh --reuse-pr-body   # needs gh auth login
+# offline PR body only: add --push-only and open PR in browser (base demo/policy-base-1.1.1, head policy/myapp-update)
+```
+
+Then share the PR URL — **Checks** tab runs [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selinux-policy-ci.yml).
+
 ---
 
 ### Act 5 — CI gates (Automatic on PR)
