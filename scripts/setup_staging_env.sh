@@ -125,6 +125,10 @@ install_application() {
     chmod 0750 "${VAR_DIR}"
     chmod 0750 "${LOG_DIR}"
     chown -R root:root "${INSTALL_ROOT}"
+    chmod 755 "${INSTALL_ROOT}" "${BIN_DIR}"
+    mkdir -p "${INSTALL_ROOT}/__pycache__"
+    chown "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_ROOT}/__pycache__"
+    chmod 0750 "${INSTALL_ROOT}/__pycache__"
 
     # Flask runs from a venv under /opt/myapp (FCOS-friendly install path)
 }

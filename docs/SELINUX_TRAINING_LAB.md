@@ -271,6 +271,7 @@ sudo journalctl -u myapp-backend.service -n 30 --no-pager
 | **`--no-pager`** | Print to the terminal (don’t stop in `less`) |
 | **What to look for** | `Failed to execute`, `ModuleNotFoundError`, `Address already in use`, SELinux AVC lines |
 | **`203/EXEC` + Permission denied on `backend_stub.py`** | Often fixed by using explicit **`/opt/myapp/venv/bin/python`** in the unit (see repo `app/myapp-backend.service`); after pulling the fix: `sudo cp app/myapp-backend.service /etc/systemd/system/`, `sudo systemctl daemon-reload`, restart both services |
+| **`can't open file … backend_stub.py` `[Errno 13]`** | **`ProtectSystem=strict`** made `/opt/myapp` read-only; backend unit needs **`ReadWritePaths=/opt/myapp`** (in current repo unit). Quick check: `sudo ls -laZ /opt/myapp/backend_stub.py` and `sudo -u myapp /opt/myapp/venv/bin/python -B /opt/myapp/backend_stub.py` (Ctrl+C if it stays up) |
 
 **Step 2 — try starting again (backend first, then Flask):**
 
@@ -681,6 +682,7 @@ wc -l policy_out/avc.log
 | `getenforce` → Disabled | No SELinux on this OS | RHEL/Fedora VM or Podman VM |
 | `podman machine ls` fails on Mac | Shell not using user-local Podman | `source ~/.local/share/selinux-demo/podman/env.sh` |
 | Ran Lab 6 install twice on macOS | Step 4 + `setup_staging_env.sh` in VM | **Verify only** after step 4; reinstall only when intentionally resetting |
+| `can't open file … backend_stub.py` Errno 13 | `ProtectSystem=strict` + `/opt/myapp` not in `ReadWritePaths` | Update unit from repo; or drop-in `ReadWritePaths=/opt/myapp /run/myapp` + `PYTHONDONTWRITEBYTECODE=1` |
 | `203/EXEC` on `backend_stub.py` | Shebang exec + SELinux/systemd on FCOS | Use current `app/myapp-backend.service` (venv python path); `daemon-reload` + restart |
 | `FATAL: myapp-backend … unknown` at setup end | Backend not running when script checked | VM: [Lab 6 — journalctl + restart](#if-myapp-backendservice-is-not-active) |
 | `FATAL: … not myapp_backend_t` (stub staging) | **`wait_for_endpoints`** expects full manifest domains; stub uses **`myapp_t`** for both | Ignore if units are **active** and curls work; install full **`selinux/myapp.pp`** for production-like checks |
