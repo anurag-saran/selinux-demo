@@ -249,7 +249,42 @@ systemctl is-active myapp.service myapp-backend.service
 
 | What it does | Checks both systemd units (Tier 6 needs the backend) |
 | Good output | Two lines both saying `active` |
-| If backend is `inactive` | `sudo journalctl -u myapp-backend.service -n 30 --no-pager` then `sudo systemctl restart myapp-backend.service myapp.service` |
+
+If the second line is **`inactive`** or **`failed`**, use the two commands below **inside the VM** (not on the Mac).
+
+#### If `myapp-backend.service` is not active
+
+**Why:** Labs 7–8 need a process listening on **8889** and **`/run/myapp/notify.sock`**. That is **`backend_stub.py`**, started by **`myapp-backend.service`**. If the unit crashed at setup time, you see **`unknown`** in the setup log and Tier 6 curls fail until it is fixed.
+
+**Step 1 — read why it failed:**
+
+```bash
+sudo journalctl -u myapp-backend.service -n 30 --no-pager
+```
+
+| | |
+|--|--|
+| **Where** | Inside the VM / SELinux Linux host |
+| **`journalctl`** | Shows **systemd’s log** for one unit (start errors, Python tracebacks, permission denied) |
+| **`-u myapp-backend.service`** | Only lines for the backend unit — not the whole server log |
+| **`-n 30`** | Last **30** lines — enough for a recent crash |
+| **`--no-pager`** | Print to the terminal (don’t stop in `less`) |
+| **What to look for** | `Failed to execute`, `ModuleNotFoundError`, `Address already in use`, SELinux AVC lines |
+
+**Step 2 — try starting again (backend first, then Flask):**
+
+```bash
+sudo systemctl restart myapp-backend.service myapp.service
+```
+
+| | |
+|--|--|
+| **Where** | Same VM / host |
+| **`systemctl restart`** | Stops and starts the unit(s) — picks up code, venv, and labels after you fix the cause |
+| **Order** | **Backend first** — `myapp.service` is configured to want the backend; Flask probes depend on **8889** and the notify socket |
+| **Check** | Run `systemctl is-active myapp-backend.service myapp.service` again — both should say **`active`** |
+
+If restart fails immediately, read **`journalctl`** again; fix the reported error (often missing venv/flask or port **8889** in use) before re-running Lab 6 verify.
 
 ```bash
 curl -s http://127.0.0.1:8888/ | head -c 200
@@ -279,7 +314,7 @@ myapp_t
 
 **Checkpoint:** **`myapp.service`** is active; host is **Enforcing**; **`myapp_t`** is permissive. Fix **`myapp-backend.service`** before Lab 7 if it is not `active`.
 
-**Setup script errors:** **`FATAL: myapp-backend.service running as unknown`** means the backend had no readable domain/PID at check time — usually **not running**. Use journalctl/restart above, not a blind second setup.
+**Setup script errors:** **`FATAL: myapp-backend.service running as unknown`** means the backend had no running process when the script checked — usually **not active**. Use [If `myapp-backend.service` is not active](#if-myapp-backendservice-is-not-active) above, not a blind second setup.
 
 **If it fails:** See [TESTING.md](TESTING.md) and [Troubleshooting](#troubleshooting).
 
@@ -645,7 +680,7 @@ wc -l policy_out/avc.log
 | `getenforce` → Disabled | No SELinux on this OS | RHEL/Fedora VM or Podman VM |
 | `podman machine ls` fails on Mac | Shell not using user-local Podman | `source ~/.local/share/selinux-demo/podman/env.sh` |
 | Ran Lab 6 install twice on macOS | Step 4 + `setup_staging_env.sh` in VM | **Verify only** after step 4; reinstall only when intentionally resetting |
-| `FATAL: myapp-backend … unknown` at setup end | Backend not running when script checked | VM: `journalctl -u myapp-backend`; `systemctl restart myapp-backend myapp` |
+| `FATAL: myapp-backend … unknown` at setup end | Backend not running when script checked | VM: [Lab 6 — journalctl + restart](#if-myapp-backendservice-is-not-active) |
 | `FATAL: … not myapp_backend_t` (stub staging) | **`wait_for_endpoints`** expects full manifest domains; stub uses **`myapp_t`** for both | Ignore if units are **active** and curls work; install full **`selinux/myapp.pp`** for production-like checks |
 | Empty `ausearch` | auditd off or no denials yet | `systemctl start auditd`; Lab 7 |
 | `curl` fails | App or backend not running | Lab 6 verify; `systemctl restart myapp-backend myapp` |
