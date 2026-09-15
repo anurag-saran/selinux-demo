@@ -32,42 +32,19 @@ if ! command -v podman >/dev/null 2>&1; then
     exit 1
 fi
 
-ensure_selinux_build_image || true
-
-if selinux_build_image_ready; then
-    run_selinux_container "${work_dir}" bash -lc "
-        set -euo pipefail
-        semodule -i /work/${MODULE_NAME}.pp
-        fail=0
-        if sesearch --direct -A -s ${DOMAIN} -t shadow_t -p read 2>/dev/null | grep -q .; then fail=1; fi
-        if sesearch --direct -A -s ${DOMAIN} -t unlabeled_t 2>/dev/null | grep -q .; then fail=1; fi
-        if sesearch --direct -A -s ${DOMAIN} -c file -p entrypoint 2>/dev/null \
-            | awk '{print \$3}' | cut -d: -f1 | grep -qv '^${MODULE_NAME}_'; then fail=1; fi
-        semodule -r ${MODULE_NAME} 2>/dev/null || true
-        if [[ \"\${fail}\" -ne 0 ]]; then
-            echo 'Semantic policy check failed' >&2
-            exit 1
-        fi
-    "
-else
-    podman run --rm \
-        -v "${work_dir}:/work:Z" \
-        "${SELINUX_COMPILE_IMAGE}" \
-        bash -lc "
-            set -euo pipefail
-            dnf install -y -q policycoreutils setools-console selinux-policy-targeted
-            semodule -i /work/${MODULE_NAME}.pp
-            fail=0
-            if sesearch --direct -A -s ${DOMAIN} -t shadow_t -p read 2>/dev/null | grep -q .; then fail=1; fi
-            if sesearch --direct -A -s ${DOMAIN} -t unlabeled_t 2>/dev/null | grep -q .; then fail=1; fi
-            if sesearch --direct -A -s ${DOMAIN} -c file -p entrypoint 2>/dev/null \
-                | awk '{print \$3}' | cut -d: -f1 | grep -qv '^${MODULE_NAME}_'; then fail=1; fi
-            semodule -r ${MODULE_NAME} 2>/dev/null || true
-            if [[ \"\${fail}\" -ne 0 ]]; then
-                echo 'Semantic policy check failed' >&2
-                exit 1
-            fi
-        "
-fi
+run_selinux_container "${work_dir}" bash -lc "
+    set -euo pipefail
+    semodule -i /work/${MODULE_NAME}.pp
+    fail=0
+    if sesearch --direct -A -s ${DOMAIN} -t shadow_t -p read 2>/dev/null | grep -q .; then fail=1; fi
+    if sesearch --direct -A -s ${DOMAIN} -t unlabeled_t 2>/dev/null | grep -q .; then fail=1; fi
+    if sesearch --direct -A -s ${DOMAIN} -c file -p entrypoint 2>/dev/null \
+        | awk '{print \$3}' | cut -d: -f1 | grep -qv '^${MODULE_NAME}_'; then fail=1; fi
+    semodule -r ${MODULE_NAME} 2>/dev/null || true
+    if [[ \"\${fail}\" -ne 0 ]]; then
+        echo 'Semantic policy check failed' >&2
+        exit 1
+    fi
+"
 
 log_info "Semantic policy checks passed for ${DOMAIN}"

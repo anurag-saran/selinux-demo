@@ -2,6 +2,10 @@
 
 Offline AVC → `.te` / `.fc` updates using **house rules** and optional **sepolgen** interface matching (same stack as `audit2allow -R`). This is the **default** engine in `dev_generate_policy.sh` (no `--engine` flag required).
 
+Before refpolicy interfaces or raw allows on base types, the generator applies **`config/boolean_hints.yml`** overrides (optional `src_type` / `{domain}` templates), then queries the loaded targeted policy with `sesearch --allow --bool …` (`cli/boolean_hints.py`). All matching booleans are listed (sorted); none is auto-selected when several apply. Policy RPM/version is recorded in the `.te` header and `pr_summary.md`. If neither override nor policy query can run, generation refuses a silent direct allow.
+
+Optional live check (Stream 9 container): **`bash scripts/run_boolean_query_integration.sh`** (skips when Podman/policy unavailable).
+
 ## Quick start
 
 ```bash
@@ -62,7 +66,7 @@ After the image exists, these use **make-only** container runs (no per-invocatio
 | `interface` | sepolgen refpolicy macro (when ifgen data present) |
 | `direct` | Module-private types, or sepolgen ran but no macro matched (manual review) |
 | `toolchain_required` | Base-type denial with no sepolgen and no `--allow-degraded` — generation blocked |
-| `boolean` | Curated match in `config/boolean_hints.yml` → suggest **`setsebool -P … on`** (no `.te` allow) |
+| `boolean` | Curated YAML override **then** `sesearch --allow --bool …` on loaded policy → **`setsebool -P … on`** (see `host_admin_actions`; policy identity in header / `findings.json`) |
 
 ## Verification
 

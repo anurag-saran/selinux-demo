@@ -214,9 +214,10 @@ Python deps (`openai`, `pyyaml`, etc.) for the CLI.
 | Script | What it does | Core logic |
 |--------|----------------|------------|
 | **`compile_and_validate.sh`** | Wrapper: compile module + basic checks. | Sources **`lib/compile_policy.sh`**. |
-| **`lib/compile_policy.sh`** | **`compile_policy_module`**: refpolicy Makefile **natively or in Podman**. Pull-first **`docker.io/asaran/selinux-demo-selinux-build:stream9`** (Stream 9 build). |
-| **`lib/selinux_build_image.sh`** | Defaults, **`pull_selinux_build_image`**, **`ensure_selinux_build_image`**. |
-| **`build_selinux_compile_image.sh`** | Builds [`packaging/Containerfile.selinux-build`](../packaging/Containerfile.selinux-build) (Stream 9 or RHEL 9 base). |
+| **`lib/compile_policy.sh`** | **`compile_policy_module`**: native Makefile or prebuilt Podman image (`localhost/selinux-build:stream9`; inline dnf fallback if missing). |
+| **`lib/build_image.sh`** | Local **`ensure_selinux_build_image`** / one-time `podman build` from [`Containerfile.selinux-build`](../packaging/Containerfile.selinux-build). |
+| **`lib/selinux_build_image.sh`** | Optional Hub pull (`SELINUX_BUILD_IMAGE_PULL=1`), then local build. |
+| **`build_selinux_compile_image.sh`** | Force-rebuild helper wrapping **`build_image.sh`**. |
 | **`publish_selinux_compile_image.sh`** | Login + push to Docker Hub (`:stream9`, `:latest`); skips local rebuild if tag exists. |
 | **`repair_podman_machine.sh`** | macOS: recreate Podman Machine; optional `SELINUX_PODMAN_RESET_IN_VM=1`. |
 | **`compile_module.sh`** | CLI wrapper used by **`selinux_gen.py`** and local compiles. |

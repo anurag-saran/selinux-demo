@@ -28,6 +28,8 @@ OPEN_PR=0
 STAGING_HOST="${STAGING_HOST:-Podman VM / native staging host}"
 TEST_SUITE="${TEST_SUITE:-Integration tests (curl endpoints)}"
 ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
+# shellcheck source=lib/version.sh
+source "${SCRIPT_DIR}/lib/version.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -97,13 +99,45 @@ require_api_key() {
     }
 }
 
+resolve_manifest_policy_paths() {
+    python3 - "${MANIFEST}" "${PROJECT_ROOT}" <<'PY'
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(sys.argv[2]) / "scripts" / "lib"))
+from app_manifest import load_manifest, policy_source_paths
+
+root = Path(sys.argv[2])
+manifest = load_manifest(Path(sys.argv[1]))
+paths = policy_source_paths(root, manifest)
+print(paths["te"])
+print(paths["fc"])
+print(paths["version_file"])
+print(paths["module_dir"])
+PY
+}
+
+load_policy_paths_from_manifest() {
+    local idx=0
+    while IFS= read -r line; do
+        case "${idx}" in
+            0) POLICY_TE="${line}" ;;
+            1) POLICY_FC="${line}" ;;
+            2) POLICY_VERSION_FILE="${line}" ;;
+            3) POLICY_MODULE_DIR="${line}" ;;
+        esac
+        idx=$((idx + 1))
+    done < <(resolve_manifest_policy_paths)
+}
+
 require_existing_policy() {
-    [[ -f "${SELINUX_DIR}/${APP_NAME}.te" ]] || {
-        log_error "Missing ${SELINUX_DIR}/${APP_NAME}.te"
+    load_policy_paths_from_manifest
+    [[ -f "${POLICY_TE}" ]] || {
+        log_error "Missing ${POLICY_TE}"
         exit 1
     }
-    [[ -f "${SELINUX_DIR}/${APP_NAME}.fc" ]] || {
-        log_error "Missing ${SELINUX_DIR}/${APP_NAME}.fc"
+    [[ -f "${POLICY_FC}" ]] || {
+        log_error "Missing ${POLICY_FC}"
         exit 1
     }
 }
@@ -136,12 +170,12 @@ generate_policy() {
     if [[ "${ENGINE}" == deterministic ]]; then
         log_info "Running cli/deterministic_gen.py (offline)..."
         mkdir -p "${POLICY_OUT}"
-        cp "${SELINUX_DIR}/policy_version.txt" "${POLICY_OUT}/policy_version.txt"
+        cp "${POLICY_VERSION_FILE}" "${POLICY_OUT}/policy_version.txt"
         python3 "${DETERMINISTIC}" \
             --avc-log "${AVC_LOG}" \
             --manifest "${MANIFEST}" \
-            --existing-te "${SELINUX_DIR}/${APP_NAME}.te" \
-            --existing-fc "${SELINUX_DIR}/${APP_NAME}.fc" \
+            --existing-te "${POLICY_TE}" \
+            --existing-fc "${POLICY_FC}" \
             --out-dir "${POLICY_OUT}" \
             --app-name "${APP_NAME}" \
             --version-file "${POLICY_OUT}/policy_version.txt" \
@@ -156,8 +190,8 @@ generate_policy() {
         --app-name "${APP_NAME}" \
         --domain "${DOMAIN}" \
         --audit-log "${AVC_LOG}" \
-        --existing-te "${SELINUX_DIR}/${APP_NAME}.te" \
-        --existing-fc "${SELINUX_DIR}/${APP_NAME}.fc" \
+        --existing-te "${POLICY_TE}" \
+        --existing-fc "${POLICY_FC}" \
         --bump-version \
         --validate-compile \
         --generate-only \
@@ -165,34 +199,34 @@ generate_policy() {
 }
 
 show_diff() {
-    log_info "Diff: selinux/ vs policy_out/"
+    load_policy_paths_from_manifest
+    log_info "Diff: ${POLICY_MODULE_DIR}/ vs policy_out/"
     if command -v git >/dev/null 2>&1 && git -C "${PROJECT_ROOT}" rev-parse --git-dir >/dev/null 2>&1; then
         git -C "${PROJECT_ROOT}" diff --no-index \
-            "${SELINUX_DIR}/${APP_NAME}.te" "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
+            "${POLICY_TE}" "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
         git -C "${PROJECT_ROOT}" diff --no-index \
-            "${SELINUX_DIR}/${APP_NAME}.fc" "${POLICY_OUT}/${APP_NAME}.fc" 2>/dev/null || true
+            "${POLICY_FC}" "${POLICY_OUT}/${APP_NAME}.fc" 2>/dev/null || true
     else
-        diff -u "${SELINUX_DIR}/${APP_NAME}.te" "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
-        diff -u "${SELINUX_DIR}/${APP_NAME}.fc" "${POLICY_OUT}/${APP_NAME}.fc" 2>/dev/null || true
+        diff -u "${POLICY_TE}" "${POLICY_OUT}/${APP_NAME}.te" 2>/dev/null || true
+        diff -u "${POLICY_FC}" "${POLICY_OUT}/${APP_NAME}.fc" 2>/dev/null || true
     fi
 }
 
 promote_to_selinux() {
-    log_info "Promoting policy_out → selinux/"
-    cp "${POLICY_OUT}/${APP_NAME}.te" "${SELINUX_DIR}/${APP_NAME}.te"
-    cp "${POLICY_OUT}/${APP_NAME}.fc" "${SELINUX_DIR}/${APP_NAME}.fc"
+    load_policy_paths_from_manifest
+    log_info "Promoting policy_out → ${POLICY_MODULE_DIR}/"
+    cp "${POLICY_OUT}/${APP_NAME}.te" "${POLICY_TE}"
+    cp "${POLICY_OUT}/${APP_NAME}.fc" "${POLICY_FC}"
     if [[ -f "${POLICY_OUT}/policy_version.txt" ]]; then
-        cp "${POLICY_OUT}/policy_version.txt" "${SELINUX_DIR}/policy_version.txt"
+        cp "${POLICY_OUT}/policy_version.txt" "${POLICY_VERSION_FILE}"
     else
-        match="$(grep -oE 'policy_module\([^,]+,\s*[0-9.]+\)' "${POLICY_OUT}/${APP_NAME}.te" \
-            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-        if [[ -z "${match}" ]]; then
+        match="$(policy_module_version_from_te "${POLICY_OUT}/${APP_NAME}.te" "${APP_NAME}")" || {
             log_error "promote_to_selinux: cannot extract SemVer from policy_module() in ${POLICY_OUT}/${APP_NAME}.te"
             exit 1
-        fi
-        echo "${match}" > "${SELINUX_DIR}/policy_version.txt"
+        }
+        echo "${match}" > "${POLICY_VERSION_FILE}"
     fi
-    log_info "Updated ${SELINUX_DIR}/${APP_NAME}.{te,fc} and policy_version.txt"
+    log_info "Updated ${POLICY_TE}, ${POLICY_FC}, and ${POLICY_VERSION_FILE}"
 }
 
 verify_avc_coverage() {
@@ -205,11 +239,20 @@ verify_avc_coverage() {
 
 assemble_pr_body() {
     log_info "Assembling PR body..."
-    bash "${ASSEMBLE}" \
-        --app-name "${APP_NAME}" \
-        --staging-host "${STAGING_HOST}" \
-        --test-suite "${TEST_SUITE}" \
+    local common_args=(
+        --app-name "${APP_NAME}"
+        --staging-host "${STAGING_HOST}"
+        --test-suite "${TEST_SUITE}"
         --output "${POLICY_OUT}/pr_body.md"
+    )
+    if [[ "${ASSEMBLE_SKIP_POLICY_DIFF:-0}" == "1" ]]; then
+        bash "${ASSEMBLE}" "${common_args[@]}" --skip-policy-diff
+        return
+    fi
+    if ! bash "${ASSEMBLE}" "${common_args[@]}"; then
+        log_warn "Policy access diff failed (sesearch/Podman) — PR body without delta section"
+        bash "${ASSEMBLE}" "${common_args[@]}" --skip-policy-diff
+    fi
 }
 
 open_pr() {

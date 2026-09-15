@@ -176,6 +176,28 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def policy_source_paths(project_root: Path, manifest: dict[str, Any]) -> dict[str, Path]:
+    """Resolve .te / .fc / policy_version.txt from manifest policy.module_dir."""
+    app_name = manifest["app_name"]
+    rel = manifest["policy"]["module_dir"]
+    mod_dir = Path(rel)
+    if not mod_dir.is_absolute():
+        mod_dir = (project_root / mod_dir).resolve()
+    te = mod_dir / f"{app_name}.te"
+    fc = mod_dir / f"{app_name}.fc"
+    version_file = mod_dir / "policy_version.txt"
+    if not version_file.is_file():
+        legacy = (project_root / "selinux" / "policy_version.txt").resolve()
+        if legacy.is_file():
+            version_file = legacy
+    return {
+        "module_dir": mod_dir,
+        "te": te,
+        "fc": fc,
+        "version_file": version_file,
+    }
+
+
 def service_units_ordered(manifest: dict[str, Any]) -> list[tuple[str, str, str]]:
     """Return list of (role, unit, domain) — backend before primary when present."""
     items: list[tuple[str, str, str]] = []

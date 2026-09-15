@@ -106,6 +106,9 @@ jobs:
       - name: Run deterministic golden fixtures
         run: bash scripts/run_deterministic_fixtures.sh
 
+      - name: Deterministic generator (payments manifest, no myapp leak)
+        run: bash scripts/run_deterministic_payments_check.sh
+
   blast-radius:
     name: blast-radius
     runs-on: ubuntu-latest
@@ -117,10 +120,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y podman
 
-      - name: Ensure SELinux compile image (pull-first, else build)
-        run: bash scripts/lib/selinux_build_image.sh ensure
+      - name: Cache SELinux build image
+        uses: actions/cache@v4
+        id: selinux-build-image
+        with:
+          path: /tmp/selinux-build-image.tar
+          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
+
+      - name: Load or build SELinux compile image
+        run: bash scripts/ci/ensure_selinux_build_image.sh
 
       - name: Run blast-radius fixture suite
+        env:
+          BLAST_RADIUS_REQUIRE_INTEGRATION: "1"
         run: bash scripts/run_blast_radius_fixtures.sh
 
   shellcheck:
@@ -155,11 +167,57 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y podman
 
+      - name: Cache SELinux build image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/selinux-build-image.tar
+          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
+
+      - name: Load or build SELinux compile image
+        run: bash scripts/ci/ensure_selinux_build_image.sh
+
       - name: Post policy access delta comment
         env:
           GH_TOKEN: ${{ github.token }}
-          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
         run: bash scripts/ci/post_pr_policy_diff_comment.sh
+
+  policy-access-delta:
+    name: policy-access-delta
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch for merge-base diff
+        run: git fetch origin main:refs/remotes/origin/main || git fetch origin master:refs/remotes/origin/master
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Cache SELinux build image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/selinux-build-image.tar
+          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
+
+      - name: Load or build SELinux compile image
+        run: bash scripts/ci/ensure_selinux_build_image.sh
+
+      - name: Verify merge-base policy access delta renders
+        run: |
+          out="$(mktemp)"
+          bash scripts/lib/policy_module_diff.sh \
+            --app-name myapp \
+            --from-merge-base \
+            --cand-dir selinux \
+            --output "${out}" \
+            --format markdown
+          grep -q 'Policy access delta' "${out}"
+          rm -f "${out}"
 
   yamllint:
     name: yamllint
@@ -187,8 +245,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y podman
 
-      - name: Ensure SELinux compile image
-        run: bash scripts/lib/selinux_build_image.sh ensure
+      - name: Cache SELinux build image
+        uses: actions/cache@v4
+        id: selinux-build-image
+        with:
+          path: /tmp/selinux-build-image.tar
+          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
+
+      - name: Load or build SELinux compile image
+        run: bash scripts/ci/ensure_selinux_build_image.sh
 
       - name: Compile selinux/ module
         run: bash scripts/compile_and_validate.sh selinux

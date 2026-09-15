@@ -3,19 +3,19 @@
 # policy_module_diff.sh — Diff application-domain allows between two module sources.
 #
 # sediff(1) requires a binary kernel policy, not standalone .pp module packages
-# (see: "Invalid policy ... A binary policy must be specified"). We install each
-# compiled module into the container policy store (semodule -i), dump sorted
-# sesearch --allow lines for app domains, then diff with comm.
+# (see: "Invalid policy ... A binary policy must be specified"). We compile each
+# side from .te/.fc, install with semodule -i in a fresh container run per side,
+# dump sorted sesearch --allow lines for app domains, then comm (option b).
 #
 set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${LIB_DIR}/../.." && pwd)"
-# shellcheck source=lib/compile_policy.sh
+# shellcheck source=compile_policy.sh
 source "${LIB_DIR}/compile_policy.sh"
 
 APP_NAME="${POLICY_APP:-myapp}"
-DOMAINS="${SELINUX_POLICY_DIFF_DOMAINS:-myapp_t,myapp_backend_t}"
+DOMAINS="${SELINUX_POLICY_DIFF_DOMAINS:-}"
 BASE_DIR=""
 CAND_DIR=""
 OUTPUT=""
@@ -33,7 +33,7 @@ Options:
   --base-dir PATH           Directory with \${APP_NAME}.{te,fc} for merge-base side
   --cand-dir PATH           Candidate directory (default: selinux/)
   --from-merge-base         Extract base from git merge-base vs origin/main
-  --domains CSV             Source domains for sesearch (default: myapp_t,myapp_backend_t)
+  --domains CSV             Source domains for sesearch (default: \${APP_NAME}_t,...)
   --output PATH             Write diff text (required)
   --format markdown|text    Output format (default: markdown)
   -h, --help
@@ -57,6 +57,20 @@ done
 [[ -n "${OUTPUT}" ]] || { echo "policy_module_diff: --output is required" >&2; exit 1; }
 CAND_DIR="${CAND_DIR:-${PROJECT_ROOT}/selinux}"
 
+if [[ -z "${DOMAINS}" && -f "${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml" ]]; then
+    DOMAINS="$(python3 - "${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml" <<'PY'
+import sys, yaml
+m = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+doms = {m["domain"]}
+for svc in (m.get("services") or {}).values():
+    if isinstance(svc, dict) and svc.get("domain"):
+        doms.add(svc["domain"])
+print(",".join(sorted(doms)))
+PY
+)"
+fi
+DOMAINS="${DOMAINS:-${APP_NAME}_t,${APP_NAME}_backend_t}"
+
 resolve_merge_base_ref() {
     local ref=""
     ref="$(git -C "${PROJECT_ROOT}" merge-base HEAD origin/main 2>/dev/null || true)"
@@ -69,8 +83,14 @@ resolve_merge_base_ref() {
 if [[ "${FROM_MERGE_BASE}" -eq 1 ]]; then
     base_ref="$(resolve_merge_base_ref)"
     work="$(mktemp -d)"
-    git -C "${PROJECT_ROOT}" show "${base_ref}:selinux/${APP_NAME}.te" > "${work}/${APP_NAME}.te"
-    git -C "${PROJECT_ROOT}" show "${base_ref}:selinux/${APP_NAME}.fc" > "${work}/${APP_NAME}.fc"
+    if ! git -C "${PROJECT_ROOT}" show "${base_ref}:selinux/${APP_NAME}.te" > "${work}/${APP_NAME}.te" 2>/dev/null; then
+        echo "policy_module_diff: no selinux/${APP_NAME}.te at merge-base ${base_ref}" >&2
+        exit 1
+    fi
+    if ! git -C "${PROJECT_ROOT}" show "${base_ref}:selinux/${APP_NAME}.fc" > "${work}/${APP_NAME}.fc" 2>/dev/null; then
+        echo "policy_module_diff: no selinux/${APP_NAME}.fc at merge-base ${base_ref}" >&2
+        exit 1
+    fi
     BASE_DIR="${work}"
 fi
 
@@ -90,9 +110,15 @@ trap cleanup EXIT
 
 run_dir="$(mktemp -d)"
 mkdir -p "${run_dir}/base" "${run_dir}/cand"
-cp "${LIB_DIR}/policy_module_sesearch.sh" "${run_dir}/"
+cp "${LIB_DIR}/policy_module_sesearch.sh" "${LIB_DIR}/policy_module_diff_side.sh" "${run_dir}/"
 cp "${BASE_DIR}/${APP_NAME}.te" "${BASE_DIR}/${APP_NAME}.fc" "${run_dir}/base/"
 cp "${CAND_DIR}/${APP_NAME}.te" "${CAND_DIR}/${APP_NAME}.fc" "${run_dir}/cand/"
+if [[ -f "${BASE_DIR}/${APP_NAME}.if" ]]; then
+    cp "${BASE_DIR}/${APP_NAME}.if" "${run_dir}/base/"
+fi
+if [[ -f "${CAND_DIR}/${APP_NAME}.if" ]]; then
+    cp "${CAND_DIR}/${APP_NAME}.if" "${run_dir}/cand/"
+fi
 
 compile_policy_module "${run_dir}/base" "${APP_NAME}" "${run_dir}/base/${APP_NAME}.pp" || {
     echo "policy_module_diff: failed to compile merge-base ${APP_NAME} module" >&2
@@ -103,123 +129,47 @@ compile_policy_module "${run_dir}/cand" "${APP_NAME}" "${run_dir}/cand/${APP_NAM
     exit 1
 }
 
-run_container() {
-    local log="${run_dir}/podman.log"
-    local pod_ec=0
-    ensure_selinux_build_image || true
-    if selinux_build_image_ready; then
-        run_selinux_container "${run_dir}" \
-            -e "APP_NAME=${APP_NAME}" \
-            -e "DOMAINS=${DOMAINS}" \
-            bash -lc '
-set -euo pipefail
-source /work/policy_module_sesearch.sh
-base_rules="/work/base_rules.txt"
-cand_rules="/work/cand_rules.txt"
-: > "${base_rules}"
-: > "${cand_rules}"
-kern="/var/lib/selinux/targeted/active/policy.kern"
-dump_side() {
-    local pp="$1" dest="$2"
-    semodule -r "${APP_NAME}" 2>/dev/null || true
-    semodule -i "${pp}"
-    IFS="," read -r -a doms <<< "${DOMAINS}"
-    for dom in "${doms[@]}"; do
-        dom="${dom// /}"
-        [[ -n "${dom}" ]] || continue
-        append_domain_allows "${kern}" "${dom}" "${dest}"
-    done
-}
-dump_side "/work/base/${APP_NAME}.pp" "${base_rules}"
-dump_side "/work/cand/${APP_NAME}.pp" "${cand_rules}"
-semodule -r "${APP_NAME}" 2>/dev/null || true
-sort -u -o "${base_rules}" "${base_rules}"
-sort -u -o "${cand_rules}" "${cand_rules}"
-comm -23 "${cand_rules}" "${base_rules}" > /work/added.txt
-comm -13 "${cand_rules}" "${base_rules}" > /work/removed.txt
-' >"${log}" 2>&1 || pod_ec=$?
-    else
-        podman run --rm \
-            -v "${run_dir}:/work:Z" \
-            -e "APP_NAME=${APP_NAME}" \
-            -e "DOMAINS=${DOMAINS}" \
-            "${SELINUX_COMPILE_IMAGE}" \
-            bash -lc '
-set -euo pipefail
-source /work/policy_module_sesearch.sh
-dnf install -y -q setools-console policycoreutils selinux-policy-targeted selinux-policy-devel checkpolicy
-base_rules="/work/base_rules.txt"
-cand_rules="/work/cand_rules.txt"
-: > "${base_rules}"
-: > "${cand_rules}"
-kern="/var/lib/selinux/targeted/active/policy.kern"
-dump_side() {
-    local pp="$1" dest="$2"
-    semodule -r "${APP_NAME}" 2>/dev/null || true
-    semodule -i "${pp}"
-    IFS="," read -r -a doms <<< "${DOMAINS}"
-    for dom in "${doms[@]}"; do
-        dom="${dom// /}"
-        [[ -n "${dom}" ]] || continue
-        append_domain_allows "${kern}" "${dom}" "${dest}"
-    done
-}
-dump_side "/work/base/${APP_NAME}.pp" "${base_rules}"
-dump_side "/work/cand/${APP_NAME}.pp" "${cand_rules}"
-semodule -r "${APP_NAME}" 2>/dev/null || true
-sort -u -o "${base_rules}" "${base_rules}"
-sort -u -o "${cand_rules}" "${cand_rules}"
-comm -23 "${cand_rules}" "${base_rules}" > /work/added.txt
-comm -13 "${cand_rules}" "${base_rules}" > /work/removed.txt
-' >"${log}" 2>&1 || pod_ec=$?
+collect_side_container() {
+    local label="$1"
+    local pp_path="$2"
+    local out_name="${label}_rules.txt"
+    local log="${run_dir}/${label}.log"
+    if ! run_selinux_container "${run_dir}" \
+        -e "DIFF_DOMAINS=${DOMAINS}" \
+        -e "DIFF_APP=${APP_NAME}" \
+        bash -lc "bash /work/policy_module_diff_side.sh ${pp_path} /work/${out_name} \"\${DIFF_DOMAINS}\" \"\${DIFF_APP}\"" \
+        >"${log}" 2>&1; then
+        echo "policy_module_diff: ${label} sesearch collect failed" >&2
+        tail -30 "${log}" >&2
+        return 1
     fi
-    if [[ -f "${run_dir}/added.txt" && -f "${run_dir}/removed.txt" ]]; then
-        return 0
-    fi
-    tail -40 "${log}" >&2
-    return "${pod_ec:-1}"
+    [[ -f "${run_dir}/${out_name}" ]] || {
+        echo "policy_module_diff: missing ${run_dir}/${out_name}" >&2
+        return 1
+    }
+}
+
+collect_side_native() {
+    local label="$1"
+    local pp="$2"
+    local out="${run_dir}/${label}_rules.txt"
+    # shellcheck source=policy_module_diff_side.sh
+    bash "${LIB_DIR}/policy_module_diff_side.sh" "${pp}" "${out}" "${DOMAINS}" "${APP_NAME}"
 }
 
 if has_selinux_devel && command -v sesearch >/dev/null 2>&1; then
-    # shellcheck source=lib/policy_module_sesearch.sh
-    source "${LIB_DIR}/policy_module_sesearch.sh"
-    base_rules="${run_dir}/base_rules.txt"
-    cand_rules="${run_dir}/cand_rules.txt"
-    : > "${base_rules}"
-    : > "${cand_rules}"
-    kern="/var/lib/selinux/targeted/active/policy.kern"
-    dump_side_native() {
-        local pp="$1" dest="$2"
-        semodule -r "${APP_NAME}" 2>/dev/null || true
-        semodule -i "${pp}"
-        IFS=',' read -r -a doms <<< "${DOMAINS}"
-        for dom in "${doms[@]}"; do
-            dom="${dom// /}"
-            [[ -n "${dom}" ]] || continue
-            append_domain_allows "${kern}" "${dom}" "${dest}"
-        done
-    }
-    dump_side_native "${run_dir}/base/${APP_NAME}.pp" "${base_rules}"
-    dump_side_native "${run_dir}/cand/${APP_NAME}.pp" "${cand_rules}"
-    semodule -r "${APP_NAME}" 2>/dev/null || true
-    sort -u -o "${base_rules}" "${base_rules}"
-    sort -u -o "${cand_rules}" "${cand_rules}"
-    comm -23 "${cand_rules}" "${base_rules}" > "${run_dir}/added.txt"
-    comm -13 "${cand_rules}" "${base_rules}" > "${run_dir}/removed.txt"
+    collect_side_native base "${run_dir}/base/${APP_NAME}.pp"
+    collect_side_native cand "${run_dir}/cand/${APP_NAME}.pp"
 elif command -v podman >/dev/null 2>&1; then
-    run_container || {
-        echo "policy_module_diff: podman sesearch diff step failed" >&2
-        exit 1
-    }
+    collect_side_container base "/work/base/${APP_NAME}.pp"
+    collect_side_container cand "/work/cand/${APP_NAME}.pp"
 else
     echo "policy_module_diff: need podman or host selinux-policy-targeted + setools" >&2
     exit 1
 fi
 
-[[ -f "${run_dir}/added.txt" && -f "${run_dir}/removed.txt" ]] || {
-    echo "policy_module_diff: sesearch diff step did not produce output files" >&2
-    exit 1
-}
+comm -23 "${run_dir}/cand_rules.txt" "${run_dir}/base_rules.txt" > "${run_dir}/added.txt"
+comm -13 "${run_dir}/cand_rules.txt" "${run_dir}/base_rules.txt" > "${run_dir}/removed.txt"
 
 added="$(cat "${run_dir}/added.txt")"
 removed="$(cat "${run_dir}/removed.txt")"

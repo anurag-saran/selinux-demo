@@ -1,14 +1,11 @@
-# Curated AVC patterns often satisfied by toggling a targeted-policy boolean
-# instead of adding a permanent allow rule. Extend for your site; match is exact
-# on src_type, tgt_type, tclass, and perms (need must include every listed perm).
+# Curated overrides (consulted before sesearch policy query).
+# Omit src_type to match any domain; use {domain} or {app_name}_t templates when needed.
 hints:
   - boolean: httpd_can_network_connect
     note: >-
-      Outbound TCP connect to HTTP port types is often gated by this boolean
-      for web stacks. Prefer setsebool over a permanent allow on http_port_t;
-      confirm with semanage boolean -l on the target host.
+      Site policy: prefer toggling this boolean over a permanent allow on http_port_t
+      for outbound HTTP connects.
     match:
-      src_type: myapp_t
       tgt_type: http_port_t
       tclass: tcp_socket
       perms: [name_connect]

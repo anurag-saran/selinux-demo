@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -293,6 +294,43 @@ def test_flask_endpoints(require_backend: bool = True) -> None:
                 child.kill()
 
 
+def test_assemble_pr_body_policy_diff_section() -> None:
+    """assemble_pr_body embeds precomputed sesearch delta (full diff needs Podman + git merge-base)."""
+    fixture = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "policy_diff" / "sample_delta.md"
+    assert fixture.is_file(), f"missing {fixture}"
+    with tempfile.TemporaryDirectory() as tmp:
+        pr_summary = Path(tmp) / "pr_summary.md"
+        pr_summary.write_text("### Network Bindings\n- test\n", encoding="utf-8")
+        avc_log = Path(tmp) / "avc.log"
+        avc_log.write_text("type=AVC msg=audit(1): avc: denied { read } for pid=1\n", encoding="utf-8")
+        output = Path(tmp) / "pr_body.md"
+        script = PROJECT_ROOT / "scripts" / "assemble_pr_body.sh"
+        subprocess.run(
+            [
+                "bash",
+                str(script),
+                "--template",
+                str(PROJECT_ROOT / ".github" / "PULL_REQUEST_TEMPLATE" / "selinux_policy_review.md"),
+                "--pr-summary",
+                str(pr_summary),
+                "--avc-log",
+                str(avc_log),
+                "--output",
+                str(output),
+                "--app-name",
+                "myapp",
+                "--policy-diff-file",
+                str(fixture),
+            ],
+            check=True,
+            cwd=PROJECT_ROOT,
+        )
+        body = output.read_text(encoding="utf-8")
+        assert "Rules ADDED" in body
+        assert "name_bind" in body
+        assert "sediff unavailable" not in body.lower()
+
+
 def test_assemble_pr_body() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         pr_summary = Path(tmp) / "pr_summary.md"
@@ -489,6 +527,122 @@ def test_version_consistency() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_version_consistency_fails_on_payments_drift() -> None:
+    script = PROJECT_ROOT / "scripts" / "validate_version_consistency.sh"
+    vf = PROJECT_ROOT / "selinux" / "payments" / "policy_version.txt"
+    original = vf.read_text(encoding="utf-8")
+    try:
+        vf.write_text("9.9.9\n", encoding="utf-8")
+        result = subprocess.run(
+            ["bash", str(script)],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0, "expected failure when payments policy_version.txt drifts from .te"
+    finally:
+        vf.write_text(original, encoding="utf-8")
+
+
+def test_scaffold_billing_no_myapp_leak() -> None:
+    script = PROJECT_ROOT / "scripts" / "scaffold_sepolicy_module.sh"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "selinux").mkdir()
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        fake_sep = fake_bin / "sepolicy-generate"
+        fake_sep.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "cat > \"${PWD}/billing.te\" <<'EOF'\n"
+            "policy_module(billing, 1.0.0)\n"
+            "type billing_t;\n"
+            "EOF\n"
+            "touch \"${PWD}/billing.fc\" \"${PWD}/billing.if\"\n",
+            encoding="utf-8",
+        )
+        fake_sep.chmod(0o755)
+        env = {
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
+            "SCAFFOLD_PROJECT_ROOT": str(root),
+        }
+        result = subprocess.run(
+            ["bash", str(script), "billing", "billing_t"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert result.returncode == 0, result.stderr + result.stdout
+        te = root / "selinux" / "billing" / "billing.te"
+        assert te.is_file(), te
+        text = te.read_text(encoding="utf-8")
+        forbidden = ("myapp_t", "/opt/myapp", "Order Processor", "myapp_port_t")
+        for needle in forbidden:
+            assert needle not in text, f"scaffold leaked {needle!r} in {text}"
+
+
+def test_deterministic_payments_manifest_check() -> None:
+    script = PROJECT_ROOT / "scripts" / "run_deterministic_payments_check.sh"
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_version_consistency_fails_on_drift() -> None:
+    script = PROJECT_ROOT / "scripts" / "validate_version_consistency.sh"
+    spec = PROJECT_ROOT / "packaging" / "myapp-selinux.spec"
+    original = spec.read_text(encoding="utf-8")
+    try:
+        spec.write_text(original.replace("Version:        %{modver}", "Version:        9.9.9"), encoding="utf-8")
+        result = subprocess.run(
+            ["bash", str(script)],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0, "expected failure when spec Version is hardcoded"
+    finally:
+        spec.write_text(original, encoding="utf-8")
+
+
+def test_promote_policy_version_from_te() -> None:
+    """promote_to_selinux must rewrite selinux/policy_version.txt from policy_module() when missing in policy_out."""
+    import tempfile
+
+    version_sh = PROJECT_ROOT / "scripts" / "lib" / "version.sh"
+    te_src = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "skip_ai" / "generated" / "myapp.te"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        policy_out = root / "policy_out"
+        selinux = root / "selinux"
+        policy_out.mkdir()
+        selinux.mkdir()
+        (policy_out / "myapp.te").write_text(te_src.read_text(encoding="utf-8"), encoding="utf-8")
+        (policy_out / "myapp.fc").write_text("# fixture\n", encoding="utf-8")
+        (selinux / "policy_version.txt").write_text("1.0.0\n", encoding="utf-8")
+        script = f"""
+set -euo pipefail
+PROJECT_ROOT="{root}"
+APP_NAME=myapp
+POLICY_OUT="${{PROJECT_ROOT}}/policy_out"
+SELINUX_DIR="${{PROJECT_ROOT}}/selinux"
+source "{version_sh}"
+match="$(policy_module_version_from_te "${{POLICY_OUT}}/myapp.te" "${{APP_NAME}}")"
+echo "${{match}}" > "${{SELINUX_DIR}}/policy_version.txt"
+"""
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        got = (selinux / "policy_version.txt").read_text(encoding="utf-8").strip()
+        assert got == "1.1.2", f"expected 1.1.2 from fixture te, got {got!r}"
+
+
 def test_classify_fail_closed_json() -> None:
     script = PROJECT_ROOT / "scripts" / "classify_policy_blast_radius.sh"
     with tempfile.TemporaryDirectory() as tmp:
@@ -508,6 +662,55 @@ def test_classify_fail_closed_json() -> None:
     assert payload["min_days"] == 7
     assert payload.get("fail_closed") is True
     assert "tier" in payload
+
+
+def test_check_soak_auto_tier_fail_closed() -> None:
+    """--auto-tier must not shorten soak when classifier returns fail_closed."""
+    script = PROJECT_ROOT / "scripts" / "check_soak_ready.sh"
+    base = PROJECT_ROOT / "tests/fixtures/blast_radius/_common/base.te"
+    cand = PROJECT_ROOT / "tests/fixtures/blast_radius/low_private_type/cand.te"
+    with tempfile.TemporaryDirectory() as tmp:
+        marker = Path(tmp) / "marker"
+        report = Path(tmp) / "selinux_deploy_report.json"
+        report.write_text(
+            json.dumps(
+                {
+                    "status": "pass",
+                    "endpoints_exercised": True,
+                    "domain_context_verified": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        old_epoch = int(time.time()) - (8 * 86400)
+        marker.write_text(str(old_epoch), encoding="utf-8")
+        result = subprocess.run(
+            [
+                "bash",
+                str(script),
+                "--marker-file",
+                str(marker),
+                "--report-file",
+                str(report),
+                "--min-days",
+                "7",
+                "--max-avc",
+                "9999",
+                "--skip-if-unavailable",
+                "--auto-tier",
+                "--base-policy",
+                str(base),
+                "--candidate-policy",
+                str(cand),
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "CLASSIFY_SKIP_PODMAN": "1"},
+        )
+    combined = result.stdout + result.stderr
+    assert "Blast-radius classifier fail-closed" in combined, combined
+    assert "soak minimum 7 day" in combined, combined
 
 
 def test_skip_ai_fixture_sync() -> None:
@@ -549,6 +752,13 @@ def _deterministic_case_meta(case_dir: Path) -> dict:
     return {"exit_code": 0}
 
 
+def _deterministic_boolean_mock(case_dir: Path) -> dict | None:
+    mock_path = case_dir / "boolean_mock.json"
+    if not mock_path.is_file():
+        return None
+    return json.loads(mock_path.read_text(encoding="utf-8"))
+
+
 def _deterministic_sepolgen_mock(case_dir: Path) -> dict | None:
     mock_path = case_dir / "sepolgen_mock.json"
     if not mock_path.is_file():
@@ -565,6 +775,11 @@ def _deterministic_run_args(
     explain: bool,
     out_dir: Path,
 ) -> argparse.Namespace:
+    meta = _deterministic_case_meta(case_dir)
+    hints_path = PROJECT_ROOT / "config" / "boolean_hints.yml"
+    rel = meta.get("boolean_hints")
+    if rel:
+        hints_path = case_dir / str(rel)
     return argparse.Namespace(
         avc_log=case_dir / "avc.log",
         manifest=manifest,
@@ -576,8 +791,29 @@ def _deterministic_run_args(
         version_file=PROJECT_ROOT / "selinux" / "policy_version.txt",
         explain=explain,
         allow_degraded=False,
-        boolean_hints=PROJECT_ROOT / "config" / "boolean_hints.yml",
+        policy_kern=None,
+        boolean_hints=hints_path,
     )
+
+
+def _boolean_lookup_from_mock(mock: dict):
+    from boolean_hints import BooleanLookupResult, BooleanMatch
+
+    behavior = mock.get("behavior")
+    if behavior == "match":
+        matches = tuple(
+            BooleanMatch(str(m["name"]), str(m.get("description") or ""))
+            for m in mock.get("matches") or []
+        )
+        return BooleanLookupResult(status="matched", matches=matches)
+    if behavior == "none":
+        return BooleanLookupResult(status="none")
+    if behavior == "unavailable":
+        return BooleanLookupResult(
+            status="unavailable",
+            detail=str(mock.get("detail") or "boolean lookup unavailable"),
+        )
+    raise ValueError(f"unknown boolean_mock behavior {behavior!r}")
 
 
 def _run_deterministic_gen(
@@ -589,10 +825,11 @@ def _run_deterministic_gen(
     explain: bool,
     out_dir: Path,
     mock: dict | None,
+    boolean_mock: dict | None,
 ) -> tuple[int, str, str]:
-    """Run deterministic_gen; use in-process mocks when sepolgen_mock.json is present."""
+    """Run deterministic_gen; in-process when fixture mocks are present."""
     import io
-    from contextlib import redirect_stderr, redirect_stdout
+    from contextlib import ExitStack, redirect_stderr, redirect_stdout
     from unittest.mock import patch
 
     import deterministic_gen as dg
@@ -602,40 +839,18 @@ def _run_deterministic_gen(
     )
     stdout = io.StringIO()
     stderr = io.StringIO()
-    patcher = None
-    if mock:
-        behavior = mock.get("behavior")
-        if behavior == "match":
-            rendered = mock["rendered"]
-            note = mock.get("note", "mock interface")
-
-            def _fake_match(*_a, **_k):
-                return (rendered, note)
-
-            patcher = patch.object(dg, "try_sepolgen_interface", _fake_match)
-        elif behavior == "no_match":
-            patcher = patch.object(dg, "try_sepolgen_interface", return_value=None)
-        elif behavior == "unavailable":
-            patcher = patch.object(
-                dg, "try_sepolgen_interface", return_value=dg.SEPOLGEN_UNAVAILABLE
-            )
-        else:
-            raise ValueError(f"{case_dir.name}: unknown sepolgen_mock behavior {behavior!r}")
 
     def _invoke() -> int:
         with redirect_stdout(stdout), redirect_stderr(stderr):
             return dg.run(args)
 
-    if patcher:
-        with patcher:
-            code = _invoke()
-    else:
+    if not mock and not boolean_mock:
         gen = PROJECT_ROOT / "cli" / "deterministic_gen.py"
         result = subprocess.run(
             [
                 sys.executable,
                 str(gen),
-                *( ["--explain"] if explain else [] ),
+                *(["--explain"] if explain else []),
                 "--avc-log",
                 str(args.avc_log),
                 "--manifest",
@@ -652,6 +867,37 @@ def _run_deterministic_gen(
             text=True,
         )
         return result.returncode, result.stdout, result.stderr
+
+    with ExitStack() as stack:
+        if mock:
+            behavior = mock.get("behavior")
+            if behavior == "match":
+                rendered = mock["rendered"]
+                note = mock.get("note", "mock interface")
+
+                def _fake_match(*_a, **_k):
+                    return (rendered, note)
+
+                stack.enter_context(patch.object(dg, "try_sepolgen_interface", _fake_match))
+            elif behavior == "no_match":
+                stack.enter_context(patch.object(dg, "try_sepolgen_interface", return_value=None))
+            elif behavior == "unavailable":
+                stack.enter_context(
+                    patch.object(
+                        dg, "try_sepolgen_interface", return_value=dg.SEPOLGEN_UNAVAILABLE
+                    )
+                )
+            else:
+                raise ValueError(f"{case_dir.name}: unknown sepolgen_mock behavior {behavior!r}")
+        if boolean_mock:
+
+            def _fake_bool(*_a, **_k):
+                return _boolean_lookup_from_mock(boolean_mock)
+
+            import boolean_hints as bh
+
+            stack.enter_context(patch.object(bh, "lookup_booleans_for_need", _fake_bool))
+        code = _invoke()
 
     return code, stdout.getvalue(), stderr.getvalue()
 
@@ -678,6 +924,7 @@ def test_deterministic_fixture_classify() -> None:
         case = case_dir.name
         meta = _deterministic_case_meta(case_dir)
         mock = _deterministic_sepolgen_mock(case_dir)
+        boolean_mock = _deterministic_boolean_mock(case_dir)
         expected = json.loads((case_dir / "expected.json").read_text(encoding="utf-8"))
         want_exit = int(meta.get("exit_code", 0))
 
@@ -689,6 +936,7 @@ def test_deterministic_fixture_classify() -> None:
             explain=True,
             out_dir=case_dir / "_out",
             mock=mock,
+            boolean_mock=boolean_mock,
         )
         combined = out + err
         assert code == want_exit, f"{case}: explain exit {code}, want {want_exit}\n{combined}"
@@ -703,6 +951,7 @@ def test_deterministic_fixture_classify() -> None:
             explain=False,
             out_dir=case_dir / "_out",
             mock=mock,
+            boolean_mock=boolean_mock,
         )
         assert gen_code == want_exit, (
             f"{case}: generation exit {gen_code}, want {want_exit}\n{gen_err}{gen_out}"
@@ -712,10 +961,16 @@ def test_deterministic_fixture_classify() -> None:
         payload = json.loads(findings_path.read_text(encoding="utf-8"))
         rows = payload["findings"] if isinstance(payload, dict) else payload
         for want in expected:
-            assert any(
-                row.get("verdict") == want["verdict"] and row.get("tgt") == want["tgt"]
+            matched = [
+                row
                 for row in rows
-            ), f"{case}: missing {want} in {rows}"
+                if row.get("verdict") == want["verdict"] and row.get("tgt") == want["tgt"]
+            ]
+            assert matched, f"{case}: missing {want} in {rows}"
+            if want.get("boolean"):
+                assert any(row.get("boolean") == want["boolean"] for row in matched), (
+                    f"{case}: boolean name mismatch for {want}"
+                )
         if want_exit != 0:
             assert payload.get("generation_blocked") is True, f"{case}: expected generation_blocked"
             continue
@@ -728,12 +983,37 @@ def test_deterministic_fixture_classify() -> None:
         if case == "06-fc-missing-line":
             out_fc = (case_dir / "_out" / "myapp.fc").read_text(encoding="utf-8")
             assert "/opt/myapp/cache/data" in out_fc, f"{case}: expected new .fc line for cache path"
-        if case == "10-boolean-hint":
+        if case == "04-boolean-network-connect":
+            digest_a = hashlib.sha256(
+                (case_dir / "_out" / "myapp.te").read_bytes()
+                + (case_dir / "_out" / "findings.json").read_bytes()
+            ).hexdigest()
+            code2, _, _ = _run_deterministic_gen(
+                case_dir,
+                manifest,
+                te,
+                fc,
+                explain=False,
+                out_dir=case_dir / "_out2",
+                mock=mock,
+                boolean_mock=boolean_mock,
+            )
+            assert code2 == 0
+            digest_b = hashlib.sha256(
+                (case_dir / "_out2" / "myapp.te").read_bytes()
+                + (case_dir / "_out2" / "findings.json").read_bytes()
+            ).hexdigest()
+            assert digest_a == digest_b, f"{case}: non-deterministic output between runs"
+        if case in ("04-boolean-network-connect", "10-boolean-hint"):
             out_te = (case_dir / "_out" / "myapp.te").read_text(encoding="utf-8")
             assert "http_port_t" not in out_te, f"{case}: must not add permanent allow on http_port_t"
             row = next(r for r in rows if r.get("verdict") == "boolean")
             assert row.get("boolean") == "httpd_can_network_connect"
-            assert "setsebool" in (row.get("rendered") or "")
+            assert "setsebool -P" in (row.get("rendered") or "")
+            assert payload.get("host_admin_actions"), f"{case}: expected host_admin_actions in findings"
+        if case == "10-boolean-hint":
+            row10 = next(r for r in rows if r.get("verdict") == "boolean")
+            assert row10.get("engine") == "curated_override", row10
 
 
 def test_payments_onboarding_module() -> None:
@@ -756,8 +1036,8 @@ def test_payments_onboarding_module() -> None:
 
 
 def test_selinux_build_image_internal_registry() -> None:
-    """Compile image URL is fully overridable (not hard-coded to Docker Hub at runtime)."""
-    lib = PROJECT_ROOT / "scripts" / "lib" / "selinux_build_image.sh"
+    """Compile image URL is fully overridable (not hard-coded at runtime)."""
+    lib = PROJECT_ROOT / "scripts" / "lib" / "build_image.sh"
     internal = "registry.example.com/security/selinux-demo-selinux-build:stream9"
     result = subprocess.run(
         [
@@ -774,20 +1054,85 @@ def test_selinux_build_image_internal_registry() -> None:
     assert result.stdout == internal
 
 
-def test_boolean_hint_matching() -> None:
-    from boolean_hints import load_boolean_hints, match_boolean_hint
+def test_boolean_policy_render() -> None:
+    from boolean_hints import BooleanMatch, render_boolean_finding, resolve_booleans_for_need
 
-    hints = load_boolean_hints(PROJECT_ROOT / "config" / "boolean_hints.yml")
+    rendered, note, names = render_boolean_finding(
+        (BooleanMatch("httpd_can_network_connect", "Allow httpd to connect to http ports"),)
+    )
+    assert rendered == "setsebool -P httpd_can_network_connect on"
+    assert "-P" in rendered
+    assert names == "httpd_can_network_connect"
+    assert "Host-wide" in note
+
+    multi = (
+        BooleanMatch("aaa_first", "desc a"),
+        BooleanMatch("bbb_second", "desc b"),
+    )
+    rendered_m, note_m, names_m = render_boolean_finding(multi)
+    assert "setsebool -P aaa_first on" in rendered_m
+    assert "setsebool -P bbb_second on" in rendered_m
+    assert "aaa_first" in names_m and "bbb_second" in names_m
+    assert "choose deliberately" in note_m
+
+
+def test_boolean_triage_two_matches() -> None:
+    from boolean_hints import BooleanLookupResult, BooleanMatch, resolve_booleans_for_need
+
     need = AccessNeed(
         "myapp_t",
         "http_port_t",
         "tcp_socket",
         frozenset({"name_connect"}),
     )
-    hit = match_boolean_hint(need, hints)
-    assert hit is not None
-    assert hit[0] == "httpd_can_network_connect"
-    assert "setsebool" in hit[1]
+
+    def _fake(_need, *, policy_kern=None):
+        return BooleanLookupResult(
+            status="matched",
+            matches=(
+                BooleanMatch("aaa_first", "desc a"),
+                BooleanMatch("bbb_second", "desc b"),
+            ),
+        )
+
+    out = resolve_booleans_for_need(need, [], {}, policy_lookup=_fake)
+    assert out.status == "matched"
+    assert [m.name for m in out.matches] == ["aaa_first", "bbb_second"]
+    from boolean_hints import render_boolean_finding
+
+    rendered, note, names = render_boolean_finding(out.matches)
+    assert "setsebool -P aaa_first on" in rendered
+    assert "setsebool -P bbb_second on" in rendered
+    assert "choose deliberately" in note
+    assert "aaa_first" in names and "bbb_second" in names
+
+
+def test_boolean_curated_when_policy_unavailable() -> None:
+    from boolean_hints import BooleanLookupResult, resolve_booleans_for_need
+
+    need = AccessNeed("payments_t", "http_port_t", "tcp_socket", frozenset({"name_connect"}))
+    hints = [
+        {
+            "boolean": "httpd_can_network_connect",
+            "note": "site",
+            "match": {"tgt_type": "http_port_t", "tclass": "tcp_socket", "perms": ["name_connect"]},
+        }
+    ]
+
+    def _unavail(_need, *, policy_kern=None):
+        return BooleanLookupResult(status="unavailable", detail="offline")
+
+    out = resolve_booleans_for_need(need, hints, {"app_name": "payments", "domain": "payments_t"}, policy_lookup=_unavail)
+    assert out.status == "matched"
+    assert out.matches[0].name == "httpd_can_network_connect"
+
+
+def test_boolean_hint_yaml_still_documents_patterns() -> None:
+    from boolean_hints import load_boolean_hints
+
+    hints = load_boolean_hints(PROJECT_ROOT / "config" / "boolean_hints.yml")
+    assert hints and hints[0].get("boolean") == "httpd_can_network_connect"
+    assert "src_type" not in (hints[0].get("match") or {})
 
 
 def test_fc_labeling_drift_detection() -> None:
@@ -841,6 +1186,7 @@ def main() -> int:
         ("policy_json_validation", test_policy_json_validation),
         ("version_bump", test_version_bump),
         ("flask_endpoints", lambda: test_flask_endpoints(require_backend=require_backend)),
+        ("assemble_pr_body_policy_diff_section", test_assemble_pr_body_policy_diff_section),
         ("assemble_pr_body", test_assemble_pr_body),
         ("verify_file_contexts_skip", test_verify_file_contexts_skip),
         ("check_soak_ready_gate", test_check_soak_ready_gate),
@@ -849,13 +1195,22 @@ def main() -> int:
         ("app_manifest", test_app_manifest),
         ("rpm_ops_parity", test_rpm_ops_parity),
         ("version_consistency", test_version_consistency),
+        ("version_consistency_fails_on_drift", test_version_consistency_fails_on_drift),
+        ("version_consistency_fails_on_payments_drift", test_version_consistency_fails_on_payments_drift),
+        ("scaffold_billing_no_myapp_leak", test_scaffold_billing_no_myapp_leak),
+        ("deterministic_payments_manifest_check", test_deterministic_payments_manifest_check),
+        ("promote_policy_version_from_te", test_promote_policy_version_from_te),
         ("classify_fail_closed_json", test_classify_fail_closed_json),
+        ("check_soak_auto_tier_fail_closed", test_check_soak_auto_tier_fail_closed),
         ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
         ("deterministic_verdict_fixture_coverage", test_deterministic_verdict_fixture_coverage),
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
         ("payments_onboarding_module", test_payments_onboarding_module),
         ("selinux_build_image_internal_registry", test_selinux_build_image_internal_registry),
-        ("boolean_hint_matching", test_boolean_hint_matching),
+        ("boolean_policy_render", test_boolean_policy_render),
+        ("boolean_triage_two_matches", test_boolean_triage_two_matches),
+        ("boolean_curated_when_policy_unavailable", test_boolean_curated_when_policy_unavailable),
+        ("boolean_hint_yaml_still_documents_patterns", test_boolean_hint_yaml_still_documents_patterns),
         ("fc_labeling_drift_detection", test_fc_labeling_drift_detection),
     ]
     if os.environ.get("SMOKE_SKIP_FLASK") == "1":

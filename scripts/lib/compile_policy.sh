@@ -8,8 +8,8 @@
 set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=selinux_build_image.sh
-source "${LIB_DIR}/selinux_build_image.sh"
+# shellcheck source=build_image.sh
+source "${LIB_DIR}/build_image.sh"
 
 has_selinux_devel() {
     [[ -f /usr/share/selinux/devel/Makefile ]]
@@ -23,15 +23,67 @@ selinux_container_image() {
     fi
 }
 
+# Prepend inline dnf to a bash -lc script (slow-path fallback).
+_selinux_wrap_bash_lc_with_dnf() {
+    local inner="$1"
+    printf 'set -euo pipefail; dnf install -y -q %s; %s' "${SELINUX_CONTAINER_DNF_PKGS}" "${inner}"
+}
+
+# Run a command in the prebuilt image, or fall back to inline dnf on bare Stream.
+# Usage: run_selinux_container MOUNT_DIR [podman flags...] cmd args...
 run_selinux_container() {
     local mount_src="$1"
     shift
-    local img
-    img="$(selinux_container_image)"
-    if [[ "${img}" == "${SELINUX_COMPILE_IMAGE}" ]]; then
-        echo "[WARN] ${SELINUX_BUILD_IMAGE} missing — slow dnf-in-container path. Fix: bash scripts/build_selinux_compile_image.sh" >&2
+    local podman_extra=()
+    while [[ $# -gt 0 && "$1" == -* ]]; do
+        case "$1" in
+            -e | --env)
+                podman_extra+=("$1" "$2")
+                shift 2
+                ;;
+            -v | --volume)
+                podman_extra+=("$1" "$2")
+                shift 2
+                ;;
+            *)
+                podman_extra+=("$1")
+                shift
+                ;;
+        esac
+    done
+    ensure_selinux_build_image || true
+    if selinux_build_image_ready; then
+        podman run --rm -v "${mount_src}:/work:Z" "${podman_extra[@]}" "${SELINUX_BUILD_IMAGE}" "$@"
+        return $?
     fi
-    podman run --rm -v "${mount_src}:/work:Z" "${img}" "$@"
+    echo "[WARN] Prebuilt image ${SELINUX_BUILD_IMAGE} unavailable — inline dnf install (slow, needs network). Fix: bash scripts/lib/build_image.sh" >&2
+    if [[ "$1" == "bash" && "$2" == "-lc" && -n "${3:-}" ]]; then
+        local wrapped
+        wrapped="$(_selinux_wrap_bash_lc_with_dnf "$3")"
+        podman run --rm -v "${mount_src}:/work:Z" "${podman_extra[@]}" "${SELINUX_COMPILE_IMAGE}" bash -lc "${wrapped}"
+    else
+        podman run --rm -v "${mount_src}:/work:Z" "${podman_extra[@]}" "${SELINUX_COMPILE_IMAGE}" \
+            bash -lc "$(_selinux_wrap_bash_lc_with_dnf "$*")"
+    fi
+}
+
+# Like run_selinux_container but mount at /build (refpolicy Makefile compile).
+_run_selinux_build_mount() {
+    local mount_src="$1"
+    shift
+    ensure_selinux_build_image || true
+    if selinux_build_image_ready; then
+        podman run --rm -v "${mount_src}:/build:Z" "${SELINUX_BUILD_IMAGE}" "$@"
+        return $?
+    fi
+    echo "[WARN] Prebuilt image ${SELINUX_BUILD_IMAGE} unavailable — inline dnf install (slow, needs network). Fix: bash scripts/lib/build_image.sh" >&2
+    if [[ "$1" == "make" ]]; then
+        podman run --rm -v "${mount_src}:/build:Z" "${SELINUX_COMPILE_IMAGE}" \
+            bash -lc "$(_selinux_wrap_bash_lc_with_dnf "$*")"
+    else
+        podman run --rm -v "${mount_src}:/build:Z" "${SELINUX_COMPILE_IMAGE}" \
+            bash -lc "$(_selinux_wrap_bash_lc_with_dnf "$*")"
+    fi
 }
 
 compile_toolchain_available() {
@@ -71,26 +123,11 @@ compile_policy_module() {
         cp "${work_dir}/${module_name}.pp" "${output_pp}"
         rm -rf "${work_dir}"
     elif command -v podman >/dev/null 2>&1; then
-        ensure_selinux_build_image || true
         local work_dir
         work_dir="$(mktemp -d)"
         _copy_module_sources "${work_dir}"
-        if selinux_build_image_ready; then
-            podman run --rm \
-                -v "${work_dir}:/build:Z" \
-                "${SELINUX_BUILD_IMAGE}" \
-                make -C /build -f /usr/share/selinux/devel/Makefile "${module_name}.pp"
-        else
-            echo "[WARN] ${SELINUX_BUILD_IMAGE} not found — slow path (dnf in container). Build once: bash scripts/build_selinux_compile_image.sh" >&2
-            podman run --rm \
-                -v "${work_dir}:/build:Z" \
-                "${SELINUX_COMPILE_IMAGE}" \
-                bash -lc "
-                    set -euo pipefail
-                    dnf install -y -q selinux-policy-devel checkpolicy policycoreutils
-                    make -C /build -f /usr/share/selinux/devel/Makefile ${module_name}.pp
-                "
-        fi
+        _run_selinux_build_mount "${work_dir}" \
+            make -C /build -f /usr/share/selinux/devel/Makefile "${module_name}.pp"
         cp "${work_dir}/${module_name}.pp" "${output_pp}"
         rm -rf "${work_dir}"
     else

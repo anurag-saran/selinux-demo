@@ -34,6 +34,7 @@ AUTO=0
 DEMO_MODE=0
 USE_VM=0
 SKIP_AI=0
+PREFETCH=0
 ACTS_SPEC="1-10"
 ACT_MIN=1
 ACT_MAX=10
@@ -56,6 +57,7 @@ Usage: $(basename "$0") [options]
 Paced presenter demo for Shift-Left SELinux Policy-as-Code (real commands, optional pauses).
 
 Options:
+  --prefetch       Build/pull Podman images (SELinux toolchain) and exit — prep night before demo
   --auto           Skip "Press Enter" pauses (rehearsal / CI)
   --demo-mode      Workshop shortcuts: pre-seed soak marker; force_enforce on enforce step
   --use-vm         Run staging/canary/enforce inside Podman Machine VM (macOS)
@@ -124,6 +126,7 @@ while [[ $# -gt 0 ]]; do
         --demo-mode) DEMO_MODE=1; shift ;;
         --use-vm) USE_VM=1; shift ;;
         --skip-ai) SKIP_AI=1; shift ;;
+        --prefetch) PREFETCH=1; shift ;;
         --acts) ACTS_SPEC="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
@@ -131,6 +134,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 parse_acts
+
+if [[ "${PREFETCH}" -eq 1 ]]; then
+    # shellcheck source=lib/selinux_build_image.sh
+    source "${SCRIPT_DIR}/lib/selinux_build_image.sh"
+    log_info "Prefetch: building SELinux toolchain image (${SELINUX_BUILD_IMAGE}) …"
+    ensure_selinux_build_image
+    if command -v podman >/dev/null 2>&1; then
+        log_info "Prefetch: ensuring base Stream image for slow-path fallback (${SELINUX_COMPILE_IMAGE}) …"
+        podman pull "${SELINUX_COMPILE_IMAGE}" 2>/dev/null || true
+    fi
+    log_info "Prefetch complete — demo compile/validate steps can run offline."
+    exit 0
+fi
 
 act_banner() {
     local num="$1" title="$2" narration="$3"

@@ -25,13 +25,19 @@ cases = [
     (["allow myapp_t myapp_var_lib_t:dir search;"], "low", 1),
     (["allow myapp_t dns_port_t:udp_socket name_connect;"], "medium", 3),
     (["allow myapp_t bin_t:file execute;"], "high", 7),
+    (["allow myapp_t var_t:dir { search };"], "high", 7),
     (["type_transition myapp_t myapp_exec_t:process myapp_t;"], "high", 7),
     (["allow myapp_t myapp_exec_t:file entrypoint;"], "high", 7),
+    (["not a rule"], "high", 7),
 ]
 for lines, tier, days in cases:
     out = classify_added_rules(lines)
     assert out["tier"] == tier, (lines, out)
     assert out["min_days"] == days, (lines, out)
+    if lines == ["not a rule"]:
+        assert out.get("fail_closed") is True, out
+        continue
+    assert not out.get("fail_closed"), (lines, out)
 print("branch_tests OK")
 PY
 }
@@ -64,6 +70,8 @@ name = sys.argv[3]
 if got.get("fail_closed") and "compile" in got.get("reason", "").lower():
     print(f"SKIP_INTEGRATION:{name}: toolchain unavailable ({got.get('reason')})")
     sys.exit(2)
+if got.get("fail_closed"):
+    raise SystemExit(f"fixture {name}: unexpected fail_closed: {got.get('reason')!r}\nfull={got}")
 for key in ("tier", "min_days"):
     if got.get(key) != exp.get(key):
         raise SystemExit(f"mismatch {key}: got {got.get(key)!r} expected {exp.get(key)!r}\nfull={got}")
@@ -93,6 +101,7 @@ import json, sys
 p = json.load(open(sys.argv[1], encoding="utf-8"))
 assert p["min_days"] == 7, p
 assert p["tier"] == "high", p
+assert p.get("fail_closed") is True, p
 print("fail_closed_corrupt OK")
 PY
     rm -rf "${work}" "${out}"
@@ -103,6 +112,10 @@ run_python_branch_tests
 
 integration_ok=1
 if ! compile_toolchain_available; then
+    if [[ "${BLAST_RADIUS_REQUIRE_INTEGRATION:-0}" == "1" ]]; then
+        echo "blast-radius: integration required but compile toolchain unavailable" >&2
+        exit 1
+    fi
     echo "SKIP blast-radius integration fixtures: install podman or selinux-policy-devel"
     integration_ok=0
 fi
@@ -127,7 +140,15 @@ fi
 
 run_fail_closed_corrupt
 if [[ "${skipped}" -eq 1 ]]; then
+    if [[ "${BLAST_RADIUS_REQUIRE_INTEGRATION:-0}" == "1" ]]; then
+        echo "blast-radius: integration fixtures skipped but BLAST_RADIUS_REQUIRE_INTEGRATION=1" >&2
+        exit 1
+    fi
     echo "blast-radius: branch + fail-closed OK; integration fixtures skipped (toolchain)"
     exit 0
+fi
+if [[ "${BLAST_RADIUS_REQUIRE_INTEGRATION:-0}" == "1" && "${integration_ok}" -ne 1 ]]; then
+    echo "blast-radius: integration required but not run" >&2
+    exit 1
 fi
 echo "All blast_radius fixtures passed"

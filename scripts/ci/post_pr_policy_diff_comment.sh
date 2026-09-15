@@ -26,12 +26,30 @@ comment_file="$(mktemp)"
 payload_file="$(mktemp)"
 trap 'rm -f "${diff_body}" "${comment_file}" "${payload_file}"' EXIT
 
-bash "${PROJECT_ROOT}/scripts/lib/policy_module_diff.sh" \
-    --app-name "${APP_NAME}" \
-    --from-merge-base \
-    --cand-dir "${PROJECT_ROOT}/selinux" \
-    --output "${diff_body}" \
+DOMAINS="${SELINUX_POLICY_DIFF_DOMAINS:-}"
+if [[ -z "${DOMAINS}" && -f "${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml" ]]; then
+    DOMAINS="$(python3 - "${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml" <<'PY'
+import sys, yaml
+m = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+doms = {m["domain"]}
+for svc in (m.get("services") or {}).values():
+    if isinstance(svc, dict) and svc.get("domain"):
+        doms.add(svc["domain"])
+print(",".join(sorted(doms)))
+PY
+)"
+fi
+
+diff_args=(
+    --app-name "${APP_NAME}"
+    --from-merge-base
+    --cand-dir "${PROJECT_ROOT}/selinux"
+    --output "${diff_body}"
     --format markdown
+)
+[[ -n "${DOMAINS}" ]] && diff_args+=(--domains "${DOMAINS}")
+
+bash "${PROJECT_ROOT}/scripts/lib/policy_module_diff.sh" "${diff_args[@]}"
 
 {
     printf '%s\n\n' "${MARKER}"

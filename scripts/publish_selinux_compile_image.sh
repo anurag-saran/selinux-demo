@@ -11,11 +11,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/selinux_build_image.sh
-source "${SCRIPT_DIR}/lib/selinux_build_image.sh"
+# shellcheck source=lib/build_image.sh
+source "${SCRIPT_DIR}/lib/build_image.sh"
 
 USER="${DOCKERHUB_USER:-asaran}"
 TOKEN="${DOCKERHUB_TOKEN:-}"
+export SELINUX_BUILD_IMAGE="docker.io/${USER}/selinux-demo-selinux-build:stream9"
 
 if [[ -z "${TOKEN}" ]]; then
     echo "[ERROR] Set DOCKERHUB_TOKEN (Hub → Account Settings → Security → Access Token)." >&2
@@ -46,7 +47,7 @@ printf '%s' "${TOKEN}" | podman login docker.io -u "${USER}" --password-stdin
 if selinux_build_image_ready; then
     echo "[INFO] Image ${SELINUX_BUILD_IMAGE} already present — skipping rebuild." >&2
 else
-    bash "${BUILD_IMAGE_SCRIPT}"
+    bash "${SCRIPT_DIR}/build_selinux_compile_image.sh"
 fi
 
 echo "[INFO] Pushing ${SELINUX_BUILD_IMAGE} …" >&2

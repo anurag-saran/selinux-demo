@@ -8,6 +8,7 @@ RPMBUILD="${ROOT}/packaging/rpmbuild"
 # shellcheck source=../scripts/lib/version.sh
 source "${ROOT}/scripts/lib/version.sh"
 VERSION="$(policy_version "${ROOT}/selinux/policy_version.txt")"
+# RPM Version comes from policy_version.txt only — do not hardcode in the .spec (rpmbuild cwd breaks fragile %define cat).
 
 mkdir -p "${DIST}" "${RPMBUILD}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 OPS_SRC="${RPMBUILD}/BUILD/selinux-policy-ops-src"

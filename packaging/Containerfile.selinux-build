@@ -1,10 +1,10 @@
-# Pre-baked compile image for RHEL 9 policy ABI (refpolicy Makefile).
+# Pre-baked image for all Podman policy workflows (compile, sesearch, blast-radius).
 #
-# Default: CentOS Stream 9 (RHEL 9 upstream; selinux-policy-devel in AppStream).
-# Optional subscribed base: SELINUX_BUILD_BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4
+# Default base: CentOS Stream 9 (RHEL 9 upstream).
+# Optional: SELINUX_BUILD_BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4
 #
-# Build:  bash scripts/build_selinux_compile_image.sh
-# Publish: DOCKERHUB_TOKEN=… bash scripts/publish_selinux_compile_image.sh
+# Build: bash scripts/lib/build_image.sh
+#        or: bash scripts/build_selinux_compile_image.sh
 ARG BASE_IMAGE=quay.io/centos/centos:stream9
 FROM ${BASE_IMAGE}
 
@@ -14,6 +14,7 @@ RUN dnf install -y -q \
     policycoreutils \
     setools-console \
     selinux-policy-targeted \
+    rpm-build \
     && dnf clean all
 
 WORKDIR /build

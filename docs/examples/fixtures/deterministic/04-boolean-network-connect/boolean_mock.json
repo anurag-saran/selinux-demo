@@ -1,0 +1,9 @@
+{
+  "behavior": "match",
+  "matches": [
+    {
+      "name": "httpd_can_network_connect",
+      "description": "Allow httpd to connect to all ports labeled as http_port_t"
+    }
+  ]
+}

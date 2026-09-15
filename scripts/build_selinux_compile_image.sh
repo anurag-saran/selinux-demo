@@ -5,12 +5,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/selinux_build_image.sh
-source "${SCRIPT_DIR}/lib/selinux_build_image.sh"
-IMAGE="${SELINUX_BUILD_IMAGE}"
+# shellcheck source=lib/build_image.sh
+source "${SCRIPT_DIR}/lib/build_image.sh"
 
 if ! command -v podman >/dev/null 2>&1; then
-    echo "podman is required to build ${IMAGE}" >&2
+    echo "podman is required to build ${SELINUX_BUILD_IMAGE}" >&2
     exit 1
 fi
 
@@ -26,13 +25,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 
 start=$(date +%s)
-echo "[INFO] Building from BASE_IMAGE=${SELINUX_BUILD_BASE_IMAGE}" >&2
-podman build \
-    --build-arg "BASE_IMAGE=${SELINUX_BUILD_BASE_IMAGE}" \
-    --tag "${IMAGE}" \
-    --file "${PROJECT_ROOT}/packaging/Containerfile.selinux-build" \
-    "${PROJECT_ROOT}"
+export SELINUX_BUILD_IMAGE_REFRESH=1
+build_selinux_build_image_local
 elapsed=$(( $(date +%s) - start ))
-echo "Built ${IMAGE} in ${elapsed}s."
-echo "Publish for demos: DOCKERHUB_TOKEN=… bash scripts/publish_selinux_compile_image.sh"
-echo "Pull-first default: export SELINUX_BUILD_IMAGE=${SELINUX_BUILD_IMAGE_DEFAULT}"
+echo "Built ${SELINUX_BUILD_IMAGE} in ${elapsed}s."
+echo "Optional Hub publish: DOCKERHUB_TOKEN=… SELINUX_BUILD_IMAGE_PULL=1 bash scripts/publish_selinux_compile_image.sh"

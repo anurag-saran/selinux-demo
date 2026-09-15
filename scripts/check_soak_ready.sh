@@ -14,6 +14,7 @@ REPORT_FILE="${DEPLOY_REPORT_FILE:-/var/lib/myapp/selinux_deploy_report.json}"
 MIN_DAYS="${SOAK_MIN_DAYS:-7}"
 MAX_AVC="${SOAK_MAX_AVC:-0}"
 SKIP_SELINUX="${SKIP_SELINUX:-0}"
+# Optional --auto-tier: gated on tests/fixtures/blast_radius/ (CI job blast-radius).
 AUTO_TIER="${SOAK_AUTO_TIER:-0}"
 BASE_POLICY="${SOAK_BASE_POLICY:-}"
 CANDIDATE_POLICY="${SOAK_CANDIDATE_POLICY:-}"

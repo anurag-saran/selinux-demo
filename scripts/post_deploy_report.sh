@@ -18,6 +18,7 @@ REPORT_FILE="${DEPLOY_REPORT_FILE:-${VAR_DIR}/selinux_deploy_report.json}"
 MANIFEST=""
 APP_NAME="myapp"
 POLICY_VERSION_FILE="${PROJECT_ROOT}/selinux/policy_version.txt"
+FINDINGS_JSON=""
 POLICY_VERSION_OVERRIDE=""
 
 RED='\033[0;31m'
@@ -42,6 +43,7 @@ Options:
   --report-file PATH    Output JSON path
   --project-root PATH   Repo root for policy version lookup
   --manifest PATH       App manifest YAML (default: config/\${POLICY_APP:-myapp}.manifest.yml)
+  --findings-json PATH  Optional policy_out/findings.json (embeds host_admin_actions booleans)
   -h, --help            Show help
 EOF
 }
@@ -56,6 +58,7 @@ while [[ $# -gt 0 ]]; do
         --report-file) REPORT_FILE="$2"; shift 2 ;;
         --project-root) PROJECT_ROOT="$2"; shift 2 ;;
         --policy-version) POLICY_VERSION_OVERRIDE="$2"; shift 2 ;;
+        --findings-json) FINDINGS_JSON="$2"; shift 2 ;;
         --manifest) MANIFEST="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
@@ -203,6 +206,13 @@ manifest_path = """${MANIFEST:-}"""
 
 domain_context_verified = """${domain_ctx_ok}""" == "yes"
 
+host_admin_actions = []
+findings_path = """${FINDINGS_JSON}"""
+if findings_path and Path(findings_path).is_file():
+    findings_payload = json.loads(Path(findings_path).read_text(encoding="utf-8"))
+    if isinstance(findings_payload, dict):
+        host_admin_actions = findings_payload.get("host_admin_actions") or []
+
 report = {
     "phase": "${PHASE}",
     "app_name": endpoint_data.get("app_name", "${APP_NAME}"),
@@ -222,6 +232,7 @@ report = {
     "avc_count_since_marker": int("${avc_count}"),
     "soak_days_elapsed": int("${soak_days}"),
     "status": "${overall_status}",
+    "host_admin_actions": host_admin_actions,
     "report_file": "${REPORT_FILE}",
 }
 Path("${REPORT_FILE}").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
