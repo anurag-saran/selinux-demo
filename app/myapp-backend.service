@@ -1,11 +1,12 @@
 [Unit]
 Description=Order Processor backend stub (Tier 6 outbound/Unix demo)
 Documentation=file:///opt/myapp/backend_stub.py
-After=network.target myapp.service
+After=network.target
 
 [Service]
 Type=simple
-ExecStart=/opt/myapp/backend_stub.py
+# Match myapp.service: explicit venv python avoids systemd EXEC/shebang + SELinux denials (status 203/EXEC).
+ExecStart=/opt/myapp/venv/bin/python /opt/myapp/backend_stub.py
 User=myapp
 Group=myapp
 WorkingDirectory=/opt/myapp
