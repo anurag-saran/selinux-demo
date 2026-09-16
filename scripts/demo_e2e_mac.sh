@@ -60,7 +60,7 @@ tlab_checkpoint "Each host prints Enforcing, then paths to ausearch and sesearch
 tlab_pause
 
 tlab_explain "Copy the presenter scripts onto both VMs so the other two windows have the same talk track (prod gets a tiny folder — no git clone)."
-e2e_run "ssh ansible@${DEV_HOST} 'if test -d ~/selinux-demo; then git -C ~/selinux-demo pull --ff-only || true; else git clone https://github.com/anurag-saran/selinux-demo.git ~/selinux-demo; fi'"
+e2e_run "ssh ansible@${DEV_HOST} 'if test -d ~/selinux-demo; then git -C ~/selinux-demo pull --ff-only || true; else git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-demo; fi'"
 e2e_run "scp scripts/demo_e2e_rhel_dev.sh ansible@${DEV_HOST}:~/selinux-demo/scripts/"
 e2e_run "scp scripts/lib/e2e_demo.sh scripts/lib/training_lab_runner.sh ansible@${DEV_HOST}:~/selinux-demo/scripts/lib/"
 e2e_run "ssh ansible@${PROD_HOST} 'mkdir -p ~/e2e-demo/lib'"

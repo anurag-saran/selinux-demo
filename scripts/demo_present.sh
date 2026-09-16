@@ -397,7 +397,7 @@ act_4_pr_handoff() {
     echo ""
     log_info "Real GitHub PR for Act 4–5 screen share:"
     log_tool "bash scripts/open_demo_policy_pr.sh --reuse-pr-body   # base: demo/policy-base-1.1.1 → head: policy/myapp-update"
-    echo "  https://github.com/anurag-saran/selinux-demo/compare/demo/policy-base-1.1.1...policy/myapp-update"
+    echo "  https://github.com/anurag-saran/selinux-pac/compare/demo/policy-base-1.1.1...policy/myapp-update"
 }
 
 act_5_ci_gates() {

@@ -4,7 +4,7 @@ Version:        %{modver}
 Release:        1%{?dist}
 Summary:        SELinux policy module for Order Processor reference application
 License:        MIT
-URL:            https://github.com/anurag-saran/selinux-demo
+URL:            https://github.com/anurag-saran/selinux-pac
 BuildArch:      noarch
 
 Requires:       selinux-policy-ops >= 1.0.0

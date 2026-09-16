@@ -175,7 +175,7 @@ sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \
 Skip if this already works: `ls ~/selinux-demo`
 
 ```bash
-git clone https://github.com/anurag-saran/selinux-demo.git ~/selinux-demo
+git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-demo
 ```
 
 ### 2d. Install the demo app

@@ -183,7 +183,7 @@ ssh ${ANSIBLE_USER}@${dev_hint}
 sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \\
   setools-console audit selinux-policy-devel
 # Clone this repo on the box (or rsync from your laptop):
-git clone <this-repo-url> ~/selinux-demo
+git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-demo
 cd ~/selinux-demo
 sudo bash scripts/setup_staging_env.sh
 sudo bash scripts/selinux_pac_adopt.sh doctor

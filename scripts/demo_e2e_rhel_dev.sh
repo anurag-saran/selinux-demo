@@ -29,7 +29,7 @@ fi
 
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TLAB_PS1='[ansible@rhel-dev selinux-demo]$'
-REPO_URL="${REPO_URL:-https://github.com/anurag-saran/selinux-demo.git}"
+REPO_URL="${REPO_URL:-https://github.com/anurag-saran/selinux-pac.git}"
 
 usage() {
     cat <<EOF

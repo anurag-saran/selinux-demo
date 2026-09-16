@@ -3,7 +3,7 @@ Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Shared SELinux deploy/readiness scripts (app-independent)
 License:        MIT
-URL:            https://github.com/anurag-saran/selinux-demo
+URL:            https://github.com/anurag-saran/selinux-pac
 BuildArch:      noarch
 Requires:       python3
 Requires:       setools-console
