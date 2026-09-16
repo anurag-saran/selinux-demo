@@ -69,7 +69,7 @@ bash scripts/compile_and_validate.sh selinux
 
 **Two RHEL boxes (preferred):** [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md) — `bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …`.
 
-**Laptop / AAP → rhel-dev:** `policy_artifact_dir` and `policy_pp_src` are the controller checkout (compiled `.pp` is copied over). `selinux_ops_dir` and `app_manifest_path` are paths **on rhel-dev** after you clone the repo (`/home/ansible/selinux-demo/...`). Do not set those two from `playbook_dir` — that expands to a Mac/AAP path the guest does not have.
+**Laptop / AAP → rhel-dev:** `policy_artifact_dir` and `policy_pp_src` are the controller checkout (compiled `.pp` is copied over). `selinux_ops_dir` and `app_manifest_path` are paths **on rhel-dev** after you clone the repo (`/home/ansible/selinux-pac/...`). Do not set those two from `playbook_dir` — that expands to a Mac/AAP path the guest does not have.
 
 ```bash
 ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
@@ -93,12 +93,12 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/selinux
 | `runtime_dir` | `/run/myapp` | Runtime dir (`RuntimeDirectory`) |
 | `service_name` | `myapp.service` | Primary systemd unit |
 | `policy_version` | _(from `policy_artifact_dir/policy_version.txt` or `../selinux/policy_version.txt`)_ | SemVer for RPM name and deploy report |
-| `selinux_ops_dir` | `/usr/libexec/selinux-policy-ops` | **Target** path to ops scripts (lab: `/home/<user>/selinux-demo/scripts`) |
+| `selinux_ops_dir` | `/usr/libexec/selinux-policy-ops` | **Target** path to ops scripts (lab: `/home/<user>/selinux-pac/scripts`) |
 | `selinux_ops_from_package` | `true` / `false` | When `true`, role runs `dnf install selinux-policy-ops` (+ app RPM) |
 | `policy_artifact_dir` | controller repo or `dist/` | **Controller only** — never used in remote `command` paths |
 | `policy_pp_src` | `…/selinux/myapp.pp` | **Controller only** — copied to `policy_staging_path` on target; empty when RPM-only |
 | `policy_staging_path` | `/var/lib/selinux-policy-staging/myapp.pp` | Target path for `semodule -i` |
-| `app_manifest_path` | `/etc/myapp/selinux-manifest.yml` (prod) or `/home/<user>/selinux-demo/config/*.manifest.yml` (lab) | **Target** path passed to `--manifest` ops scripts; role **loads ports, units, paths**. Not `playbook_dir` |
+| `app_manifest_path` | `/etc/myapp/selinux-manifest.yml` (prod) or `/home/<user>/selinux-pac/config/*.manifest.yml` (lab) | **Target** path passed to `--manifest` ops scripts; role **loads ports, units, paths**. Not `playbook_dir` |
 | `http_probe_host` | `127.0.0.1` or canary VIP | Curl target; **not** the bind port (ports stay in `selinux_ports`) |
 | `soak_marker_file` | `{{ var_dir }}/selinux_canary_deployed_at` | Epoch file for soak clock |
 | `soak_min_days` | `7` | Minimum soak days (enforce gate) |

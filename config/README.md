@@ -89,9 +89,9 @@ vars:
   app_name: payments
   policy_artifact_dir: "{{ playbook_dir }}/.."
   policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name }}.pp"
-  app_manifest_path: /home/ansible/selinux-demo/config/payments.manifest.yml
+  app_manifest_path: /home/ansible/selinux-pac/config/payments.manifest.yml
   selinux_ops_from_package: false
-  selinux_ops_dir: /home/ansible/selinux-demo/scripts
+  selinux_ops_dir: /home/ansible/selinux-pac/scripts
   install_root: /opt/payments
   var_dir: /var/lib/payments
   log_dir: /var/log/payments

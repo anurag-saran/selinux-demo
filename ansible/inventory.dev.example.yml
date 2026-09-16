@@ -24,10 +24,10 @@ all:
     runtime_dir: /run/myapp
     service_name: myapp.service
     selinux_ops_from_package: false
-    selinux_ops_dir: /home/ansible/selinux-demo/scripts
+    selinux_ops_dir: /home/ansible/selinux-pac/scripts
     policy_artifact_dir: "{{ playbook_dir }}/.."
     policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name }}.pp"
-    app_manifest_path: /home/ansible/selinux-demo/config/myapp.manifest.yml
+    app_manifest_path: /home/ansible/selinux-pac/config/myapp.manifest.yml
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"
     soak_min_days: 0

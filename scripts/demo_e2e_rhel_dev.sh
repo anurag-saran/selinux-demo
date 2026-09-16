@@ -4,7 +4,7 @@
 #
 # Run ON rhel-dev, not on the Mac:
 #   ssh ansible@192.168.64.6
-#   cd ~/selinux-demo
+#   cd ~/selinux-pac
 #   bash scripts/demo_e2e_rhel_dev.sh --part app        # before Mac canary
 #   bash scripts/demo_e2e_rhel_dev.sh --part generate   # after Mac canary
 #
@@ -16,19 +16,19 @@ if [[ -f "${SCRIPT_DIR}/lib/e2e_demo.sh" ]]; then
     source "${SCRIPT_DIR}/lib/training_lab_runner.sh"
     # shellcheck source=lib/e2e_demo.sh
     source "${SCRIPT_DIR}/lib/e2e_demo.sh"
-elif [[ -f "${HOME}/selinux-demo/scripts/lib/e2e_demo.sh" ]]; then
+elif [[ -f "${HOME}/selinux-pac/scripts/lib/e2e_demo.sh" ]]; then
     # shellcheck source=lib/training_lab_runner.sh
-    source "${HOME}/selinux-demo/scripts/lib/training_lab_runner.sh"
+    source "${HOME}/selinux-pac/scripts/lib/training_lab_runner.sh"
     # shellcheck source=lib/e2e_demo.sh
-    source "${HOME}/selinux-demo/scripts/lib/e2e_demo.sh"
-    SCRIPT_DIR="${HOME}/selinux-demo/scripts"
+    source "${HOME}/selinux-pac/scripts/lib/e2e_demo.sh"
+    SCRIPT_DIR="${HOME}/selinux-pac/scripts"
 else
-    echo "Cannot find scripts/lib/e2e_demo.sh. On this VM: cd ~/selinux-demo && git pull" >&2
+    echo "Cannot find scripts/lib/e2e_demo.sh. On this VM: cd ~/selinux-pac && git pull" >&2
     exit 1
 fi
 
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TLAB_PS1='[ansible@rhel-dev selinux-demo]$'
+TLAB_PS1='[ansible@rhel-dev selinux-pac]$'
 REPO_URL="${REPO_URL:-https://github.com/anurag-saran/selinux-pac.git}"
 
 usage() {
@@ -61,16 +61,20 @@ part_app() {
     tlab_checkpoint "Complete! or already installed."
     tlab_pause
 
-    if [[ ! -d "${HOME}/selinux-demo/.git" ]]; then
+    if [[ -d "${HOME}/selinux-demo/.git" && ! -d "${HOME}/selinux-pac" ]]; then
+        tlab_explain "Renaming the old ~/selinux-demo checkout to ~/selinux-pac to match the product name."
+        e2e_run "mv ${HOME}/selinux-demo ${HOME}/selinux-pac"
+    fi
+    if [[ ! -d "${HOME}/selinux-pac/.git" ]]; then
         tlab_explain "This is a SECOND copy of the project. The Mac still has its own tree. Ansible will look here, not under /Users/..."
-        e2e_run "git clone ${REPO_URL} ${HOME}/selinux-demo"
+        e2e_run "git clone ${REPO_URL} ${HOME}/selinux-pac"
     else
         tlab_explain "The project is already on this VM. We skip git clone (do not clone onto prod later)."
-        e2e_run "ls ${HOME}/selinux-demo/config/myapp.manifest.yml"
+        e2e_run "ls ${HOME}/selinux-pac/config/myapp.manifest.yml"
     fi
     tlab_pause
 
-    cd "${HOME}/selinux-demo"
+    cd "${HOME}/selinux-pac"
     if systemctl is-active --quiet myapp.service 2>/dev/null; then
         tlab_explain "myapp.service is already running — we skip the long install so the demo stays moving."
         e2e_run "systemctl is-active myapp.service myapp-backend.service"
@@ -91,7 +95,7 @@ part_app() {
 part_generate() {
     e2e_banner "DEV VM — turn denials into rules"
     tlab_why "After canary, this box has been logging ‘SELinux said no’ without blocking. We read that log and propose allow rules."
-    cd "${HOME}/selinux-demo"
+    cd "${HOME}/selinux-pac"
     tlab_explain "sudo is required: the audit log is root-only, and policy_out/ is often owned by root from the earlier install. Do not SSH to yourself — you are already on rhel-dev."
     e2e_run "sudo bash scripts/dev_generate_policy.sh --apply"
     tlab_checkpoint "New allow lines, or nothing new. Then go back to the Mac for lab enforce (Part 5)."

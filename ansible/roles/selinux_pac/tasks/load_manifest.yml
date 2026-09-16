@@ -33,7 +33,7 @@
       or on the controller checkout
       ({{ playbook_dir }}/../config/{{ app_name }}.manifest.yml).
       For a laptop controller, set app_manifest_path to a path ON the RHEL host
-      (clone: /home/{{ ansible_user }}/selinux-demo/config/{{ app_name }}.manifest.yml;
+      (clone: /home/{{ ansible_user }}/selinux-pac/config/{{ app_name }}.manifest.yml;
       RPM: /etc/{{ app_name }}/selinux-manifest.yml).
       Do not set it from playbook_dir.
   when:

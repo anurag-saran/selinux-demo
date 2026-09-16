@@ -12,7 +12,7 @@ VM_PODMAN_ENV="${HOME}/.local/share/selinux-demo/podman/env.sh"
 VM_SSH_TIMEOUT_SEC="${VM_SSH_TIMEOUT_SEC:-90}"
 VM_SERVICE_TIMEOUT_SEC="${VM_SERVICE_TIMEOUT_SEC:-60}"
 VM_SSH_POLL_SEC="${VM_SSH_POLL_SEC:-2}"
-VM_PROJECT="${VM_PROJECT:-/home/core/selinux-demo}"
+VM_PROJECT="${VM_PROJECT:-/home/core/selinux-pac}"
 
 _vm_log_info() { echo -e "\033[0;32m[INFO]\033[0m $*"; }
 _vm_log_warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }

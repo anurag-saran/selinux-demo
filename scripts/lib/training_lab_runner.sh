@@ -14,7 +14,7 @@ TLAB_TYPE_DELAY="${TLAB_TYPE_DELAY:-0.02}"
 TLAB_NO_TYPE=0
 TLAB_AUTO=0
 TLAB_USE_VM=0
-TLAB_VM_PROJECT="${VM_PROJECT:-/home/core/selinux-demo}"
+TLAB_VM_PROJECT="${VM_PROJECT:-/home/core/selinux-pac}"
 
 tlab_print_section() {
     echo

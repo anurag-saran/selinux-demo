@@ -175,7 +175,7 @@ require_local_export_privileges() {
     [[ "${need_sudo}" -eq 0 ]] && return 0
     log_error "This step must run with sudo."
     log_error "It reads the audit log and writes policy_out/ (that folder is often owned by root after setup_staging_env.sh)."
-    echo "  cd ~/selinux-demo"
+    echo "  cd ~/selinux-pac"
     echo "  sudo bash scripts/dev_generate_policy.sh --apply"
     exit 1
 }

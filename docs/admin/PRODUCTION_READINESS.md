@@ -358,7 +358,7 @@ Enforce runs inside an Ansible **block/rescue**: if smoke tests or the deploy re
 ```bash
 bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 15 --delay 2
 bash scripts/post_deploy_report.sh --phase enforce --domain myapp_t --var-dir /var/lib/myapp \
-  --marker-file /var/lib/myapp/selinux_canary_deployed_at --project-root /path/to/selinux-demo
+  --marker-file /var/lib/myapp/selinux_canary_deployed_at --project-root /path/to/selinux-pac
 ```
 
 `deploy_canary.yml` runs the same Tier 6 endpoints (minus `/`) during canary exercise, with the same backend and notify-socket waits.

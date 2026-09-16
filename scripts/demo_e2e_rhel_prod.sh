@@ -51,7 +51,7 @@ e2e_require_rhel "the PROD VM (${PROD_HOST})"
 e2e_banner "PROD VM — pretend production (${PROD_HOST})"
 tlab_why "Real shops do not git clone policy onto prod. Helpers come from RPMs (installer files), like a .pkg on a Mac."
 e2e_run "hostname"
-e2e_run "test ! -d ${HOME}/selinux-demo && echo 'Good: no git clone of selinux-demo in home' || echo 'Note: a checkout exists — Ansible still uses RPM paths, not this tree'"
+e2e_run "test ! -d ${HOME}/selinux-pac && echo 'Good: no git clone of selinux-pac in home' || echo 'Note: a checkout exists — Ansible still uses RPM paths, not this tree'"
 tlab_pause
 
 tlab_print_section "Install log tools + our two RPMs"

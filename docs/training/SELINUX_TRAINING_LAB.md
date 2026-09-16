@@ -29,7 +29,7 @@ Use `--auto` for no pauses, `--no-type` to skip the typewriter effect, `--short`
 
 **Convention:** Example output shows the **shape** of answers — your PIDs and timestamps will differ.
 
-**Repo root** = directory containing `scripts/` and `docs/` (clone path on Mac or Linux; inside the Podman VM it is usually `/home/core/selinux-demo` after `sync`).
+**Repo root** = directory containing `scripts/` and `docs/` (clone path on Mac or Linux; inside the Podman VM it is usually `/home/core/selinux-pac` after `sync`).
 
 ### Two learning paths (RHEL preferred vs Podman backup)
 
@@ -76,8 +76,8 @@ The rest of this section is the **Podman backup** path. Skip it if you already h
 **Repo root on Mac** means the folder that contains `scripts/` and `docs/` — for example:
 
 ```bash
-cd ~/selinux-demo    # your clone path may differ
-pwd                  # should end in selinux-demo
+cd ~/selinux-pac    # your clone path may differ
+pwd                  # should end in selinux-pac
 ```
 
 ### One-time setup (Mac Terminal, repo root)
@@ -90,7 +90,7 @@ Run these **on the Mac**, in order. Open **Terminal.app** (or iTerm), `cd` to th
 bash scripts/fix_podman.sh
 ```
 
-- **Where:** Mac Terminal, repo root (`…/selinux-demo`).
+- **Where:** Mac Terminal, repo root (`…/selinux-pac`).
 - **Why:** Installs a supported Podman if needed, writes `~/.local/share/selinux-demo/podman/`, creates **`env.sh`**, and starts a SELinux-capable Linux VM.
 - **Good sign:** Script ends with “Podman fixed” and `podman machine ls` shows a **Running** machine.
 
@@ -109,12 +109,12 @@ source "${HOME}/.local/share/selinux-demo/podman/env.sh"
 #### 3. Copy the repo into the VM
 
 ```bash
-cd ~/selinux-demo   # repo root again if you left it
+cd ~/selinux-pac   # repo root again if you left it
 bash scripts/run_on_podman_vm.sh sync
 ```
 
 - **Where:** Mac Terminal, repo root, **after** sourcing `env.sh`.
-- **Why:** The VM has its own disk; `sync` copies your working tree to `/home/core/selinux-demo` inside the VM so labs see the same files as on your Mac.
+- **Why:** The VM has its own disk; `sync` copies your working tree to `/home/core/selinux-pac` inside the VM so labs see the same files as on your Mac.
 
 #### 4. Install demo staging inside the VM (same as Lab 6 **install** on Linux)
 
@@ -140,7 +140,7 @@ bash scripts/run_on_podman_vm.sh shell
 Inside the VM:
 
 ```bash
-cd /home/core/selinux-demo   # FCOS may show /var/home/core — run pwd if unsure
+cd /home/core/selinux-pac   # FCOS may show /var/home/core — run pwd if unsure
 ```
 
 **macOS lab order after steps 1–5:** Lab **1** → Lab **6 (verify only)** → Labs **2–5, 7–9**.
@@ -238,7 +238,7 @@ Current mode:                   enforcing
 **Where:** Repo root on a **SELinux Linux host** (SSH or console), not the Mac.
 
 ```bash
-cd /path/to/selinux-demo
+cd /path/to/selinux-pac
 sudo bash scripts/setup_staging_env.sh
 ```
 

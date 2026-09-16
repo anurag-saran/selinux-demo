@@ -17,7 +17,7 @@ source "${SCRIPT_DIR}/lib/training_lab_runner.sh"
 # shellcheck source=lib/e2e_demo.sh
 source "${SCRIPT_DIR}/lib/e2e_demo.sh"
 
-TLAB_PS1='asaran@mac selinux-demo %'
+TLAB_PS1='asaran@mac selinux-pac %'
 
 usage() {
     cat <<EOF
@@ -29,7 +29,7 @@ commands from docs/admin/RHEL_TWO_HOST.md (ping, compile, canary, enforce, RPMs)
 $(e2e_usage_common)
 
 Other windows (do not run those scripts here):
-  ssh ansible@${DEV_HOST}   →  bash ~/selinux-demo/scripts/demo_e2e_rhel_dev.sh
+  ssh ansible@${DEV_HOST}   →  bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh
   ssh ansible@${PROD_HOST}  →  bash ~/e2e-demo/demo_e2e_rhel_prod.sh
 EOF
 }
@@ -60,9 +60,9 @@ tlab_checkpoint "Each host prints Enforcing, then paths to ausearch and sesearch
 tlab_pause
 
 tlab_explain "Copy the presenter scripts onto both VMs so the other two windows have the same talk track (prod gets a tiny folder — no git clone)."
-e2e_run "ssh ansible@${DEV_HOST} 'if test -d ~/selinux-demo; then git -C ~/selinux-demo pull --ff-only || true; else git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-demo; fi'"
-e2e_run "scp scripts/demo_e2e_rhel_dev.sh ansible@${DEV_HOST}:~/selinux-demo/scripts/"
-e2e_run "scp scripts/lib/e2e_demo.sh scripts/lib/training_lab_runner.sh ansible@${DEV_HOST}:~/selinux-demo/scripts/lib/"
+e2e_run "ssh ansible@${DEV_HOST} 'if test -d ~/selinux-demo && ! test -d ~/selinux-pac; then mv ~/selinux-demo ~/selinux-pac; fi; if test -d ~/selinux-pac; then git -C ~/selinux-pac pull --ff-only || true; else git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-pac; fi'"
+e2e_run "scp scripts/demo_e2e_rhel_dev.sh ansible@${DEV_HOST}:~/selinux-pac/scripts/"
+e2e_run "scp scripts/lib/e2e_demo.sh scripts/lib/training_lab_runner.sh ansible@${DEV_HOST}:~/selinux-pac/scripts/lib/"
 e2e_run "ssh ansible@${PROD_HOST} 'mkdir -p ~/e2e-demo/lib'"
 e2e_run "scp scripts/demo_e2e_rhel_prod.sh ansible@${PROD_HOST}:~/e2e-demo/"
 e2e_run "scp scripts/lib/e2e_demo.sh scripts/lib/training_lab_runner.sh ansible@${PROD_HOST}:~/e2e-demo/lib/"
@@ -73,7 +73,7 @@ e2e_run "bash scripts/setup_rhel_hosts.sh bootstrap"
 tlab_pause
 
 e2e_handoff "On the DEV VM window run:
-  bash ~/selinux-demo/scripts/demo_e2e_rhel_dev.sh --part app
+  bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part app
 Press Enter here when the demo app is up (myapp.service is active)."
 
 tlab_print_section "Part 3 — Compile rules on the Mac, canary on the VM"
@@ -88,7 +88,7 @@ tlab_checkpoint "failed=0. Recent myapp_t events should be 0 raw / 0 net-new."
 tlab_pause
 
 e2e_handoff "On the DEV VM window run:
-  bash ~/selinux-demo/scripts/demo_e2e_rhel_dev.sh --part generate
+  bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part generate
 That reads the audit log (needs sudo) and proposes new allow rules.
 Press Enter here when it finishes."
 

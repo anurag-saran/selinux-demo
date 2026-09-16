@@ -90,7 +90,7 @@ echo
 tlab_pause
 
 if [[ "${USE_VM}" -eq 1 ]]; then
-    TLAB_VM_PROJECT="${VM_PROJECT:-/home/core/selinux-demo}"
+    TLAB_VM_PROJECT="${VM_PROJECT:-/home/core/selinux-pac}"
 fi
 
 main

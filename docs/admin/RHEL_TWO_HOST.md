@@ -4,7 +4,7 @@ You have **three computers**. Only the two Linux VMs run SELinux. The Mac is the
 
 | Computer | Address | How you know you are typing on it |
 |----------|---------|-----------------------------------|
-| **Your Mac** | this laptop | Prompt looks like `asaran@asaran1-mac selinux-demo %` |
+| **Your Mac** | this laptop | Prompt looks like `asaran@asaran1-mac selinux-pac %` |
 | **Dev VM** (practice box) | `192.168.64.6` | Prompt looks like `[ansible@rhel-dev ~]$` |
 | **Prod VM** (pretend production) | `192.168.64.5` | Prompt looks like `[ansible@rhel-prod ~]$` |
 
@@ -27,8 +27,8 @@ Open **three** Terminal windows. Each script types the explanation, types the co
 
 | Window | Computer | Start here |
 |--------|----------|------------|
-| 1 | **Mac** | `cd /Users/asaran/projects/selinux-demo` then `bash scripts/demo_e2e_mac.sh` |
-| 2 | **Dev VM** | `ssh ansible@192.168.64.6` then, when the Mac says switch: `bash ~/selinux-demo/scripts/demo_e2e_rhel_dev.sh --part app` (later `--part generate`) |
+| 1 | **Mac** | `cd /Users/asaran/projects/selinux-pac` then `bash scripts/demo_e2e_mac.sh` |
+| 2 | **Dev VM** | `ssh ansible@192.168.64.6` then, when the Mac says switch: `bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part app` (later `--part generate`) |
 | 3 | **Prod VM** | `ssh ansible@192.168.64.5` then, when the Mac says switch: `bash ~/e2e-demo/demo_e2e_rhel_prod.sh` |
 
 The Mac script copies the VM talk tracks over SSH. Stay in the window whose prompt matches the table. Do not run `ssh ansible@192.168.64.6` from inside rhel-dev.
@@ -62,7 +62,7 @@ More detail later: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md).
 Open Terminal, then:
 
 ```bash
-cd /Users/asaran/projects/selinux-demo
+cd /Users/asaran/projects/selinux-pac
 ```
 
 You must be in that folder. `cd` by itself (your home folder) is the wrong place.
@@ -128,7 +128,7 @@ The SSH user `ansible` needs sudo on the VMs (no password, or Ansible will ask).
 
 The Mac still has no SELinux. The **demo website** must live on `192.168.64.6`.
 
-If `myapp.service` is already running on the VM and `~/selinux-demo` exists, skip to [Part 3](#part-3--build-the-rules-and-try-them-canary).
+If `myapp.service` is already running on the VM and `~/selinux-pac` exists, skip to [Part 3](#part-3--build-the-rules-and-try-them-canary).
 
 ### 2a. Log into the dev VM
 
@@ -170,12 +170,12 @@ sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \
 
 **Type this on: the dev VM**
 
-**What it does:** Puts the project at `/home/ansible/selinux-demo` **on the VM**. That is a **second copy**. The Mac still has `/Users/asaran/projects/selinux-demo`. Ansible later looks on the VM, not in `/Users/...`.
+**What it does:** Puts the project at `/home/ansible/selinux-pac` **on the VM**. That is a **second copy**. The Mac still has `/Users/asaran/projects/selinux-pac`. Ansible later looks on the VM, not in `/Users/...`.
 
-Skip if this already works: `ls ~/selinux-demo`
+Skip if this already works: `ls ~/selinux-pac`
 
 ```bash
-git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-demo
+git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-pac
 ```
 
 ### 2d. Install the demo app
@@ -183,7 +183,7 @@ git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-demo
 **Type this on: the dev VM**
 
 ```bash
-cd ~/selinux-demo
+cd ~/selinux-pac
 sudo bash scripts/setup_staging_env.sh
 ```
 
@@ -222,7 +222,7 @@ exit
 **Type this on: your Mac**
 
 ```bash
-cd /Users/asaran/projects/selinux-demo
+cd /Users/asaran/projects/selinux-pac
 bash scripts/compile_and_validate.sh selinux
 ```
 
@@ -235,7 +235,7 @@ bash scripts/compile_and_validate.sh selinux
 **Type this on: your Mac**
 
 ```bash
-cd /Users/asaran/projects/selinux-demo
+cd /Users/asaran/projects/selinux-pac
 ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 ```
 
@@ -243,7 +243,7 @@ ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 
 **You should see:** `failed=0` at the bottom. A line like `Recent myapp_t events: 0 raw, 0 net-new`. The `python3.9` warning is still harmless.
 
-If it says the app manifest was not found under `/Users/...`, you are on an old inventory. Re-run Part 1a, or set the paths as in [ansible/README.md](../../ansible/README.md) (they must be `/home/ansible/selinux-demo/...` on the VM).
+If it says the app manifest was not found under `/Users/...`, you are on an old inventory. Re-run Part 1a, or set the paths as in [ansible/README.md](../../ansible/README.md) (they must be `/home/ansible/selinux-pac/...` on the VM).
 
 ---
 
@@ -262,7 +262,7 @@ Look at the prompt:
 Then **on the dev VM** (use `sudo` — the security log is root-only, and `policy_out/` was created as root by the earlier install):
 
 ```bash
-cd ~/selinux-demo
+cd ~/selinux-pac
 sudo bash scripts/dev_generate_policy.sh --apply
 ```
 
@@ -276,7 +276,7 @@ If you already ran it without `sudo` and saw `policy_out/avc.log: Permission den
 exit
 ```
 
-If you want those rule files on the Mac too (to keep them in git), copy `selinux/myapp.te` and `selinux/myapp.fc` from the VM back to `/Users/asaran/projects/selinux-demo/selinux/`.
+If you want those rule files on the Mac too (to keep them in git), copy `selinux/myapp.te` and `selinux/myapp.fc` from the VM back to `/Users/asaran/projects/selinux-pac/selinux/`.
 
 ---
 
@@ -285,7 +285,7 @@ If you want those rule files on the Mac too (to keep them in git), copy `selinux
 **Type this on: your Mac**
 
 ```bash
-cd /Users/asaran/projects/selinux-demo
+cd /Users/asaran/projects/selinux-pac
 ansible-playbook -i ansible/inventory.dev.yml ansible/enforce_production.yml \
   -e change_ticket=LAB
 ```
@@ -307,7 +307,7 @@ The demo website (`/opt/myapp`) still needs to be running on prod. If it is not,
 **Type this on: your Mac**
 
 ```bash
-cd /Users/asaran/projects/selinux-demo
+cd /Users/asaran/projects/selinux-pac
 bash packaging/build_rpms.sh
 ls dist/*.rpm
 ```
@@ -358,7 +358,7 @@ Ansible talks to `192.168.64.5`.
 **Canary** — same idea as Part 3, on prod:
 
 ```bash
-cd /Users/asaran/projects/selinux-demo
+cd /Users/asaran/projects/selinux-pac
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
 ```
 
