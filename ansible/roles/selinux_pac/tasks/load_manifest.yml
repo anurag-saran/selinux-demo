@@ -1,22 +1,100 @@
 ---
+# app_manifest_path is a TARGET path (ops scripts --manifest). When Ansible
+# runs from a laptop, that path is not playbook_dir. If the inventory still
+# points at the controller checkout, load from localhost and copy onto the host.
+
 - name: Stat app manifest on target
   ansible.builtin.stat:
     path: "{{ app_manifest_path }}"
-  register: pac_manifest_stat
+  register: pac_manifest_stat_target
 
-- name: Fail when app manifest missing
+- name: Stat app manifest on controller (inventory path)
+  ansible.builtin.stat:
+    path: "{{ app_manifest_path }}"
+  register: pac_manifest_stat_ctrl
+  delegate_to: localhost
+  become: false
+  when: not pac_manifest_stat_target.stat.exists
+
+- name: Stat app manifest in controller checkout
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../config/{{ app_name }}.manifest.yml"
+  register: pac_manifest_stat_ctrl_rel
+  delegate_to: localhost
+  become: false
+  when:
+    - not pac_manifest_stat_target.stat.exists
+    - not (pac_manifest_stat_ctrl.stat.exists | default(false))
+
+- name: Fail when app manifest missing on target and controller
   ansible.builtin.fail:
-    msg: "App manifest not found at {{ app_manifest_path }}"
-  when: not pac_manifest_stat.stat.exists
+    msg: >-
+      App manifest not found on the target at {{ app_manifest_path }}
+      or on the controller checkout
+      ({{ playbook_dir }}/../config/{{ app_name }}.manifest.yml).
+      For a laptop controller, set app_manifest_path to a path ON the RHEL host
+      (clone: /home/{{ ansible_user }}/selinux-demo/config/{{ app_name }}.manifest.yml;
+      RPM: /etc/{{ app_name }}/selinux-manifest.yml).
+      Do not set it from playbook_dir.
+  when:
+    - not pac_manifest_stat_target.stat.exists
+    - not (pac_manifest_stat_ctrl.stat.exists | default(false))
+    - not (pac_manifest_stat_ctrl_rel.stat.exists | default(false))
 
-- name: Read app manifest
+- name: Record manifest source
+  ansible.builtin.set_fact:
+    pac_manifest_from_controller: "{{ not pac_manifest_stat_target.stat.exists }}"
+    pac_manifest_src: >-
+      {{
+        app_manifest_path if pac_manifest_stat_target.stat.exists
+        else (
+          app_manifest_path
+          if (pac_manifest_stat_ctrl.stat.exists | default(false))
+          else (playbook_dir ~ '/../config/' ~ app_name ~ '.manifest.yml')
+        )
+      }}
+
+- name: Read app manifest from target
   ansible.builtin.slurp:
-    src: "{{ app_manifest_path }}"
+    src: "{{ pac_manifest_src }}"
   register: pac_manifest_slurp
+  when: not (pac_manifest_from_controller | bool)
+
+- name: Read app manifest from controller
+  ansible.builtin.slurp:
+    src: "{{ pac_manifest_src }}"
+  register: pac_manifest_slurp_ctrl
+  delegate_to: localhost
+  become: false
+  when: pac_manifest_from_controller | bool
 
 - name: Parse app manifest YAML
   ansible.builtin.set_fact:
-    pac_manifest: "{{ pac_manifest_slurp.content | b64decode | from_yaml }}"
+    pac_manifest: "{{ (pac_manifest_slurp_ctrl if (pac_manifest_from_controller | bool) else pac_manifest_slurp).content | b64decode | from_yaml }}"
+
+- name: Choose target dest when manifest was loaded from the controller
+  ansible.builtin.set_fact:
+    app_manifest_path: >-
+      {{
+        app_manifest_path
+        if app_manifest_path is match('^/(etc|home|opt|usr|var)/')
+        else ('/etc/' ~ pac_manifest.app_name ~ '/selinux-manifest.yml')
+      }}
+  when: pac_manifest_from_controller | bool
+
+- name: Ensure manifest parent directory exists on target
+  ansible.builtin.file:
+    path: "{{ app_manifest_path | dirname }}"
+    state: directory
+    mode: "0755"
+  when: pac_manifest_from_controller | bool
+
+- name: Copy app manifest onto target
+  ansible.builtin.copy:
+    src: "{{ pac_manifest_src }}"
+    dest: "{{ app_manifest_path }}"
+    mode: "0644"
+  when: pac_manifest_from_controller | bool
 
 - name: Apply manifest-driven application facts
   ansible.builtin.set_fact:

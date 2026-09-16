@@ -2,6 +2,26 @@
 - name: Load application manifest from target
   ansible.builtin.import_tasks: load_manifest.yml
 
+- name: Stat checkout ops scripts on target
+  ansible.builtin.stat:
+    path: "{{ selinux_ops_dir }}/wait_for_endpoints.sh"
+  register: pac_ops_stat
+  when:
+    - not (selinux_ops_from_package | bool)
+    - selinux_pac_phase in ['canary', 'soak_monitor', 'soak_status', 'enforce', 'rollback']
+
+- name: Fail when checkout ops scripts missing on target
+  ansible.builtin.fail:
+    msg: >-
+      selinux_ops_dir is {{ selinux_ops_dir }} but wait_for_endpoints.sh is not
+      on this host. That path must exist ON the RHEL box (clone the repo, e.g.
+      /home/{{ ansible_user }}/selinux-demo/scripts). Do not set selinux_ops_dir
+      or app_manifest_path from playbook_dir when Ansible runs from a laptop.
+  when:
+    - not (selinux_ops_from_package | bool)
+    - selinux_pac_phase in ['canary', 'soak_monitor', 'soak_status', 'enforce', 'rollback']
+    - not (pac_ops_stat.stat.exists | default(false))
+
 - name: Stat policy_version.txt in policy artifact dir (policy_out layout)
   ansible.builtin.stat:
     path: "{{ policy_artifact_dir }}/policy_version.txt"

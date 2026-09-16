@@ -82,19 +82,22 @@ See [`docs/developers/TESTING.md`](../docs/developers/TESTING.md) for the full t
 
 **Two-host inventories:** `bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …` ([RHEL_TWO_HOST.md](../docs/admin/RHEL_TWO_HOST.md)).
 
-**Lab / checkout on controller:**
+**Laptop / AAP controller → RHEL target** (two-host lab). `playbook_dir` is the controller path — use it only for artifacts copied onto the host:
 
 ```yaml
 vars:
   app_name: payments
   policy_artifact_dir: "{{ playbook_dir }}/.."
-  app_manifest_path: "{{ policy_artifact_dir }}/config/payments.manifest.yml"
+  policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name }}.pp"
+  app_manifest_path: /home/ansible/selinux-demo/config/payments.manifest.yml
   selinux_ops_from_package: false
-  selinux_ops_dir: "{{ playbook_dir }}/../scripts"
+  selinux_ops_dir: /home/ansible/selinux-demo/scripts
   install_root: /opt/payments
   var_dir: /var/lib/payments
   log_dir: /var/log/payments
   domain: payments_t
 ```
+
+**Ansible on the same host** (`connection: local`) may use `playbook_dir` for `selinux_ops_dir` and `app_manifest_path`.
 
 **Production:** install `<app>-selinux` RPM — manifest at **`/etc/<app>/selinux-manifest.yml`**. Keep bind ports in the manifest; set `http_probe_host` (or `http.host`) to the canary IP/VIP. Module SemVer is read from **`selinux/policy_version.txt`** under `policy_artifact_dir` (not duplicated in inventory).

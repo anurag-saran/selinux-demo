@@ -24,7 +24,7 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 | [`reset_host_state.yml`](reset_host_state.yml) | `semodule -B` + clear permissive (no module change) |
 | [`generate_emergency_patch.yml`](generate_emergency_patch.yml) | Controller + git checkout only — `policy_out/` for a PR, not host install |
 
-Playbooks delegate to role [`roles/selinux_pac/`](roles/selinux_pac/). The old `myapp_selinux` role is gone — do not restore it. Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Checkout (no ops RPM) sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the checkout `scripts/` tree.
+Playbooks delegate to role [`roles/selinux_pac/`](roles/selinux_pac/). The old `myapp_selinux` role is gone — do not restore it. Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Checkout (no ops RPM) sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the **target** checkout `scripts/` tree (not `playbook_dir` on a laptop).
 
 **Ansible Automation Platform (AAP) hub:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md). Two-host lab: [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md). Testing matrix: [`docs/developers/TESTING.md`](../docs/developers/TESTING.md). Admin runbook: [`docs/admin/PRODUCTION_READINESS.md`](../docs/admin/PRODUCTION_READINESS.md). Laptop compile **backup:** [`docs/admin/COMPILE_IMAGE.md`](../docs/admin/COMPILE_IMAGE.md) (`asaran/selinux-demo-selinux-build:stream9`).
 
@@ -69,7 +69,7 @@ bash scripts/compile_and_validate.sh selinux
 
 **Two RHEL boxes (preferred):** [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md) — `bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …`.
 
-**Lab / checkout on the controller targeting DEV** (`inventory.dev.yml` already sets checkout paths):
+**Laptop / AAP → rhel-dev:** `policy_artifact_dir` and `policy_pp_src` are the controller checkout (compiled `.pp` is copied over). `selinux_ops_dir` and `app_manifest_path` are paths **on rhel-dev** after you clone the repo (`/home/ansible/selinux-demo/...`). Do not set those two from `playbook_dir` — that expands to a Mac/AAP path the guest does not have.
 
 ```bash
 ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
@@ -93,12 +93,12 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/selinux
 | `runtime_dir` | `/run/myapp` | Runtime dir (`RuntimeDirectory`) |
 | `service_name` | `myapp.service` | Primary systemd unit |
 | `policy_version` | _(from `policy_artifact_dir/policy_version.txt` or `../selinux/policy_version.txt`)_ | SemVer for RPM name and deploy report |
-| `selinux_ops_dir` | `/usr/libexec/selinux-policy-ops` | Target path to ops scripts (lab: `…/scripts`) |
+| `selinux_ops_dir` | `/usr/libexec/selinux-policy-ops` | **Target** path to ops scripts (lab: `/home/<user>/selinux-demo/scripts`) |
 | `selinux_ops_from_package` | `true` / `false` | When `true`, role runs `dnf install selinux-policy-ops` (+ app RPM) |
 | `policy_artifact_dir` | controller repo or `dist/` | **Controller only** — never used in remote `command` paths |
 | `policy_pp_src` | `…/selinux/myapp.pp` | **Controller only** — copied to `policy_staging_path` on target; empty when RPM-only |
 | `policy_staging_path` | `/var/lib/selinux-policy-staging/myapp.pp` | Target path for `semodule -i` |
-| `app_manifest_path` | `/etc/myapp/selinux-manifest.yml` (prod) or checkout `config/*.manifest.yml` (lab) | Passed to all `--manifest` ops scripts; role **loads ports, units, paths** |
+| `app_manifest_path` | `/etc/myapp/selinux-manifest.yml` (prod) or `/home/<user>/selinux-demo/config/*.manifest.yml` (lab) | **Target** path passed to `--manifest` ops scripts; role **loads ports, units, paths**. Not `playbook_dir` |
 | `http_probe_host` | `127.0.0.1` or canary VIP | Curl target; **not** the bind port (ports stay in `selinux_ports`) |
 | `soak_marker_file` | `{{ var_dir }}/selinux_canary_deployed_at` | Epoch file for soak clock |
 | `soak_min_days` | `7` | Minimum soak days (enforce gate) |

@@ -108,23 +108,31 @@ Fork the repo and wire it to **two RHEL boxes** plus **AAP**. There is no one-cl
 **Scripts** (run from the controller — laptop or AAP execution node):
 
 ```bash
-# Inventories (gitignored)
+# write — create gitignored inventories (SSH host, soak days, RPM vs git checkout)
 bash scripts/setup_rhel_hosts.sh write --dev-host rhel-dev.example.com --prod-host rhel-prod.example.com
+# ping — Ansible SSH reachability to both boxes
 bash scripts/setup_rhel_hosts.sh ping
+# doctor — SELinux tools present (getenforce / ausearch / sesearch)
 bash scripts/setup_rhel_hosts.sh doctor
-bash scripts/setup_rhel_hosts.sh bootstrap          # prints SSH steps for rhel-dev only
+# bootstrap — print (do not run) SSH steps for rhel-dev only
+bash scripts/setup_rhel_hosts.sh bootstrap
+# next app after myapp
 bash scripts/selinux_pac_adopt.sh init myapp        # next app: payments — see ONBOARDING.md
 
 # Package + publish (see packaging/internal.env.example)
-bash packaging/build_rpms.sh
-bash packaging/publish_internal.sh
+bash packaging/build_rpms.sh                        # build selinux-policy-ops + myapp-selinux RPMs
+bash packaging/publish_internal.sh                  # copy into your internal yum/dnf repo
 
 # Same playbooks AAP workflows run
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
-ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary   # schedule daily in AAP
+#   install module, myapp_t permissive, HTTP probes, start soak clock
+ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary
+#   schedule daily in AAP — fail if net-new AVCs vs installed policy
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_status.yml --limit canary
+#   read-only: days elapsed, AVC counts, fail_closed
 ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
   -e change_ticket=CHG123
+#   soak gate then remove permissive; needs change_ticket
 ```
 
 Rollback: `ansible-playbook -i ansible/inventory.production.yml ansible/emergency_rollback.yml --limit canary`
@@ -137,16 +145,23 @@ Install `selinux-policy-ops` + `<app>-selinux` from a **signed internal repo**. 
 
 macOS has **no SELinux**. The Mac is the **Ansible controller**; policy still runs on Linux.
 
-**Preferred — two RHEL VMs (Apple Silicon: aarch64 Boot ISO in UTM), then the same admin scripts:**
+**Preferred — two RHEL VMs (Apple Silicon: aarch64 Boot ISO in UTM), then the same admin scripts.** Run these from **repo root on the Mac** (the Ansible controller). They do **not** install SELinux on macOS.
 
-```bash
-bash scripts/setup_rhel_hosts.sh write --dev-host <rhel-dev-ip> --prod-host <rhel-prod-ip>
-bash scripts/setup_rhel_hosts.sh ping
-bash scripts/setup_rhel_hosts.sh doctor
-bash scripts/setup_rhel_hosts.sh bootstrap
-```
+| Command | What it does | Good sign |
+|---------|----------------|-----------|
+| `bash scripts/setup_rhel_hosts.sh write --dev-host 192.168.64.6 --prod-host 192.168.64.5` | Writes gitignored `ansible/inventory.dev.yml` and `ansible/inventory.production.yml` with those SSH IPs. Dev gets `soak_min_days: 0` (lab). Prod gets `soak_min_days: 7` and **no git clone** (`selinux_ops_from_package: true`). | Prints `Wrote …/inventory.dev.yml` and `…/inventory.production.yml` |
+| `bash scripts/setup_rhel_hosts.sh ping` | Ansible `ping` module over SSH to both VMs (can the controller reach them?). | `SUCCESS` / `pong` for `rhel-dev` and `rhel-prod` |
+| `bash scripts/setup_rhel_hosts.sh doctor` | On each VM (as sudo): `getenforce`, `ausearch`, `sesearch`. Prod also `rpm -q selinux-policy-ops`. | `Enforcing`; paths to `ausearch` and `sesearch`. Prod may say the ops RPM is not installed yet |
+| `bash scripts/setup_rhel_hosts.sh bootstrap` | **Prints** the SSH/`dnf`/`setup_staging_env.sh` commands for **rhel-dev only**. It does not run them. | A block starting `=== Bootstrap the DEV RHEL box` |
 
-Topology and bootstrap commands: [docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md). Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod.
+Those IPs are this Mac’s UTM shared network (`rhel-dev` = `192.168.64.6`, `rhel-prod` = `192.168.64.5`). Re-check with `ping` if a VM was recreated.
+
+**You are not done.** `bootstrap` only printed the next commands. Open **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)**:
+
+- [Tools this lab uses](docs/admin/RHEL_TWO_HOST.md#tools-this-lab-uses) — what `getenforce` / `ausearch` / `sesearch` and the `dnf` packages are for
+- [§2 On rhel-dev](docs/admin/RHEL_TWO_HOST.md#2-on-rhel-dev--install-the-reference-app) — SSH in and run `setup_staging_env.sh`, then compile/canary from the Mac
+
+Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod.
 
 **Backup — no RHEL boxes yet (one Podman VM):**
 

@@ -2,8 +2,12 @@
 # Copy to ansible/inventory.dev.yml (gitignored) or generate with:
 #   bash scripts/setup_rhel_hosts.sh write --dev-host HOST --prod-host HOST
 #
-# Run Ansible from a controller (laptop or the dev box). The demo app is
-# installed on the host with: sudo bash scripts/setup_staging_env.sh
+# Run Ansible from a controller (laptop or AAP). The demo app is installed
+# on the host with: sudo bash scripts/setup_staging_env.sh
+#
+# Controller-only: policy_artifact_dir, policy_pp_src (compiled .pp on this machine).
+# On rhel-dev (clone path): selinux_ops_dir, app_manifest_path.
+# playbook_dir is the laptop/AAP path — do not use it for those two.
 
 all:
   hosts:
@@ -20,10 +24,10 @@ all:
     runtime_dir: /run/myapp
     service_name: myapp.service
     selinux_ops_from_package: false
-    selinux_ops_dir: "{{ playbook_dir }}/../scripts"
+    selinux_ops_dir: /home/ansible/selinux-demo/scripts
     policy_artifact_dir: "{{ playbook_dir }}/.."
     policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name }}.pp"
-    app_manifest_path: "{{ policy_artifact_dir }}/config/{{ app_name }}.manifest.yml"
+    app_manifest_path: /home/ansible/selinux-demo/config/myapp.manifest.yml
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"
     soak_min_days: 0
