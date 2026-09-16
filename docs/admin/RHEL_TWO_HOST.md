@@ -1,178 +1,384 @@
-# Two RHEL boxes (dev + prod)
+# Two Linux VMs — follow this from start to finish
 
-This is the **end-to-end** document. [README — Try it on a Mac](../../README.md#try-it-on-a-mac) only gets Ansible talking to the VMs. **Everything after `bootstrap` is here.**
+You have **three computers**. Only the two Linux VMs run SELinux. The Mac is the remote control.
 
-| You just ran (on the Mac) | What that meant | You are here |
-|---------------------------|-----------------|--------------|
-| `setup_rhel_hosts.sh write` | Inventories exist (gitignored) | Controller knows the IPs |
-| `ping` | SSH works (`pong`) | Network + Python on both VMs |
-| `doctor` | SELinux **Enforcing**; `ausearch` + `sesearch` found | Tools exist — see [Tools](#tools-this-lab-uses) |
-| `bootstrap` | **Printed** SSH/`dnf` steps — it did **not** install the app | **Next: [§2](#2-on-rhel-dev--install-the-reference-app)** |
+| Computer | Address | How you know you are typing on it |
+|----------|---------|-----------------------------------|
+| **Your Mac** | this laptop | Prompt looks like `asaran@asaran1-mac selinux-demo %` |
+| **Dev VM** (practice box) | `192.168.64.6` | Prompt looks like `[ansible@rhel-dev ~]$` |
+| **Prod VM** (pretend production) | `192.168.64.5` | Prompt looks like `[ansible@rhel-prod ~]$` |
 
-```text
-Controller (Mac / AAP)          type commands HERE for Ansible / compile / RPMs
-   ansible SSH ──► rhel-dev     type HERE for dnf, setup_staging_env, generator
-   ansible SSH ──► rhel-prod    no git clone — RPMs only
-```
+**Golden rule:** look at the prompt before you paste. A command meant for the VM will fail on the Mac, and the other way around.
 
-**Bind ports** stay in the app manifest. **IPs** differ per box.
+If the prompt already says `[ansible@rhel-dev`, you are **already on the dev VM**. Do **not** run `ssh ansible@192.168.64.6` again. That logs into the same machine from itself (no Mac SSH key), so you get `Permission denied`. Skip the `ssh` line and run the next command.
 
----
+Those addresses are this Mac’s UTM network. If a VM was recreated and `ping` fails, use the new addresses everywhere you see `192.168.64.6` or `192.168.64.5`.
 
-## Tools this lab uses
+**Jump ahead**
 
-Doctor printed three lines per host, for example:
-
-```text
-Enforcing
-/sbin/ausearch
-/bin/sesearch
-```
-
-| Line / package | What it is | Why this tool needs it |
-|----------------|------------|-------------------------|
-| `Enforcing` (`getenforce`) | Whole-OS SELinux mode | Host must stay Enforcing. Only the **app domain** may be permissive during canary |
-| `ausearch` (RPM **`audit`**) | Reads the kernel **audit log** | Finds **AVC** denials (“this process was denied that permission”). Generator + soak |
-| `sesearch` (RPM **`setools-console`**) | Queries **installed policy** | Soak asks “is this allow already in the live module?” Net-new = AVC minus that |
-| `selinux-policy-ops` (prod only) | Our ops RPM (`monitor_avc.sh`, …) | Prod has no git checkout; playbooks call scripts from this RPM |
-
-`dnf install` on **rhel-dev** (printed by `bootstrap`) is the rest of the toolchain:
-
-| Package | Commands you get | Why |
-|---------|------------------|-----|
-| `git` | `git clone` / `git pull` | Repo checkout **on rhel-dev only** |
-| `python3` | Ansible modules, Flask, generator | Guest Python (the Mac ping warning about python3.9 is harmless) |
-| `policycoreutils` | `restorecon`, `semodule` | Label files; install `.pp` modules |
-| `policycoreutils-python-utils` | `semanage` | Per-domain permissive, port labels (`seport`) |
-| `setools-console` | `sesearch` | Soak net-new (see above) |
-| `audit` | `ausearch`, `auditd` | AVC log pipeline |
-| `selinux-policy-devel` | refpolicy Makefile | Compile `.te` → `.pp` **on RHEL**. On a Mac controller you use the [compile image](COMPILE_IMAGE.md) instead |
-
-Scripts/playbooks (run after packages exist):
-
-| Command | Where you type | What it does |
-|---------|----------------|--------------|
-| `setup_staging_env.sh` | **rhel-dev** | Installs the **reference app** (`/opt/myapp`, systemd units, stub policy) |
-| `selinux_pac_adopt.sh doctor` | **rhel-dev** | Same class of checks as host doctor, plus app paths |
-| `compile_and_validate.sh selinux` | **Mac** | Builds `selinux/myapp.pp` from `.te`/`.fc` |
-| `deploy_canary.yml` | **Mac** (Ansible) | Install module; **only** `myapp_t` permissive; HTTP probes; start soak clock |
-| `dev_generate_policy.sh --apply` | **rhel-dev** | AVCs → proposed `.te`/`.fc` in the git checkout |
-| `enforce_production.yml` | **Mac** | Soak gate, then take `myapp_t` out of permissive |
-| `soak_monitor.yml` / `soak_status.yml` | **Mac** | Daily net-new check / read-only days elapsed |
-
-Concepts: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) (§ labels, AVC, permissive domain).
+- Finished README `write` / `ping` / `doctor` / `bootstrap`? Start at [Part 2](#part-2--install-the-demo-app-on-the-dev-vm).
+- Canary already printed `failed=0`? Start at [Part 4](#part-4--turn-permission-denied-into-new-rules).
 
 ---
 
-## 1. Controller checks (`setup_rhel_hosts.sh`)
+## Words you will see (plain English)
 
-From **repo root on the Mac** (`cd ~/projects/selinux-demo` — not `$HOME`). These four commands only talk **to** the VMs over SSH.
+| Word | Meaning |
+|------|---------|
+| **SSH** | “Log into the other computer from here.” Example: `ssh ansible@192.168.64.6` |
+| **SELinux** | Linux’s extra lock on “this program may / may not do that” |
+| **Enforcing** | The lock is on for the whole machine (what we want) |
+| **AVC** | One line in the log that means SELinux said **no** |
+| **Canary** | Install new rules in a **safe** way: the app is allowed to break them, but every break is logged |
+| **Enforce** | Take away that safety net. Real blocks start |
+| **Soak** | Watch the log for a while before enforce. **7 days on prod.** The lab **dev** box skips the wait |
+| **RPM** | An installer file for RHEL (like a `.pkg` on a Mac). Prod gets SELinux tools this way — **not** by cloning git |
+| **Playbook** | A recipe Ansible runs from the Mac against a VM |
 
-| Command | What it does | Good sign |
-|---------|----------------|-----------|
-| `write --dev-host … --prod-host …` | Creates gitignored `ansible/inventory.dev.yml` and `ansible/inventory.production.yml`. Dev: **target** checkout paths (`/home/ansible/selinux-demo` for scripts + manifest), controller `.pp` path, `soak_min_days: 0`. Prod: RPMs, `soak_min_days: 7`, **no git**. | `Wrote …inventory.dev.yml` / `…inventory.production.yml` |
-| `ping` | Ansible `ping` — SSH + Python | `SUCCESS` / `pong`. Ignore the python3.9 interpreter warning |
-| `doctor` | Remote `getenforce`, `ausearch`, `sesearch` (prod also `rpm -q selinux-policy-ops`) | `Enforcing` + both tools. Ops RPM on prod can already be installed from an earlier lab |
-| `bootstrap` | **Prints** the next SSH/`dnf` commands. Does **not** run them | Block titled `Bootstrap the DEV RHEL box` |
+More detail later: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md).
+
+---
+
+## Part 1 — Can the Mac reach the VMs?
+
+**Type every command in this part on: your Mac**
+
+Open Terminal, then:
 
 ```bash
-# Mac UTM lab IPs (change if ping fails after a VM recreate):
+cd /Users/asaran/projects/selinux-demo
+```
+
+You must be in that folder. `cd` by itself (your home folder) is the wrong place.
+
+### 1a. Save the VM addresses
+
+**What it does:** Creates two small files on the Mac that tell Ansible “dev is `192.168.64.6`, prod is `192.168.64.5`.” Those files stay on your laptop (they are not committed to git).
+
+```bash
 bash scripts/setup_rhel_hosts.sh write \
   --dev-host 192.168.64.6 \
   --prod-host 192.168.64.5 \
   --user ansible
+```
 
+**You should see:** `Wrote …/inventory.dev.yml` and `Wrote …/inventory.production.yml`.
+
+Skip this if you already ran it, unless an IP changed. Running it again overwrites those files.
+
+### 1b. Ping (can we SSH?)
+
+**What it does:** Ansible logs into both VMs and asks “are you there?”
+
+```bash
 bash scripts/setup_rhel_hosts.sh ping
+```
+
+**You should see:** `SUCCESS` / `pong` for `rhel-dev` and `rhel-prod`.
+
+A yellow warning about `python3.9` is normal. Ignore it.
+
+### 1c. Doctor (are SELinux tools there?)
+
+**What it does:** On each VM it prints whether SELinux is on, and whether two log tools exist (`ausearch` = read the “no” log, `sesearch` = ask “is this already allowed?”).
+
+```bash
 bash scripts/setup_rhel_hosts.sh doctor
+```
+
+**You should see:** `Enforcing`, then a path like `/sbin/ausearch`, then `/bin/sesearch`. Prod may also say an ops RPM is not installed yet — that is OK until Part 6.
+
+### 1d. Bootstrap (print the next steps — it does not run them)
+
+**What it does:** **Prints** commands. It does **not** install the demo app.
+
+```bash
 bash scripts/setup_rhel_hosts.sh bootstrap
 ```
 
-Customer boxes: pass DNS names instead of those IPs. Examples: [`ansible/inventory.dev.example.yml`](../../ansible/inventory.dev.example.yml), [`ansible/inventory.production.example.yml`](../../ansible/inventory.production.example.yml).
+**You should see:** a block starting `=== Bootstrap the DEV RHEL box`. Do not stop there. Follow **Part 2** below (same steps, with explanations).
 
-SSH user needs passwordless sudo (or become password). Collections: `ansible-galaxy collection install -r ansible/requirements.yml`.
+One-time on a new Mac, if Ansible collections are missing:
+
+```bash
+ansible-galaxy collection install -r ansible/requirements.yml
+```
+
+The SSH user `ansible` needs sudo on the VMs (no password, or Ansible will ask).
 
 ---
 
-## 2. On rhel-dev — install the reference app
+## Part 2 — Install the demo app on the dev VM
 
-`bootstrap` only **printed**. Type this **on rhel-dev** (not on the Mac):
+The Mac still has no SELinux. The **demo website** must live on `192.168.64.6`.
+
+If `myapp.service` is already running on the VM and `~/selinux-demo` exists, skip to [Part 3](#part-3--build-the-rules-and-try-them-canary).
+
+### 2a. Log into the dev VM
+
+Skip this if the prompt already says `[ansible@rhel-dev`. You are already there.
+
+**Type this on: your Mac** (only if you still see `asaran@asaran1-mac`)
 
 ```bash
 ssh ansible@192.168.64.6
+```
 
+**What it does:** Opens a remote terminal on the Linux VM.
+
+**You should see:** the prompt change to `[ansible@rhel-dev ~]$`. From here until you type `exit`, you are **on the VM**.
+
+### 2b. Install Linux packages
+
+**Type this on: the dev VM** (prompt must say `rhel-dev`)
+
+**What it does:** Installs the tools this lab needs. Short version:
+
+| Package | In human terms |
+|---------|----------------|
+| `git` | Download this project onto the VM |
+| `python3` | Run the demo app and helper scripts |
+| `policycoreutils` + `policycoreutils-python-utils` | Load SELinux rules and labels |
+| `setools-console` | `sesearch` — “is this already allowed?” |
+| `audit` | `ausearch` — read the “permission denied” log |
+| `selinux-policy-devel` | Build rules **on Linux** (the Mac uses a container instead) |
+
+```bash
 sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \
   setools-console audit selinux-policy-devel
-# clone if ~/selinux-demo is missing:
-# git clone https://github.com/anurag-saran/selinux-demo.git ~/selinux-demo
+```
+
+**You should see:** `Complete!` or “already installed.”
+
+### 2c. Copy the project onto the VM (if it is missing)
+
+**Type this on: the dev VM**
+
+**What it does:** Puts the project at `/home/ansible/selinux-demo` **on the VM**. That is a **second copy**. The Mac still has `/Users/asaran/projects/selinux-demo`. Ansible later looks on the VM, not in `/Users/...`.
+
+Skip if this already works: `ls ~/selinux-demo`
+
+```bash
+git clone https://github.com/anurag-saran/selinux-demo.git ~/selinux-demo
+```
+
+### 2d. Install the demo app
+
+**Type this on: the dev VM**
+
+```bash
 cd ~/selinux-demo
 sudo bash scripts/setup_staging_env.sh
+```
+
+**What it does:** Installs a tiny website at `/opt/myapp` and starts two services (`myapp` and `myapp-backend`).
+
+Then a health check:
+
+```bash
 sudo bash scripts/selinux_pac_adopt.sh doctor
 ```
 
-**Good sign:** `getenforce` is Enforcing; `systemctl is-active myapp.service myapp-backend.service` is `active`.
+**You should see:** `Enforcing`, and both services `active`:
 
-If this lab was already set up, skip `dnf`/clone when packages and `~/selinux-demo` exist; only re-run `setup_staging_env.sh` if the units are down.
+```bash
+systemctl is-active myapp.service myapp-backend.service
+```
 
-Then **leave the SSH session**. Compile and canary from the **Mac**. `inventory.dev.yml` uses `/home/ansible/selinux-demo` **on the VM** for scripts and the manifest; the compiled `.pp` is copied from this Mac.
+(`active` twice.)
+
+### 2e. Log out of the VM
+
+**Type this on: the dev VM**
+
+```bash
+exit
+```
+
+**You should see:** `asaran@asaran1-mac` again. The next commands are Mac commands.
+
+---
+
+## Part 3 — Build the rules and try them (canary)
+
+### 3a. Build the SELinux rules file
+
+**Type this on: your Mac**
 
 ```bash
 cd /Users/asaran/projects/selinux-demo
 bash scripts/compile_and_validate.sh selinux
+```
+
+**What it does:** Turns the human-readable rules (`.te` / `.fc`) into a file the VM can load (`selinux/myapp.pp`). A Mac cannot compile SELinux itself, so the script uses a small Linux container. That is expected. Details: [COMPILE_IMAGE.md](COMPILE_IMAGE.md).
+
+**You should see:** the file `selinux/myapp.pp` on the Mac (`ls selinux/myapp.pp`).
+
+### 3b. Canary (install rules in safe mode)
+
+**Type this on: your Mac**
+
+```bash
+cd /Users/asaran/projects/selinux-demo
 ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 ```
 
-Export AVCs **on rhel-dev**:
+**What it does:** From the Mac, Ansible logs into `192.168.64.6`, copies `myapp.pp`, loads it, turns **only the demo app** to “log but don’t block,” hits the website to see if it is up, and starts a timer.
+
+**You should see:** `failed=0` at the bottom. A line like `Recent myapp_t events: 0 raw, 0 net-new`. The `python3.9` warning is still harmless.
+
+If it says the app manifest was not found under `/Users/...`, you are on an old inventory. Re-run Part 1a, or set the paths as in [ansible/README.md](../../ansible/README.md) (they must be `/home/ansible/selinux-demo/...` on the VM).
+
+---
+
+## Part 4 — Turn “permission denied” into new rules
+
+Look at the prompt:
+
+- **`asaran@asaran1-mac`** — you are on the Mac. Log in first:
+
+  ```bash
+  ssh ansible@192.168.64.6
+  ```
+
+- **`[ansible@rhel-dev`** — you are already on the VM. **Do not SSH.** Go straight to the next box.
+
+Then **on the dev VM** (use `sudo` — the security log is root-only, and `policy_out/` was created as root by the earlier install):
 
 ```bash
-ssh ansible@192.168.64.6
 cd ~/selinux-demo
-bash scripts/dev_generate_policy.sh --apply
+sudo bash scripts/dev_generate_policy.sh --apply
 ```
 
-Lab enforce (dev only — `soak_min_days: 0`). The playbook **refuses** that value on the `production` group. Do **not** copy it into `inventory.production.yml`.
+If you already ran it without `sudo` and saw `policy_out/avc.log: Permission denied`, that is the same issue. Re-run with `sudo`.
+
+**What it does:** Reads the “SELinux said no” log (`ausearch`) and proposes new allow rules in the **VM’s** copy of the project. `--apply` copies them into `selinux/` on that VM.
+
+**You should see:** either new allow lines, or “nothing new.” Then log out:
 
 ```bash
-# back on the Mac
+exit
+```
+
+If you want those rule files on the Mac too (to keep them in git), copy `selinux/myapp.te` and `selinux/myapp.fc` from the VM back to `/Users/asaran/projects/selinux-demo/selinux/`.
+
+---
+
+## Part 5 — Lock down the lab (dev VM only)
+
+**Type this on: your Mac**
+
+```bash
+cd /Users/asaran/projects/selinux-demo
 ansible-playbook -i ansible/inventory.dev.yml ansible/enforce_production.yml \
   -e change_ticket=LAB
 ```
 
+**What it does:** Checks the log, then turns off the canary safety net on the **dev** VM. Lab settings allow this **immediately**. Production must wait **7 days** — do not copy that “no wait” setting onto the prod VM.
+
+**You should see:** `failed=0`. On the VM, `getenforce` is still `Enforcing` (the whole OS stays locked). Only the demo app’s extra “allowed to break rules” flag is gone.
+
 ---
 
-## 3. On rhel-prod — RPMs, canary, soak (no git)
+## Part 6 — Same idea on the prod VM (packages, 7-day wait)
 
-**Do not clone the git repo onto prod.** On the **Mac**, build RPMs with [`packaging/build_rpms.sh`](../../packaging/build_rpms.sh), install `selinux-policy-ops` + `myapp-selinux` on rhel-prod, then:
+**Do not** run `git clone` on `192.168.64.5`. Production gets SELinux helpers from installer files (RPMs), the way a real shop would.
 
-| Playbook | What it does | Good sign |
-|----------|----------------|-----------|
-| `deploy_canary.yml --limit canary` | Ops + app SELinux RPM, module in, **only** `myapp_t` permissive, probes, soak marker | Play `ok`; HTTP 200; host still Enforcing |
-| `soak_monitor.yml --limit canary` | AVCs since canary; **net-new** vs installed policy (`sesearch`) | `Soak OK` / `net_new=0`. Schedule daily in AAP |
-| `soak_status.yml --limit canary` | Read-only: days elapsed vs `soak_min_days: 7` | `days_elapsed` in the output |
-| `enforce_production.yml -e change_ticket=CHG123` | Soak gate, then remove permissive | Fails until 7 days. Lab: enforce on **dev** instead |
+The demo website (`/opt/myapp`) still needs to be running on prod. If it is not, install it the same way you would any app — not by leaving a git checkout for Ansible.
+
+### 6a. Build the installer files
+
+**Type this on: your Mac**
 
 ```bash
+cd /Users/asaran/projects/selinux-demo
+bash packaging/build_rpms.sh
+ls dist/*.rpm
+```
+
+**What it does:** Builds two RPMs: tools (`selinux-policy-ops`) and the app’s SELinux rules (`myapp-selinux`). A real shop would put these in an internal package server. This lab copies them with `scp`.
+
+**You should see:** `Built RPMs in …/dist/` and two `.rpm` files. If `rpmbuild` is missing on the Mac, use [COMPILE_IMAGE.md](COMPILE_IMAGE.md).
+
+### 6b. Copy them to the prod VM
+
+**Type this on: your Mac**
+
+```bash
+scp dist/selinux-policy-ops-*.rpm dist/myapp-selinux-*.rpm ansible@192.168.64.5:~/
+```
+
+**What it does:** Copies the two installer files to the prod user’s home directory.
+
+**You should see:** `100%` for each file.
+
+### 6c. Install them on prod
+
+If the prompt already says `[ansible@rhel-prod`, skip `ssh`. If you still see `asaran@asaran1-mac`:
+
+```bash
+ssh ansible@192.168.64.5
+```
+
+Then **on the prod VM**:
+
+```bash
+sudo dnf install -y policycoreutils policycoreutils-python-utils setools-console audit
+sudo dnf localinstall -y ~/selinux-policy-ops-*.rpm ~/myapp-selinux-*.rpm
+rpm -q selinux-policy-ops myapp-selinux
+exit
+```
+
+**What it does:** Installs the log tools, then the two RPMs (scripts under `/usr/libexec/selinux-policy-ops`, rules + a small config file under `/etc/myapp/`).
+
+**You should see:** two package names with versions, then your Mac prompt after `exit`.
+
+### 6d. Canary, watch the log, (do not) enforce yet
+
+**Type every command in this step on: your Mac**
+
+Ansible talks to `192.168.64.5`.
+
+**Canary** — same idea as Part 3, on prod:
+
+```bash
+cd /Users/asaran/projects/selinux-demo
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
+```
+
+**Watch the log** — “did anything new get denied that the installed rules do not already allow?”
+
+```bash
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary
+```
+
+**Status only** — how many days since canary (prod wants **7**):
+
+```bash
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_status.yml --limit canary
+```
+
+**Enforce** — will **fail on purpose** until seven days have passed. That is correct. You already locked down the **dev** VM in Part 5.
+
+```bash
 ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
   -e change_ticket=CHG123
 ```
 
-The example inventory puts the **same host** in `canary` and `production`. Add more names under `production:` when you have a fleet.
-
-AAP objects: [`ansible/aap/`](../../ansible/aap/) and [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md). Denial after ship: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). Soak/enforce gates: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+In a company, the daily log check and the 7-day wait are usually scheduled in Ansible Automation Platform. Extra reading: [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md), [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). If something is denied after ship: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md).
 
 ---
 
-## Backup: local Podman
+## Cheat sheet — the three lines `doctor` prints
 
-Use this only when you have **no RHEL boxes**.
+```text
+Enforcing          SELinux is on for the whole VM (good)
+/sbin/ausearch     tool that reads “permission denied” from the log
+/bin/sesearch      tool that asks “is this already allowed in the live rules?”
+```
 
-| Step | Command |
-|------|---------|
-| One-time VM | [SELINUX_TRAINING_LAB.md — Running on macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos) |
-| Staging in VM | `bash scripts/run_on_podman_vm.sh setup` |
-| AVC export from Mac | `bash scripts/dev_generate_policy.sh --use-vm --apply` |
-| Compile without RHEL devel | [COMPILE_IMAGE.md](COMPILE_IMAGE.md) |
+---
 
-When the two RHEL boxes exist, use `setup_rhel_hosts.sh` and stop using `--use-vm`.
+## No RHEL VMs? (backup only)
+
+Use this only if the two VMs do not exist. All of these run on the **Mac**: [training lab — macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos). When the two RHEL VMs exist, come back to this file and stop using `--use-vm`.

@@ -160,8 +160,39 @@ require_existing_policy() {
     }
 }
 
+require_local_export_privileges() {
+    [[ "${USE_VM}" -eq 1 ]] && return 0
+    [[ "$(id -u)" -eq 0 ]] && return 0
+    local need_sudo=0
+    if [[ -e "${POLICY_OUT}" && ! -w "${POLICY_OUT}" ]]; then
+        need_sudo=1
+    elif [[ -e "${AVC_LOG}" && ! -w "${AVC_LOG}" ]]; then
+        need_sudo=1
+    fi
+    if [[ ! -r /var/log/audit/audit.log ]]; then
+        need_sudo=1
+    fi
+    [[ "${need_sudo}" -eq 0 ]] && return 0
+    log_error "This step must run with sudo."
+    log_error "It reads the audit log and writes policy_out/ (that folder is often owned by root after setup_staging_env.sh)."
+    echo "  cd ~/selinux-demo"
+    echo "  sudo bash scripts/dev_generate_policy.sh --apply"
+    exit 1
+}
+
+restore_repo_ownership() {
+    [[ "$(id -u)" -eq 0 && -n "${SUDO_USER:-}" ]] || return 0
+    local grp
+    grp="$(id -gn "${SUDO_USER}" 2>/dev/null || echo "${SUDO_USER}")"
+    chown -R "${SUDO_USER}:${grp}" "${POLICY_OUT}" 2>/dev/null || true
+    if [[ -n "${POLICY_MODULE_DIR:-}" ]]; then
+        chown -R "${SUDO_USER}:${grp}" "${POLICY_MODULE_DIR}" 2>/dev/null || true
+    fi
+}
+
 export_avcs() {
     sync_identity_from_manifest
+    require_local_export_privileges
     mkdir -p "${POLICY_OUT}"
     if [[ "${USE_VM}" -eq 1 ]]; then
         log_info "Exporting AVCs from Podman VM..."
@@ -395,6 +426,8 @@ main() {
     else
         print_pr_steps
     fi
+
+    restore_repo_ownership
 }
 
 main "$@"

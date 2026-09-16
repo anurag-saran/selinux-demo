@@ -156,10 +156,10 @@ macOS has **no SELinux**. The Mac is the **Ansible controller**; policy still ru
 
 Those IPs are this Mac’s UTM shared network (`rhel-dev` = `192.168.64.6`, `rhel-prod` = `192.168.64.5`). Re-check with `ping` if a VM was recreated.
 
-**You are not done.** `bootstrap` only printed the next commands. Open **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)**:
+**You are not done.** `bootstrap` only printed the next commands. Open **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)** (plain-language, one computer at a time):
 
-- [Tools this lab uses](docs/admin/RHEL_TWO_HOST.md#tools-this-lab-uses) — what `getenforce` / `ausearch` / `sesearch` and the `dnf` packages are for
-- [§2 On rhel-dev](docs/admin/RHEL_TWO_HOST.md#2-on-rhel-dev--install-the-reference-app) — SSH in and run `setup_staging_env.sh`, then compile/canary from the Mac
+- [Words you will see](docs/admin/RHEL_TWO_HOST.md#words-you-will-see-plain-english)
+- [Part 2 — Install the demo app on the dev VM](docs/admin/RHEL_TWO_HOST.md#part-2--install-the-demo-app-on-the-dev-vm)
 
 Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod.
 

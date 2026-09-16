@@ -177,8 +177,7 @@ print_bootstrap() {
     fi
     cat <<EOF
 === Bootstrap the DEV RHEL box (run over SSH as a user with sudo) ===
-=== What each package/command is for: docs/admin/RHEL_TWO_HOST.md (Tools this lab uses) ===
-=== Next: docs/admin/RHEL_TWO_HOST.md section 2 (On rhel-dev) ===
+=== Next: docs/admin/RHEL_TWO_HOST.md Part 2 (look at the prompt: Mac vs rhel-dev) ===
 
 ssh ${ANSIBLE_USER}@${dev_hint}
 sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \\
