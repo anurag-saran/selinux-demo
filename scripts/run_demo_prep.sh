@@ -2,7 +2,7 @@
 #
 # run_demo_prep.sh — Demo showcase / presenter prep (no flags required)
 #
-# Runs the full 10-act workshop with:
+# Runs the full 10-act paced walkthrough with:
 #   • Talking points before each act (see docs/training/DEMO_GUIDE.md)
 #   • Typewriter-style “show on screen” commands after each act
 #   • Pauses between steps (rehearse what to say)
@@ -79,7 +79,7 @@ TLAB_USE_VM="${USE_VM}"
 
 parse_acts
 
-echo -e "${TLAB_BOLD}SELinux workshop — demo prep / showcase${TLAB_NC}"
+echo -e "${TLAB_BOLD}SELinux PaC — paced walkthrough${TLAB_NC}"
 echo -e "${TLAB_DIM}Talking points + typed show commands + full presenter demo (acts 1–10).${TLAB_NC}"
 if [[ "${USE_VM}" -eq 1 ]]; then
     echo -e "${TLAB_DIM}SELinux commands run inside Podman VM; policy_out/ artifacts on this Mac.${TLAB_NC}"

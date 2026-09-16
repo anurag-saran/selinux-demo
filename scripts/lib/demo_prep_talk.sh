@@ -86,7 +86,7 @@ demop_preamble() {
             ;;
         10)
             demop_role_admin
-            demop_plain "Walk through the outage playbook — commands are shown, not executed, in the workshop."
+            demop_plain "Walk through the outage playbook — commands are shown, not executed, in the paced walkthrough."
             demop_say "If enforce causes an outage, the first move is permissive domain — not disabling SELinux globally."
             ;;
         *)

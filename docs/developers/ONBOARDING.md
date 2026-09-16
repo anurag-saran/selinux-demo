@@ -1,6 +1,6 @@
 # Onboarding a second application (payments example)
 
-The repo ships **`myapp`** as the primary demo and **`payments`** as a second onboarded module: manifest template, policy under **`selinux/payments/`**, and a published **`.if`** interface for dependent modules.
+The repo ships **`myapp`** as the **reference application** and **`payments`** as a second onboarded module: manifest template, policy under **`selinux/payments/`**, and a published **`.if`** interface for dependent modules.
 
 **Prerequisites:** read [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). **Doc index:** [README.md](../README.md). Deploy: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) (`ansible/aap/`). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
 
@@ -73,7 +73,7 @@ Consumers (e.g. another module’s `.te`) call these inside `optional_policy` or
 
 ## Compile
 
-Uses the same compile image as `myapp` (override registry with **`SELINUX_BUILD_IMAGE`** — see [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md)):
+Uses the same compile image as `myapp` (override registry with **`SELINUX_BUILD_IMAGE`** — see [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md)):
 
 | | |
 |--|--|

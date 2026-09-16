@@ -87,7 +87,7 @@ fi
 
 tlab_ensure_staging_hint
 
-echo -e "${TLAB_BOLD}SELinux training lab runner${TLAB_NC}"
+echo -e "${TLAB_BOLD}SELinux PaC lab runner${TLAB_NC}"
 if [[ "${TLAB_USE_VM}" -eq 1 ]]; then
     echo -e "${TLAB_DIM}Commands run inside Podman VM (${TLAB_VM_PROJECT})${TLAB_NC}"
 else
@@ -110,8 +110,8 @@ lab_1() {
 
 lab_6_verify() {
     tlab_print_section "Lab 6 — Verify demo staging"
-    tlab_why "The workshop needs Flask + backend under /opt/myapp, stub policy, and permissive myapp_t (or equivalent on FCOS)."
-    tlab_question "Is the demo app running with the staging setup the course expects?"
+    tlab_why "SELinux PaC needs Flask + backend under /opt/myapp, stub policy, and permissive myapp_t (or equivalent on FCOS)."
+    tlab_question "Is the reference app running with the staging setup?"
     tlab_explain "Both systemd units must be active before Tier 6 curls."
     tlab_run_cmd "systemctl is-active myapp.service myapp-backend.service"
     tlab_pause
@@ -251,6 +251,6 @@ fi
 echo
 echo -e "${TLAB_GREEN}${TLAB_BOLD}Full training lab run complete.${TLAB_NC}"
 echo "Finish checklist: docs/training/SELINUX_TRAINING_LAB.md"
-echo "Next (workshop demo): bash scripts/demo_present.sh --use-vm --demo-mode --skip-ai --auto"
+echo "Next (optional paced walkthrough): bash scripts/demo_present.sh --use-vm --demo-mode --skip-ai --auto"
 echo "Policy PR for Act 4: bash scripts/open_demo_policy_pr.sh --reuse-pr-body  (needs gh auth login)"
 echo

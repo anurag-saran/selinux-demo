@@ -61,12 +61,12 @@ _integration_run_probes_on_host() {
     case "${INTEGRATION_UI}" in
         training)
             tlab_why "Each URL exercises a different SELinux permission (files, script, network, socket)."
-            tlab_question "Does the app work under SELinux and hit all workshop probes?"
+            tlab_question "Does the app work under SELinux and hit all HTTP probes?"
             tlab_explain "Six GETs on :8888 plus backend health — curl -sf fails if any path errors."
             tlab_run_cmd "${oneliner}"
             ;;
         demo)
-            log_info "Integration tests — all workshop HTTP paths in order (one VM session on Mac)."
+            log_info "Integration tests — all HTTP paths in order (one VM session on Mac)."
             log_tool 'for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do curl -sf "http://127.0.0.1:8888${path}"; done; curl -sf http://127.0.0.1:8889/health'
             echo -e "\033[0;32m\$\033[0m for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do curl -sf http://${INTEGRATION_HOST}:${INTEGRATION_PORT}\${path}; done"
             if [[ "${USE_VM:-0}" -eq 1 ]]; then

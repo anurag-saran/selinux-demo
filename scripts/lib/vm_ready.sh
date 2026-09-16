@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# vm_ready.sh — Shared Podman Machine readiness helpers (macOS dev/workshop).
+# vm_ready.sh — Shared Podman Machine readiness helpers (macOS backup).
 #
 # Source from other scripts:
 #   # shellcheck source=scripts/lib/vm_ready.sh

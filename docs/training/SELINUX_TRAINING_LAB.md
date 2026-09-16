@@ -1,6 +1,6 @@
-# SELinux hands-on training lab — prepare for the demo
+# SELinux PaC — optional hands-on labs
 
-This is a **practice course**. Each lab follows the same pattern:
+Optional labs for teams adopting **SELinux PaC**. Each lab follows the same pattern:
 
 1. **Why** — what problem this step solves in real life  
 2. **Question** — what you should be able to answer afterward  
@@ -11,11 +11,11 @@ This is a **practice course**. Each lab follows the same pattern:
 |----------|------|
 | **[SELINUX_BASICS.md](../policy/SELINUX_BASICS.md)** | Concepts first — skim **§1–7** (~15 min) |
 | **This file** | Hands-on practice on a Linux host with SELinux |
-| **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Full workshop after the labs |
-| **[CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md)** | Where repo scripts and tools live |
-| **[README.md](../README.md)** | Index of all docs and reading order |
+| **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Optional paced walkthrough |
+| **[CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md)** | Where scripts and tools live |
+| **[README.md](../../README.md)** | SELinux PaC — start here |
 
-**Time:** about **90–120 minutes** on a **RHEL dev** box (add time only if you fall back to Podman on macOS).
+**Time:** about **90–120 minutes** on a **RHEL dev** box (add time only if you fall back to Podman on macOS instead of two RHEL VMs).
 
 **You need:** two RHEL boxes if following [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md), or at least one SELinux Linux host. **Podman VM is backup.** `sudo`, this repo cloned, optional internet for Lab 6.
 
@@ -33,7 +33,7 @@ Use `--auto` for no pauses, `--no-type` to skip the typewriter effect, `--short`
 
 ### Two learning paths (RHEL preferred vs Podman backup)
 
-Lab **6** installs the demo app and **stub** policy. **Labs 2–5 and 7+ need that install** — paths under `/opt/myapp`, systemd units, permissive **`myapp_t`**.
+Lab **6** installs the **reference app** and **stub** policy. **Labs 2–5 and 7+ need that install** — paths under `/opt/myapp`, systemd units, permissive **`myapp_t`**.
 
 | Platform | One-time prep | Then do labs in this order |
 |----------|---------------|----------------------------|
@@ -58,11 +58,15 @@ Lab **6** installs the demo app and **stub** policy. **Labs 2–5 and 7+ need th
 
 ## Running on macOS
 
-**Backup path** when you do not have the two RHEL boxes yet. Preferred lab: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md).
+macOS has **no SELinux**. The Mac is the controller; policy runs on Linux.
 
-macOS has **no SELinux** — no `getenforce`, no AVC audit stack, no `semanage`. You still **prepare** the lab from your Mac, but you **run every lab command inside a small Linux VM** that Podman starts for you.
+**Preferred:** two RHEL 9 aarch64 VMs (Boot ISO in UTM) and the admin scripts — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) and [README — Try it on a Mac](../../README.md#try-it-on-a-mac). Labs below then run **on rhel-dev** over SSH (not in macOS Terminal).
 
-**Why Podman?** The demo needs a real RHEL-like kernel with SELinux turned on, the **audit** subsystem (where AVC lines are written), and **`semanage`**. That tool talks to the kernel’s policy database so you can do things like list or change **per-domain permissive** mode (Lab 5) without turning off enforcement for the whole OS. A Podman Machine VM gives you that Linux environment on a laptop without renting a cloud server.
+**Backup — no RHEL boxes yet:** Podman Machine (one Linux VM). You still **prepare** from the Mac, but you **run every lab command inside that VM**.
+
+**Why a Linux VM at all?** The labs need a kernel with SELinux, the **audit** subsystem, and **`semanage`**. That tool talks to the kernel’s policy database so you can list or change **per-domain permissive** mode (Lab 5) without turning off enforcement for the whole OS.
+
+The rest of this section is the **Podman backup** path. Skip it if you already have rhel-dev / rhel-prod.
 
 | Where you type | What runs there |
 |----------------|-----------------|
@@ -143,9 +147,9 @@ cd /home/core/selinux-demo   # FCOS may show /var/home/core — run pwd if unsur
 
 **Checkpoint:** You can say which of the five setup commands run on the Mac vs which run only after `shell`.
 
-**While in the VM:** curl **`http://127.0.0.1:8888`** there — the demo app listens inside the VM, not on your Mac’s localhost.
+**While in the VM:** curl **`http://127.0.0.1:8888`** there — the reference app listens inside the VM, not on your Mac’s localhost.
 
-More Podman/image detail: [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md).
+More Podman/image detail: [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md).
 
 ---
 
@@ -218,9 +222,9 @@ Current mode:                   enforcing
 
 ## Lab 6 — Install demo staging
 
-**Why we do this:** The workshop uses the Flask app under `/opt/myapp`, a **stub** SELinux module, systemd units, and permissive **`myapp_t`**. Lab 6 **installs** that staging world (Linux or macOS step 4) and **verifies** it works.
+**Why we do this:** SELinux PaC uses the Flask app under `/opt/myapp`, a **stub** SELinux module, systemd units, and permissive **`myapp_t`**. Lab 6 **installs** that staging world (Linux or macOS step 4) and **verifies** it works.
 
-**Question you're answering:** *Is the demo app running with the staging setup the course builds on?*
+**Question you're answering:** *Is the reference app running with the staging setup?*
 
 **When:** **Right after Lab 1** on the full course path.
 
@@ -280,7 +284,7 @@ sudo journalctl -u myapp-backend.service -n 30 --no-pager
 - **`-n 30`:** Last **30** lines — enough for a recent crash.
 - **`--no-pager`:** Print to the terminal (don’t stop in `less`).
 - **What to look for:** `Failed to execute`, `ModuleNotFoundError`, `Address already in use`, SELinux AVC lines.
-- **`203/EXEC` + Permission denied:** Often fixed by using **`/opt/myapp/venv/bin/python`** in the unit (see repo `app/myapp-backend.service`); then `sudo cp app/myapp-backend.service /etc/systemd/system/`, `sudo systemctl daemon-reload`, restart both services.
+- **`203/EXEC` + Permission denied:** Copy the current repo unit (`ExecStart=/opt/myapp/backend_stub.py`, `NoNewPrivileges=false`) so systemd can `type_transition` into `myapp_backend_t`. Do **not** ExecStart venv `python` — that stays in `myapp_t`. Then `sudo cp app/myapp-backend.service /etc/systemd/system/`, `sudo systemctl daemon-reload`, restart both services.
 - **`can't open file … backend_stub.py` `[Errno 13]`:** **`ProtectSystem=strict`** made `/opt/myapp` read-only; backend unit needs **`ReadWritePaths=/opt/myapp`** (in current repo unit).
 
 **Step 2 — try starting again (backend first, then Flask):**
@@ -404,7 +408,7 @@ ps -eZ | grep backend_stub
 
 **Podman FCOS VM (macOS lab):** Services may stay in **`init_t`** instead of **`myapp_t`** — stub policy includes **`init_t`** allows for staging; **`permissive myapp_t`** still applies when transition works.
 
-**Full policy in Git / workshop enforce path:** Flask → **`myapp_t`**; backend → **`myapp_backend_t`** (second domain for Tier 6).
+**Full policy in Git / enforce path:** Flask → **`myapp_t`**; backend → **`myapp_backend_t`** (second domain for Tier 6).
 
 **Example output (full policy installed):**
 
@@ -518,7 +522,7 @@ sudo semanage permissive -a myapp_t
 
 **Why we do this:** Policy is written for **real behavior** — binding a port, writing logs, executing a script, talking to a backend. Each demo URL triggers a different permission class so AVCs (if any) point at the right rule.
 
-**Question you're answering:** *Does the app work under SELinux, and did we exercise the paths the workshop tests?*
+**Question you're answering:** *Does the app work under SELinux, and did we exercise the paths the probes test?*
 
 **Automated path:** `bash scripts/run_training_lab.sh` (Lab 7) or `--short` — runs **`run_integration_probes`** (all paths, then a short **`ausearch`** tail).
 
@@ -552,7 +556,7 @@ sudo ausearch -m avc -ts recent 2>/dev/null | grep -E 'myapp|init_t' | tail -5
 
 **Tier 6 paths:** `/probe-backend` and `/notify-socket` need **`myapp-backend.service` active**.
 
-**Checkpoint:** All six paths and backend health succeed (no `curl` errors). Lab runner prints recent AVC lines; export to **`policy_out/avc.log`** is Lab 10 / workshop Act 2.
+**Checkpoint:** All six paths and backend health succeed (no `curl` errors). Lab runner prints recent AVC lines; export to **`policy_out/avc.log`** is Lab 10 / paced-walkthrough Act 2.
 
 ---
 
@@ -627,7 +631,7 @@ sudo ausearch -m avc -ts recent 2>/dev/null | grep myapp_t | tail -3
 
 **Where:** Repo root **inside the VM** (or Linux host) — you are reading **`selinux/myapp.te`** in git, not the stub module alone.
 
-**Why we do this:** AVCs tell you *what* was denied; **`selinux/myapp.te`** is where admins **allow or refuse** it in Git. Connecting the two is the core skill for policy reviews and for this demo’s generator workflow.
+**Why we do this:** AVCs tell you *what* was denied; **`selinux/myapp.te`** is where admins **allow or refuse** it in Git. Connecting the two is the core skill for policy reviews and for the SELinux PaC generator.
 
 **Question you're answering:** *Which rule (or missing rule) in Git explains this access?*
 
@@ -782,13 +786,13 @@ wc -l policy_out/avc.log
 | `podman machine ls` fails on Mac | Shell not using user-local Podman | `source ~/.local/share/selinux-demo/podman/env.sh` |
 | Ran Lab 6 install twice on macOS | Step 4 + `setup_staging_env.sh` in VM | **Verify only** after step 4; reinstall only when intentionally resetting |
 | `can't open file … backend_stub.py` Errno 13 | `ProtectSystem=strict` + `/opt/myapp` not in `ReadWritePaths` | Update unit from repo; or drop-in `ReadWritePaths=/opt/myapp /run/myapp` + `PYTHONDONTWRITEBYTECODE=1` |
-| `203/EXEC` on `backend_stub.py` | Shebang exec + SELinux/systemd on FCOS | Use current `app/myapp-backend.service` (venv python path); `daemon-reload` + restart |
+| `203/EXEC` on `backend_stub.py` | Shebang exec / `NoNewPrivileges` blocking type_transition | Use current `app/myapp-backend.service` (`ExecStart` the labeled `.py`, `NoNewPrivileges=false`); `daemon-reload` + restart |
 | `FATAL: myapp-backend … unknown` at setup end | Backend not running when script checked | VM: [Lab 6 — journalctl + restart](#if-myapp-backendservice-is-not-active) |
 | `FATAL: … not myapp_backend_t` (stub staging) | **`wait_for_endpoints`** expects full manifest domains; stub uses **`myapp_t`** for both | Ignore if units are **active** and curls work; install full **`selinux/myapp.pp`** for production-like checks |
 | `selinux_canary_deployed_at` in `/var/lib/myapp` during training | Leftover from **`demo_present`** canary (Act 6) | Re-run **`bash scripts/run_on_podman_vm.sh setup`** (removes markers when reinstalling stub) or delete files manually |
 | Empty `ausearch` | auditd off or no denials yet | `systemctl start auditd`; Lab 7; Lab 8 shows a **sample** AVC when live count is 0 |
 | `curl` fails | App or backend not running | Lab 6 verify; `systemctl restart myapp-backend myapp` |
-| Wrong file types | Disk ≠ policy | `sudo restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp` |
+| Wrong file types | Disk ≠ policy | `sudo restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp /var/run/myapp` |
 | `curl` on Mac to 8888 fails | App listens **inside VM only** | `run_on_podman_vm.sh shell`, then curl **127.0.0.1** there |
 | On Mac only | No SELinux on host | [Running on macOS](#running-on-macos) — VM shell for all labs |
 
@@ -800,5 +804,5 @@ wc -l policy_out/avc.log
 |-------|----------|
 | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | Concept reference |
 | **This file** | Guided labs with **why** + **what each command does** |
-| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Live workshop |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Optional paced walkthrough |
 | [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md) | Repository tour |

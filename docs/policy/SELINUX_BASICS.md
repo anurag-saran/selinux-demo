@@ -1,22 +1,16 @@
-# SELinux Basics — A Beginner's Guide
+# SELinux Basics
 
-This guide explains **SELinux from zero** using the `myapp` demo in this repository. No prior experience required.
+This guide explains **SELinux from zero** using the `myapp` **reference application** that ships with **SELinux PaC**. No prior experience required.
 
 **How to read this guide (about 15–20 minutes reading):**
 
 1. Sections 1–4 — what SELinux is and how **labels** work (start here)
 2. Sections 5–7 — **commands** to view labels, **policy files** (`.te`/`.fc`), **`restorecon`**, and the **two-layer model** (OS Enforcing + permissive app domain)
 3. Section 7.5 — **soak** timeline (why production waits 7–14 days)
-4. Sections 8–10 — **AVC denials**, export filtering, and a **worked example** tied to the demo
-5. Sections 11+ — reference tables, cheat sheet, and links to the live workshop
+4. Sections 8–10 — **AVC denials**, export filtering, and a **worked example** on `myapp`
+5. Sections 11+ — reference tables, cheat sheet, and admin runbooks
 
-**Hands-on practice (90–120 minutes):** work through **[SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md)** — copy/paste commands with expected outputs before the workshop.
-
-**Before the live demo:** complete the training lab (or at least labs 1–7), then follow [DEMO_GUIDE.md](../training/DEMO_GUIDE.md).
-
-**After the demo (production rollout):** [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md).
-
-**All documentation:** [docs/README.md](../README.md).
+**Optional labs:** [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md). **Ship path:** [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md). **All documentation:** [docs/README.md](../README.md).
 
 ### Where to run commands in this guide
 
@@ -187,8 +181,8 @@ type myapp_var_lib_t;      # declare data file type
 # Can myapp_t write to myapp_var_lib_t files?
 allow myapp_t myapp_var_lib_t:file { create write append ... };
 
-# Can myapp_t bind port 8888? (uses unreserved_port_t, not http_port_t)
-allow myapp_t unreserved_port_t:tcp_socket name_bind;
+# Can myapp_t bind port 8888? dedicated type, not http_port_t / unreserved_port_t
+allow myapp_t myapp_port_t:tcp_socket name_bind;
 
 # systemd starts app → process transitions into myapp_t
 init_daemon_domain(myapp_t, myapp_exec_t);
@@ -208,6 +202,7 @@ From [`selinux/myapp.fc`](../../selinux/myapp.fc):
 /opt/myapp/app\.py     -- gen_context(system_u:object_r:myapp_exec_t,s0)
 /var/lib/myapp(/.*)?   -- gen_context(system_u:object_r:myapp_var_lib_t,s0)
 /run/myapp(/.*)?       -- gen_context(system_u:object_r:myapp_var_run_t,s0)
+/var/run/myapp(/.*)?   -- gen_context(system_u:object_r:myapp_var_run_t,s0)
 /opt/myapp/bin/.*      -- gen_context(system_u:object_r:myapp_script_exec_t,s0)
 ```
 
@@ -274,7 +269,7 @@ Enforcing
 | **Permissive** | Operation **allowed** + logged (whole OS — avoid in prod) |
 | **Disabled** | SELinux off — do not use in production |
 
-### Per-domain permissive (what this demo uses)
+### Per-domain permissive (what SELinux PaC uses)
 
 You can keep the **OS Enforcing** but mark **one app domain** as permissive:
 
@@ -292,7 +287,7 @@ This repo uses **two separate checks**. Beginners often confuse them:
 
 | Check | Command | What it tells you |
 |-------|---------|-------------------|
-| **Whole-system mode** | `getenforce` | Is SELinux enforcing **globally**? (Always **Enforcing** in this demo.) |
+| **Whole-system mode** | `getenforce` | Is SELinux enforcing **globally**? (Always **Enforcing** in SELinux PaC.) |
 | **Per-domain log-only list** | `sudo semanage permissive -l` | Which **process types** get log-only denials? (Usually **`myapp_t`** during staging/soak.) |
 
 ```text
@@ -450,7 +445,7 @@ Example: 42 raw lines may collapse to 6 merged rows, with only 2 net-new after s
 
 ## 9. Worked example — `/save-log` end to end
 
-This ties labels, `.te`, `.fc`, AVCs, and the demo together.
+This ties labels, `.te`, `.fc`, AVCs, and the reference app together.
 
 The Flask app ([`app/app.py`](../../app/app.py)) exposes `GET /save-log`, which appends a line to `/var/log/myapp/data.log` (created by systemd `LogsDirectory=myapp`).
 
@@ -564,7 +559,7 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 
 ---
 
-## 12. How this maps to the demo workflow
+## 12. How this maps to the SELinux PaC workflow
 
 ```text
 1. Run app as myapp_t (permissive)     →  AVCs logged, app still works
@@ -582,7 +577,7 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 
 ### App-visible SELinux signals
 
-The demo app exposes SELinux state so app teams can distinguish policy issues from application bugs:
+The reference app exposes SELinux state so app teams can distinguish policy issues from application bugs:
 
 - **`GET /`** health JSON includes `"selinux": { "mode", "domain", "domain_permissive", "policy_version" }`
 - Permission errors may include `"selinux_context"` alongside `"Permission denied"`
@@ -603,7 +598,7 @@ Presenter steps: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md). Admin gates: [PRODU
 | Allowing `bin_t:file execute` for helper scripts | CI rejects; over-broad | Keep `backup.sh` on bash builtins only |
 | Skipping `restorecon` after deploy | Old files keep wrong types | `verify_file_contexts.sh`, Ansible playbooks |
 | Testing only manual `python app.py` | Missing systemd transition AVCs | Playbooks restart via **systemd** |
-| Wrong port type for 8888 | `http_port_t` is wrong on RHEL | Uses **`unreserved_port_t`** |
+| Wrong port type for 8888 | `http_port_t` / raw `unreserved_port_t` | Dedicated **`myapp_port_t`** + `seport` |
 | Enforcing immediately | Misses weekly cron / logrotate edge cases | **7–14 day soak** before enforce |
 
 ---
@@ -649,11 +644,11 @@ getsebool -a | head
 semanage boolean -l | head
 ```
 
-This PoC uses **custom `.te` rules** instead of toggling booleans (e.g. `httpd_can_network_connect`).
+This repo uses **custom `.te` rules** instead of toggling booleans (e.g. `httpd_can_network_connect`). A boolean is only the right fix when base policy already has one — the generator says so.
 
 ### Port labeling (`semanage port`)
 
-Port **8888** uses **`unreserved_port_t`** + `name_bind` — not `http_port_t`. Admins assign well-known ports with `semanage port -a -t http_port_t -p tcp PORT`.
+Port **8888** is labeled **`myapp_port_t`** (`semanage port` / canary `seport`) — not `http_port_t` and not a blanket `unreserved_port_t` bind. Before that label exists, AVCs still name `unreserved_port_t`; that is the *denial*, not the intended allow.
 
 ### Process transitions
 
@@ -745,10 +740,10 @@ sudo semodule -i selinux/myapp.pp              # upgrades in place
 | Guide | Audience |
 |-------|----------|
 | **This file** | New to SELinux — labels, `.te`/`.fc`, commands with examples |
-| [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | **Hands-on labs** — train up for the demo |
+| [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
 | [CODE_WALKTHROUGH.md](../training/CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, CI jobs |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline policy generator from AVCs |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Running the live workshop demo |
+| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Optional paced walkthrough |
 | [TESTING.md](../developers/TESTING.md) | Endpoints, smoke tests, CI matrix |
 | [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | RHEL admins — soak, canary, enforce gates |
 | [README.md](../../README.md) | Project overview and command index |

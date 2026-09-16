@@ -6,7 +6,7 @@ title: "security(selinux): Update policy module for myapp (v1.1.2 example)"
 
 ## Pull Request: SELinux Policy Module Submission
 
-> **Sample output** for workshop Act 4. Live runs write to `policy_out/pr_body.md` via `assemble_pr_body.sh`.
+> **Sample output.** Live runs write to `policy_out/pr_body.md` via `assemble_pr_body.sh`.
 
 ### 1. Application Context
 

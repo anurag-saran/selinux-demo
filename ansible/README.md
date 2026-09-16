@@ -24,7 +24,7 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 | [`reset_host_state.yml`](reset_host_state.yml) | `semodule -B` + clear permissive (no module change) |
 | [`generate_emergency_patch.yml`](generate_emergency_patch.yml) | Controller + git checkout only — `policy_out/` for a PR, not host install |
 
-Playbooks delegate to role [`roles/selinux_pac/`](roles/selinux_pac/). Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Demo/lab sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the checkout `scripts/` tree.
+Playbooks delegate to role [`roles/selinux_pac/`](roles/selinux_pac/). The old `myapp_selinux` role is gone — do not restore it. Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Checkout (no ops RPM) sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the checkout `scripts/` tree.
 
 **Ansible Automation Platform (AAP) hub:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md). Two-host lab: [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md). Testing matrix: [`docs/developers/TESTING.md`](../docs/developers/TESTING.md). Admin runbook: [`docs/admin/PRODUCTION_READINESS.md`](../docs/admin/PRODUCTION_READINESS.md). Laptop compile **backup:** [`docs/admin/COMPILE_IMAGE.md`](../docs/admin/COMPILE_IMAGE.md) (`asaran/selinux-demo-selinux-build:stream9`).
 

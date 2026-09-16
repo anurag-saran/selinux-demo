@@ -1,12 +1,13 @@
-# SELinux Policy-as-Code
+# SELinux PaC
 
-**Ship SELinux the same way you ship the application:** developers open a PR, CI compiles and rejects dangerous allows, admins publish a signed RPM, **Ansible Automation Platform (AAP)** canaries, soaks, and enforces. The host stays **Enforcing**. Policy is a versioned product — not a one-off `audit2allow` on a box.
+**The RHEL admin tool for shipping SELinux policy as code.** Developers open a PR, CI compiles and rejects dangerous allows, admins publish a signed RPM, **Ansible Automation Platform (AAP)** canaries, soaks, and enforces. The host stays **Enforcing**. Policy is a versioned product — not a one-off `audit2allow` on a box.
 
-`myapp` is a **reference app**. Training labs are optional ([docs/README.md](docs/README.md)).
+`myapp` is the **reference application** that ships with the tool. Optional labs: [docs/README.md](docs/README.md).
 
 | You are | Start here |
 |---------|------------|
-| **RHEL admin / SRE** | [Why this exists](#why-this-exists) → [docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md) → [docs/admin/ANSIBLE_OPERATIONS.md](docs/admin/ANSIBLE_OPERATIONS.md) |
+| **RHEL admin (customer env)** | [Admins: your environment](#admins-your-environment) |
+| **Trying this on a Mac** | [Try it on a Mac](#try-it-on-a-mac) |
 | **Application developer** | [Developers](#developers) and [docs/developers/ONBOARDING.md](docs/developers/ONBOARDING.md) |
 | **Offline check (any laptop)** | `make check` |
 
@@ -16,7 +17,7 @@
 
 SELinux is how RHEL actually confines an app. Turning it off (`setenforce 0`), flipping the whole OS to Permissive, or piping `audit2allow` into `semodule -i` on prod “unblocks” the service and **throws away the confinement**. Admins then own an unreproducible module that never went through review.
 
-This repo is the other path: **policy-as-code for admins and developers together.**
+This tool is the other path: **policy-as-code for admins and developers together.**
 
 | Without this tool | With this tool |
 |-------------------|----------------|
@@ -33,11 +34,11 @@ This repo is the other path: **policy-as-code for admins and developers together
 
 ## How this differs from Ed Qual’s enablement lab
 
-I built this after looking at [Ed Qual’s automate-selinux](https://github.com/stoleas/automate-selinux) (AAP + Event-Driven Ansible + Orchestrator). That project is strong at **unblocking a host that is already failing** in production: collect AVCs, route, approve, apply a local fix (`fcontext` / port / boolean, or a live module). It is an **ops response** loop.
+SELinux PaC was built after looking at [Ed Qual’s automate-selinux](https://github.com/stoleas/automate-selinux) (AAP + Event-Driven Ansible + Orchestrator). That project is strong at **unblocking a host that is already failing** in production: collect AVCs, route, approve, apply a local fix (`fcontext` / port / boolean, or a live module). It is an **ops response** loop.
 
-This repo **shifts policy creation left**. Developers generate policy from AVCs on rhel-dev, open a **PR**, CI and CODEOWNERS review it, admins ship a signed RPM, AAP **canaries**, **soaks** (net-new vs installed policy), then **enforces** with a change ticket. A denial after ship is another PR — not `semodule -i` on the box.
+**SELinux PaC shifts policy creation left.** Developers generate policy from AVCs on rhel-dev, open a **PR**, CI and CODEOWNERS review it, admins ship a signed RPM, AAP **canaries**, **soaks** (net-new vs installed policy), then **enforces** with a change ticket. A denial after ship is another PR — not `semodule -i` on the box.
 
-Those are complementary, not substitutes: his loop detects and routes; this loop authors and ships reviewed policy.
+Those are complementary, not substitutes: his loop detects and routes; this tool authors and ships reviewed policy.
 
 ---
 
@@ -91,15 +92,28 @@ Prod     Release canary → Soak monitor → Promote to enforce
 
 ---
 
-## Admins
+## Admins: your environment
 
-AAP execution nodes SSH to two RHEL boxes ([docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)). Install `selinux-policy-ops` + `<app>-selinux` from a **signed internal repo**. Compile image: set `SELINUX_BUILD_IMAGE` to an internal mirror ([docs/admin/COMPILE_IMAGE.md](docs/admin/COMPILE_IMAGE.md)).
+Fork the repo and wire it to **two RHEL boxes** plus **AAP**. There is no one-click datacenter installer; this is the customer path. Full checklist: [docs/admin/ADOPTION_CHECKLIST.md](docs/admin/ADOPTION_CHECKLIST.md). Doc index: [docs/README.md](docs/README.md).
+
+| Follow | For |
+|--------|-----|
+| [docs/admin/ADOPTION_CHECKLIST.md](docs/admin/ADOPTION_CHECKLIST.md) | CODEOWNERS, CI, signed RPM repo, AAP objects |
+| [docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md) | Dev box + prod box; **no git clone on prod** |
+| [docs/admin/ANSIBLE_OPERATIONS.md](docs/admin/ANSIBLE_OPERATIONS.md) | Playbooks and extra-vars |
+| [ansible/aap/README.md](ansible/aap/README.md) | Click-create job templates + **Release canary** / **Promote to enforce** |
+| [docs/admin/PRODUCTION_READINESS.md](docs/admin/PRODUCTION_READINESS.md) | Soak, enforce, rollback |
+| [docs/admin/DENIAL_RESPONSE.md](docs/admin/DENIAL_RESPONSE.md) | File/port denied after ship → PR, not live `semodule -i` |
+
+**Scripts** (run from the controller — laptop or AAP execution node):
 
 ```bash
 # Inventories (gitignored)
 bash scripts/setup_rhel_hosts.sh write --dev-host rhel-dev.example.com --prod-host rhel-prod.example.com
 bash scripts/setup_rhel_hosts.sh ping
 bash scripts/setup_rhel_hosts.sh doctor
+bash scripts/setup_rhel_hosts.sh bootstrap          # prints SSH steps for rhel-dev only
+bash scripts/selinux_pac_adopt.sh init myapp        # next app: payments — see ONBOARDING.md
 
 # Package + publish (see packaging/internal.env.example)
 bash packaging/build_rpms.sh
@@ -115,7 +129,35 @@ ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.
 
 Rollback: `ansible-playbook -i ansible/inventory.production.yml ansible/emergency_rollback.yml --limit canary`
 
-Playbooks: [ansible/README.md](ansible/README.md). AAP workflows: [ansible/aap/](ansible/aap/) and [docs/admin/ANSIBLE_OPERATIONS.md](docs/admin/ANSIBLE_OPERATIONS.md). Adoption: [docs/admin/ADOPTION_CHECKLIST.md](docs/admin/ADOPTION_CHECKLIST.md). Runbook: [docs/admin/PRODUCTION_READINESS.md](docs/admin/PRODUCTION_READINESS.md).
+Install `selinux-policy-ops` + `<app>-selinux` from a **signed internal repo**. Compile image: set `SELINUX_BUILD_IMAGE` to an internal mirror ([docs/admin/COMPILE_IMAGE.md](docs/admin/COMPILE_IMAGE.md)). Playbooks: [ansible/README.md](ansible/README.md).
+
+---
+
+## Try it on a Mac
+
+macOS has **no SELinux**. The Mac is the **Ansible controller**; policy still runs on Linux.
+
+**Preferred — two RHEL VMs (Apple Silicon: aarch64 Boot ISO in UTM), then the same admin scripts:**
+
+```bash
+bash scripts/setup_rhel_hosts.sh write --dev-host <rhel-dev-ip> --prod-host <rhel-prod-ip>
+bash scripts/setup_rhel_hosts.sh ping
+bash scripts/setup_rhel_hosts.sh doctor
+bash scripts/setup_rhel_hosts.sh bootstrap
+```
+
+Topology and bootstrap commands: [docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md). Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod.
+
+**Backup — no RHEL boxes yet (one Podman VM):**
+
+```bash
+bash scripts/fix_podman.sh
+source "${HOME}/.local/share/selinux-demo/podman/env.sh"
+bash scripts/run_on_podman_vm.sh setup
+bash scripts/dev_generate_policy.sh --use-vm --apply
+```
+
+Step-by-step: [docs/training/SELINUX_TRAINING_LAB.md](docs/training/SELINUX_TRAINING_LAB.md#running-on-macos). Stop using `--use-vm` once the two RHEL boxes exist.
 
 ---
 
@@ -147,9 +189,10 @@ config/       App manifests (bind ports, probes, domains)
 selinux/      Policy source of truth (.te/.fc, policy_version.txt)
 ansible/      selinux_pac role + aap/ Controller workflows
 packaging/    selinux-policy-ops + <app>-selinux; publish_internal.sh
-scripts/      setup_rhel_hosts.sh, compile, ops scripts (also in the ops RPM)
-docs/admin/   RHEL + AAP runbooks
+scripts/      setup_rhel_hosts.sh (admins), fix_podman.sh + run_on_podman_vm.sh (Mac backup)
+docs/admin/   Adoption, two-host, AAP, soak/enforce runbooks
 docs/developers/  Onboarding, generator, tests
+docs/training/    Optional labs; macOS Podman path
 ```
 
 ---
@@ -160,5 +203,4 @@ docs/developers/  Onboarding, generator, tests
 - If a file or port is denied after ship: [docs/admin/DENIAL_RESPONSE.md](docs/admin/DENIAL_RESPONSE.md) — PR + recanary, not live `semodule -i`.
 - Optional LLM polishes `pr_summary.md` only. Legacy `--legacy-full-policy` is emergency/controller-only.
 - Host CLI `apply_policy.sh` is **not** the control plane (skips AAP, RPMs, `serial: 1`).
-
-Podman / `--use-vm` is a laptop **backup** when the RHEL boxes are not available: [docs/training/SELINUX_TRAINING_LAB.md](docs/training/SELINUX_TRAINING_LAB.md).
+- Podman / `--use-vm` is a laptop **backup** only — [Try it on a Mac](#try-it-on-a-mac).

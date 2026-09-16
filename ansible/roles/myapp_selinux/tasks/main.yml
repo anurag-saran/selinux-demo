@@ -1,9 +1,0 @@
----
-# Removed. Import selinux_pac instead (ansible/roles/selinux_pac/).
-- name: myapp_selinux role was removed
-  ansible.builtin.fail:
-    msg: >-
-      Role myapp_selinux is gone. Use role selinux_pac with selinux_pac_phase
-      (canary, soak_monitor, soak_status, enforce, rollback, reset_host).
-      Playbooks: ansible/deploy_canary.yml, soak_monitor.yml, soak_status.yml,
-      enforce_production.yml. Docs: docs/admin/ANSIBLE_OPERATIONS.md

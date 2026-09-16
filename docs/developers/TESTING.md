@@ -8,7 +8,7 @@ This document is the **single reference** for how this repository tests SELinux 
 | **Policy author opening a PR** | §4 CI on pull requests | §5 Shell gate scripts |
 | **Admin / SRE** | §6 Staging and production gates | [`RHEL_TWO_HOST.md`](../admin/RHEL_TWO_HOST.md), [`ANSIBLE_OPERATIONS.md`](../admin/ANSIBLE_OPERATIONS.md), [`PRODUCTION_READINESS.md`](../admin/PRODUCTION_READINESS.md) |
 
-Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](../policy/SELINUX_BASICS.md) §9; hands-on prep in [`SELINUX_TRAINING_LAB.md`](../training/SELINUX_TRAINING_LAB.md); workshop flow in [`DEMO_GUIDE.md`](../training/DEMO_GUIDE.md) Acts 1–10; **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](../training/CODE_WALKTHROUGH.md). **Doc index:** [`README.md`](../README.md).
+Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](../policy/SELINUX_BASICS.md) §9; optional labs in [`SELINUX_TRAINING_LAB.md`](../training/SELINUX_TRAINING_LAB.md); paced walkthrough in [`DEMO_GUIDE.md`](../training/DEMO_GUIDE.md); **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](../training/CODE_WALKTHROUGH.md). **Doc index:** [`README.md`](../README.md).
 
 **Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Integration curls and `setup_staging_env.sh` run on the **RHEL dev** box ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). Podman VM is a **backup**.
 
@@ -47,7 +47,7 @@ The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is 
 | **Where** | On the **same Linux machine** where Flask listens on **8888** — **RHEL dev** after `setup_staging_env.sh` (Podman VM backup) |
 | **Why** | Each URL is a deliberate SELinux probe; failures show up as HTTP errors or AVC lines |
 
-**Workshop order (Act 1 / Lab 7 — one batch, then AVC file):**
+**Probe order (Lab 7 — one batch, then AVC file):**
 
 ```bash
 for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
@@ -294,5 +294,5 @@ Layer 7  emergency_rollback                   outage response
 |-------|---------|
 | House-rule golden fixtures | `make test-fixtures` or `make test` |
 | Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
-| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) |
+| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) |
 | Coverage gate | `bash scripts/verify_avc_coverage.sh` after generation |

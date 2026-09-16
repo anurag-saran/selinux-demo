@@ -6,7 +6,8 @@ run_write_avc_summary() {
     local avc_log="$1"
     local existing_te="$2"
     local out="${3:-${PROJECT_ROOT}/policy_out/avc_summary.txt}"
-    python3 - "${PROJECT_ROOT}" "${avc_log}" "${existing_te}" "${out}" <<'PY'
+    local domain="${4:-${SELINUX_DOMAIN:-myapp_t}}"
+    python3 - "${PROJECT_ROOT}" "${avc_log}" "${existing_te}" "${out}" "${domain}" <<'PY'
 import sys
 from pathlib import Path
 
@@ -17,7 +18,8 @@ from avc_preprocess import preprocess_avc_file
 avc = Path(sys.argv[2])
 te = Path(sys.argv[3]).read_text(encoding="utf-8")
 out = Path(sys.argv[4])
-summary, stats = preprocess_avc_file(avc, existing_te=te)
+domain = sys.argv[5]
+summary, stats = preprocess_avc_file(avc, domain, existing_te=te)
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(summary + "\n", encoding="utf-8")
 print(f"Wrote {out} (raw={stats['raw']} merged={stats['merged']} net_new={stats['net_new']})")

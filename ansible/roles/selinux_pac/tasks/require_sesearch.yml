@@ -1,6 +1,6 @@
 ---
 - name: Require sesearch (setools-console) for net-new soak
-  ansible.builtin.shell: command -v sesearch
+  ansible.builtin.shell: PATH=/usr/sbin:/usr/bin:/sbin:/bin command -v sesearch
   register: pac_sesearch
   changed_when: false
   failed_when: pac_sesearch.rc != 0

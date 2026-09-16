@@ -2,6 +2,8 @@
 
 Preferred topology: **one RHEL host for development** (staging, AVC discovery, policy PRs) and **one RHEL host for production** (canary → soak → enforce). Run Ansible from a controller (laptop or AAP). Developers work on **dev**; admins ship to **prod**. **Local Podman is a backup** if you do not have RHEL yet.
 
+A **Mac** can be that controller. Preferred laptop lab: two RHEL 9 **aarch64** VMs (Boot ISO in UTM on Apple Silicon) and `bash scripts/setup_rhel_hosts.sh` from the clone. macOS has no SELinux — policy still runs on the VMs. Commands: [README — Try it on a Mac](../../README.md#try-it-on-a-mac).
+
 ```text
 Controller (laptop / AAP)
    ansible SSH ──► rhel-dev     setup_staging_env.sh, AVC export, canary (lab soak_min_days=0)
@@ -30,7 +32,7 @@ SSH user needs passwordless sudo (or become password). `ansible` collection inst
 
 ## 2. Bootstrap the dev box
 
-Print the SSH commands (packages, clone, demo app):
+Print the SSH commands (packages, clone, reference app):
 
 ```bash
 bash scripts/setup_rhel_hosts.sh bootstrap
@@ -81,13 +83,13 @@ AAP objects: [`ansible/aap/`](../../ansible/aap/) and [ANSIBLE_OPERATIONS.md](AN
 
 ## Backup: local Podman
 
-Use this only when you have **no RHEL boxes** (workshop laptop, macOS).
+Use this only when you have **no RHEL boxes** (laptop trial, macOS).
 
 | Step | Command |
 |------|---------|
 | One-time VM | [SELINUX_TRAINING_LAB.md — Running on macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos) |
 | Staging in VM | `bash scripts/run_on_podman_vm.sh setup` |
 | AVC export from Mac | `bash scripts/dev_generate_policy.sh --use-vm --apply` |
-| Compile without RHEL devel | [DOCKER_HUB_COMPILE_IMAGE.md](COMPILE_IMAGE.md) |
+| Compile without RHEL devel | [COMPILE_IMAGE.md](COMPILE_IMAGE.md) |
 
 When the two RHEL boxes arrive, switch to `setup_rhel_hosts.sh` and stop using `--use-vm` for day-to-day work.

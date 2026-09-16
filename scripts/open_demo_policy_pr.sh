@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# open_demo_policy_pr.sh — Push a real GitHub PR for workshop Act 4–5 (admin review + CI).
+# open_demo_policy_pr.sh — Optional paced-walkthrough PR (Act 4–5: admin review + CI).
 #
-# Main already contains policy v1.1.2; this PR uses base branch demo/policy-base-1.1.1
-# (policy v1.1.1) so the diff matches the staging → PR story without reverting main.
+# Frozen v1.1.1 → v1.1.2 review PR (base demo/policy-base-1.1.1).
+# Current main is policy v1.1.3; do not treat this script as the live module bump.
 #
 set -euo pipefail
 

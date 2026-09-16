@@ -57,7 +57,7 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 
 | Consumer | Purpose |
 |----------|---------|
-| [`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) | Staged staging discovery curls + AVC peeks (workshop Act 1 / Lab 7) |
+| [`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) | Staged discovery curls + AVC peeks (Lab 7) |
 | [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) | systemd units, HTTP probes, domain verification |
 | [`scripts/post_deploy_report.sh`](../scripts/post_deploy_report.sh) | Deploy JSON service/domain fields |
 | [`scripts/check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Domain context keys in deploy report; optional **`--auto-tier`** with policy pair paths |

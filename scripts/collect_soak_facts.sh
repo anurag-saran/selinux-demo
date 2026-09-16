@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/avc_query.sh
 source "${SCRIPT_DIR}/lib/avc_query.sh"
 
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 MARKER_FILE="${SOAK_MARKER_FILE:-/var/lib/myapp/selinux_canary_deployed_at}"
 REPORT_FILE="${DEPLOY_REPORT_FILE:-/var/lib/myapp/selinux_deploy_report.json}"
@@ -58,7 +60,7 @@ if [[ -f "${MARKER_FILE}" ]]; then
 fi
 
 avc_count=-1
-avc_json='{"count":0,"net_new_count":0,"avc_fail_closed":true}'
+avc_json='{"count":0,"net_new_count":0,"avc_fail_closed":false}'
 if [[ -f "${MARKER_FILE}" ]]; then
     MONITOR_ARGS=(--domain "${DOMAIN}" --marker-file "${MARKER_FILE}" --max-avc -1 --show-lines 0 --format json)
     [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]] && MONITOR_ARGS+=(--manifest "${MANIFEST}")

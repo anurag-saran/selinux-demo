@@ -7,10 +7,10 @@ You do **not** need to know every script on day one. Read this in order, pause w
 | Your goal | Start here |
 |-----------|------------|
 | Understand SELinux words (domain, AVC, `.te`) | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) **first** (sections 1–7) |
-| **Practice commands before the workshop** | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (10 labs, sample outputs) |
-| See how this repo fits together | [What this project does](#what-this-project-does-in-plain-english) → [Story of one policy change](#story-of-one-policy-change) |
+| **Practice commands on a SELinux host** | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (optional labs) |
+| See how this tool fits together | [What SELinux PaC does](#what-selinux-pac-does-in-plain-english) → [Story of one policy change](#story-of-one-policy-change) |
 | Find a folder or file | [Directory map](#directory-map-what-each-folder-is-for) |
-| Run the live workshop | [DEMO_GUIDE.md](DEMO_GUIDE.md) |
+| Optional paced walkthrough | [DEMO_GUIDE.md](DEMO_GUIDE.md) |
 | Deploy to real servers | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) then [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) |
 
 **Time:** about 30–45 minutes if you read the basics doc first; 60+ minutes if you read both cover to cover.
@@ -54,17 +54,17 @@ If any term is fuzzy, open [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). Qui
 
 ---
 
-## What this project does in plain English
+## What SELinux PaC does in plain English
 
-This repository is a **demo plus tooling** for “shift-left” SELinux:
+**SELinux PaC** is the admin + developer tool that ships SELinux policy the same way you ship the application:
 
-1. A small **Flask app** (`app/`) runs on a Linux host with SELinux on.
+1. A **reference Flask app** (`app/`) runs on a Linux host with SELinux on (`myapp`; swap in your service).
 2. While the app domain is **permissive**, the kernel **logs** denials (AVCs) instead of blocking everything.
-3. Scripts **collect** those logs and **generate** updates to `myapp.te` / `myapp.fc` (by rules engine or optional AI).
+3. Scripts **collect** those logs and **generate** updates to `.te` / `.fc` (deterministic engine; optional LLM summary).
 4. **CI** checks the change (dangerous patterns, compile, semantics, version numbers).
 5. **Ansible Automation Platform (AAP)** deploys a new module (**Release canary**), runs **Soak monitor** (net-new vs installed policy), then **Promote to enforce**. A denial after ship is a **PR**, not a live host patch ([DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)).
 
-You are not expected to memorize every bash script. Most days you touch **`app/`**, **`selinux/`**, **`config/*.manifest.yml`**, and **`scripts/dev_generate_policy.sh`**.
+You are not expected to memorize every bash script. Most days you touch **`selinux/`**, **`config/*.manifest.yml`**, **`scripts/dev_generate_policy.sh`**, and AAP.
 
 ---
 
@@ -133,7 +133,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 | **`myapp.service`**, **`myapp-backend.service`** | Tell systemd how to start the app and create state/log/run directories. |
 | **`backup.sh`** | Script the `/run-script` route executes (bash-only on purpose). |
 
-**Why six HTTP paths?** Each path tries to use a different resource (port, log file, script file, network, socket). When policy is incomplete, you get an AVC that points to the **missing allow rule**. **Workshop staging** runs [`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh) (all HTTP paths in one pass; Act 1 previews **`policy_out/avc.log`**). **Deploy gates** use [`scripts/wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) to curl those paths and confirm the process still runs as the right **domain**.
+**Why six HTTP paths?** Each path tries to use a different resource (port, log file, script file, network, socket). When policy is incomplete, you get an AVC that points to the **missing allow rule**. **Optional labs** run [`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh) (all HTTP paths in one pass). **Deploy gates** use [`scripts/wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) to curl those paths and confirm the process still runs as the right **domain**.
 
 ---
 
@@ -252,7 +252,7 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`lib/compile_policy.sh`** | Compile module natively or inside the Stream 9 tool container. |
 | **`build_selinux_compile_image.sh`** | Force rebuild the compile image. |
 
-See [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) for Mac Podman notes.
+See [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) for Mac Podman notes.
 
 ### CI-heavy scripts (you may read, rarely run locally)
 
@@ -271,9 +271,9 @@ See [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) for Mac Podman note
 | Script | Role |
 |--------|------|
 | **`run_training_lab.sh`**, **`run_demo_prep.sh`** | Guided lab / demo prep talk track (Lab 7 uses staged probes). |
-| **`demo_present.sh`**, **`run_demo.sh`** | Workshop flows (Act 1 staged integration). |
-| **`lib/integration_probes.sh`** | All workshop curls in one pass; Act 1 shows **`avc.log`**. |
-| **`run_on_podman_vm.sh`** | Sync project to Podman Machine, **`trigger`** (staged probes), export AVCs with manifest filters. |
+| **`demo_present.sh`**, **`run_demo.sh`** | Optional paced walkthrough (Act 1 staged integration). |
+| **`lib/integration_probes.sh`** | All reference-app curls in one pass; optional AVC preview. |
+| **`run_on_podman_vm.sh`** | Sync project to Podman Machine (Mac **backup** when you have no RHEL VMs), **`trigger`** (staged probes), export AVCs with manifest filters. |
 
 ---
 
@@ -357,11 +357,11 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 
 | Doc | Best for |
 |-----|----------|
-| [README.md](../README.md) | **Start here** — doc map and reading order |
+| [README.md](../README.md) | **SELinux PaC** — start here |
 | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | First-time SELinux readers |
-| [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | Hands-on labs before the workshop |
+| [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
 | [TESTING.md](../developers/TESTING.md) | CI jobs and local test commands |
-| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Presenting the workshop |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Optional paced walkthrough |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Offline generator and fixtures |
 | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) | Two RHEL boxes; Podman backup |
 | [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AAP / playbooks — production control plane |

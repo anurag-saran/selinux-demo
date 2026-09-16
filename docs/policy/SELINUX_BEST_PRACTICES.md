@@ -1,4 +1,4 @@
-# SELinux Policy-as-Code — Best Practices
+# SELinux PaC — Best Practices
 
 This guide captures **design principles and anti-patterns** enforced in this repository after production-readiness review. It answers: *what does “correct” look like here, and why?*
 
@@ -51,7 +51,7 @@ bash scripts/compile_and_validate.sh selinux
 # Uses scripts/lib/compile_policy.sh → make -f /usr/share/selinux/devel/Makefile
 ```
 
-Build target OS: **CentOS Stream 9** (RHEL 9 upstream). Published compile image: `docker.io/asaran/selinux-demo-selinux-build:stream9` — [`DOCKER_HUB_COMPILE_IMAGE.md`](../admin/COMPILE_IMAGE.md).
+Build target OS: **CentOS Stream 9** (RHEL 9 upstream). Published compile image: `docker.io/asaran/selinux-demo-selinux-build:stream9` — [`COMPILE_IMAGE.md`](../admin/COMPILE_IMAGE.md).
 
 ---
 
@@ -63,7 +63,7 @@ Build target OS: **CentOS Stream 9** (RHEL 9 upstream). Published compile image:
 |----------|---------|
 | FHS data path | `/var/lib/myapp(/.*)?` → `myapp_var_lib_t` |
 | FHS log path | `/var/log/myapp(/.*)?` → `myapp_log_t` |
-| FHS runtime socket | `/run/myapp(/.*)?` → `myapp_var_run_t` (`files_pid_file`) |
+| FHS runtime socket | `/run/myapp(/.*)?` **and** `/var/run/myapp(/.*)?` → `myapp_var_run_t` (RHEL `file_contexts.subs` maps `/run` → `/var/run`) |
 | Narrow venv entrypoint | `/opt/myapp/venv/bin/python[0-9.]*` → `myapp_exec_t`; rest → `myapp_lib_t` |
 | Directory patterns **without** `--` | `--` means regular file only — breaks dir/socket labeling |
 | `restorecon` after install | Labels persist across relabel; survives policy upgrade |
@@ -82,7 +82,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | Data under non-FHS `/var/myapp` | Harder to relabel; non-standard for RHEL admins |
 | Skipping venv in verify | Misses mislabeled Python entrypoint |
 
-**systemd:** `StateDirectory=myapp`, `LogsDirectory=myapp`, and `RuntimeDirectory=myapp` create `/var/lib/myapp`, `/var/log/myapp`, and `/run/myapp` with correct ownership before the app starts. App unit `ReadWritePaths` must include `/run/myapp` when `ProtectSystem=strict` is set.
+**systemd:** `StateDirectory=myapp`, `LogsDirectory=myapp`, and `RuntimeDirectory=myapp` create `/var/lib/myapp`, `/var/log/myapp`, and `/run/myapp` with correct ownership before the app starts. App unit `ReadWritePaths` must include `/run/myapp` when `ProtectSystem=strict` is set. **`NoNewPrivileges=true` blocks SELinux `type_transition`** (`init_t` → `myapp_t`) on RHEL — keep it false for labeled daemons. **`ExecStart` must be the labeled script** (`/opt/myapp/backend_stub.py` → `myapp_backend_exec_t`); starting venv `python` keeps the process in `myapp_t`.
 
 ---
 
@@ -244,6 +244,6 @@ Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_re
 | [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) | File/port AVC after ship → PR |
 | [../ansible/README.md](../../ansible/README.md) | Ansible playbook task order and variables |
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | Concepts and beginner mistakes |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Workshop acts 1–10 |
+| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Optional paced walkthrough |
 | [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
 | [README.md](../../README.md) | Commands, CI, Ansible pointer |

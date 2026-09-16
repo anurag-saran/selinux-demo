@@ -7,6 +7,8 @@
     path: "{{ policy_artifact_dir }}/policy_version.txt"
   register: pac_pv_artifact
   run_once: true
+  delegate_to: localhost
+  become: false
   when: selinux_pac_phase not in ['soak_monitor', 'soak_status', 'rollback', 'reset_host']
 
 - name: Stat policy_version in manifest module_dir
@@ -14,6 +16,8 @@
     path: "{{ policy_artifact_dir }}/{{ pac_manifest.policy.module_dir | default('selinux') }}/policy_version.txt"
   register: pac_pv_module
   run_once: true
+  delegate_to: localhost
+  become: false
   when:
     - selinux_pac_phase not in ['soak_monitor', 'soak_status']
     - not pac_pv_artifact.stat.exists
@@ -23,6 +27,8 @@
     path: "{{ policy_artifact_dir }}/../selinux/policy_version.txt"
   register: pac_pv_selinux
   run_once: true
+  delegate_to: localhost
+  become: false
   when:
     - selinux_pac_phase not in ['soak_monitor', 'soak_status']
     - not pac_pv_artifact.stat.exists

@@ -153,7 +153,7 @@ See also: [`TESTING.md`](../developers/TESTING.md) (full endpoint → policy map
 
 ## 6. Phase 1 — Per-domain permissive soak (canary)
 
-This phase is **canary soak after merge** — not the developer's **staging discovery** permissive (Acts 1–2 in the demo, where the app team collects AVCs to write initial policy). Here the **full** `myapp.pp` is already installed; permissive mode lets you watch real workloads before enforce.
+This phase is **canary soak after merge** — not the developer's **staging discovery** permissive (where the app team collects AVCs to write initial policy). Here the **full** `myapp.pp` is already installed; permissive mode lets you watch real workloads before enforce.
 
 Enable permissive mode **only** for the application domain (OS stays enforcing):
 
@@ -535,7 +535,7 @@ Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE
 | [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
 | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Acts 1–2 discovery; Acts 6–10 admin soak/enforce | Workshop observers |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
-| [DOCKER_HUB_COMPILE_IMAGE.md](COMPILE_IMAGE.md) | Published `stream9` compile image — pull-first | Demo laptops / CI |
+| [COMPILE_IMAGE.md](COMPILE_IMAGE.md) | Published `stream9` compile image — pull-first | Demo laptops / CI |
 | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) | AAP workflows in `ansible/aap/`, soak monitor, extra-vars | RHEL admins |
 | [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | File/port AVC after ship → PR, not live patch | RHEL admins |
 | [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md) | CODEOWNERS, inventories, RPM repo | Platform team |

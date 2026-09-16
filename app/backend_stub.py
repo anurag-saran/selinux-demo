@@ -36,8 +36,15 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
 
 def unix_listener(ready: threading.Event) -> None:
     NOTIFY_SOCK.parent.mkdir(parents=True, exist_ok=True)
-    if NOTIFY_SOCK.exists():
-        NOTIFY_SOCK.unlink()
+    try:
+        if NOTIFY_SOCK.exists():
+            NOTIFY_SOCK.unlink()
+    except OSError:
+        # Leftover socket may have the wrong label; bind() recreates it.
+        try:
+            NOTIFY_SOCK.unlink()
+        except OSError:
+            pass
 
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(NOTIFY_SOCK))

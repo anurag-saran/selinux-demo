@@ -730,7 +730,13 @@ echo "${{match}}" > "${{SELINUX_DIR}}/policy_version.txt"
         result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
         got = (selinux / "policy_version.txt").read_text(encoding="utf-8").strip()
-        assert got == "1.1.2", f"expected 1.1.2 from fixture te, got {got!r}"
+        expected = None
+        for line in te_src.read_text(encoding="utf-8").splitlines():
+            if line.startswith("policy_module(myapp,"):
+                expected = line.split(",", 1)[1].strip().rstrip(")")
+                break
+        assert expected, "fixture te missing policy_module(myapp, …)"
+        assert got == expected, f"expected {expected} from fixture te, got {got!r}"
 
 
 def test_classify_fail_closed_json() -> None:
@@ -1286,6 +1292,18 @@ def test_fc_labeling_drift_detection() -> None:
     assert "/var/lib/myapp(/.*)?" in trimmed
 
 
+def test_rhel_runtime_file_contexts() -> None:
+    fc = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
+    assert "/run/myapp(/.*)?" in fc
+    assert "/var/run/myapp(/.*)?" in fc
+    units = "\n".join(
+        (PROJECT_ROOT / "app" / name).read_text(encoding="utf-8")
+        for name in ("myapp.service", "myapp-backend.service")
+    )
+    assert "NoNewPrivileges=false" in units
+    assert "ExecStart=/opt/myapp/backend_stub.py" in units
+
+
 def main() -> int:
     import argparse
 
@@ -1347,6 +1365,7 @@ def main() -> int:
         ("boolean_curated_when_policy_unavailable", test_boolean_curated_when_policy_unavailable),
         ("boolean_hint_yaml_still_documents_patterns", test_boolean_hint_yaml_still_documents_patterns),
         ("fc_labeling_drift_detection", test_fc_labeling_drift_detection),
+        ("rhel_runtime_file_contexts", test_rhel_runtime_file_contexts),
     ]
     if os.environ.get("SMOKE_SKIP_FLASK") == "1":
         tests = [t for t in tests if t[0] != "flask_endpoints"]

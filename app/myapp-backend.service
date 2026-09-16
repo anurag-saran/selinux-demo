@@ -5,8 +5,8 @@ After=network.target
 
 [Service]
 Type=simple
-# Explicit backend entrypoint (labeled myapp_backend_exec_t) — venv python alone stays in myapp_t.
-ExecStart=/opt/myapp/venv/bin/python /opt/myapp/backend_stub.py
+# Exec the labeled script so init_t -> myapp_backend_t (venv python stays in myapp_t).
+ExecStart=/opt/myapp/backend_stub.py
 User=myapp
 Group=myapp
 WorkingDirectory=/opt/myapp
@@ -19,7 +19,8 @@ RestartSec=3
 TimeoutStopSec=10
 KillMode=mixed
 
-NoNewPrivileges=true
+# NoNewPrivileges blocks SELinux type_transition (init_t -> myapp_backend_t) on RHEL.
+NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true

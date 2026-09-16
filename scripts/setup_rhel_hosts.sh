@@ -26,7 +26,7 @@ Subcommands:
   write     Write ansible/inventory.dev.yml and inventory.production.yml
   ping      ansible ping both inventories
   doctor    getenforce / ausearch / sesearch on each host
-  bootstrap Print SSH commands to install the demo app on the dev box
+  bootstrap Print SSH commands to install the reference app on the dev box
 
 write options:
   --dev-host HOST     Dev box IP or DNS (required)

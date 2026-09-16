@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -60,15 +61,24 @@ def parse_sesearch_allows(text: str) -> dict[tuple[str, str, str], frozenset[str
     return {k: frozenset(v) for k, v in allows.items()}
 
 
+def sesearch_bin() -> str:
+    found = shutil.which("sesearch")
+    if found:
+        return found
+    for candidate in ("/usr/bin/sesearch", "/bin/sesearch", "/usr/sbin/sesearch"):
+        if os.access(candidate, os.X_OK):
+            return candidate
+    raise RuntimeError("sesearch not found (install setools-console)")
+
+
 def fetch_sesearch_allows(domains: set[str], policy_kern: Path) -> dict[tuple[str, str, str], frozenset[str]]:
-    if not shutil.which("sesearch"):
-        raise RuntimeError("sesearch not found (install setools-console)")
+    sesearch = sesearch_bin()
     if not policy_kern.is_file():
         raise RuntimeError(f"policy kernel not found: {policy_kern}")
     merged: dict[tuple[str, str, str], set[str]] = {}
     for domain in sorted(domains):
         proc = subprocess.run(
-            ["sesearch", "--allow", "-s", domain, str(policy_kern)],
+            [sesearch, "--allow", "-s", domain, str(policy_kern)],
             capture_output=True,
             text=True,
             check=False,
@@ -94,6 +104,15 @@ def analyze(
 
     entries = parse_avc_lines(avc_lines, domains)
     merged = merge_avc_entries(entries)
+    if not merged:
+        return {
+            "raw_count": raw_count,
+            "merged_count": 0,
+            "net_new_count": 0,
+            "fail_closed": False,
+            "exceptions": [],
+        }
+
     try:
         installed = fetch_sesearch_allows(domains, policy_kern)
         net_new, _covered = subtract_covered(merged, installed)

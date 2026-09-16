@@ -42,4 +42,4 @@ python3 cli/deterministic_gen.py --explain \
 
 On RHEL dev hosts, run once: **`sepolgen-ifgen`** (requires `policycoreutils-devel`) so live interface matching works. Without it, every generator run prints a **stderr banner** (`SEPOLGEN INTERFACE MATCHING IS NOT AVAILABLE`); base-type AVCs exit **1** unless you pass **`--allow-degraded`** (extra degraded banner; `engine=degraded` in `findings.json`).
 
-**Fast compiles:** pull **`docker.io/asaran/selinux-demo-selinux-build:stream9`** from Docker Hub (published). See [DOCKER_HUB_COMPILE_IMAGE.md](../../../admin/COMPILE_IMAGE.md).
+**Fast compiles:** pull **`docker.io/asaran/selinux-demo-selinux-build:stream9`** from Docker Hub (published). See [COMPILE_IMAGE.md](../../../admin/COMPILE_IMAGE.md).

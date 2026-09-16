@@ -14,3 +14,4 @@
 /var/log/myapp(/.*)?                       gen_context(system_u:object_r:myapp_log_t,s0)
 /var/log/myapp/.*\.log(\.[0-9]+)?(\.gz)?   gen_context(system_u:object_r:myapp_log_t,s0)
 /run/myapp(/.*)?                           gen_context(system_u:object_r:myapp_var_run_t,s0)
+/var/run/myapp(/.*)?                       gen_context(system_u:object_r:myapp_var_run_t,s0)

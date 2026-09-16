@@ -1,17 +1,17 @@
-# Demo Guide — SELinux Policy-as-Code Workshop
+# SELinux PaC — optional paced walkthrough
 
-This guide helps **newcomers**, **presenters**, and **observers** understand and run the live demo — even with no prior SELinux or GitOps experience.
+Use this when you want a **narrated pass** through canary → soak → enforce on the reference app. Day-to-day work starts at [README.md](../../README.md).
 
 **How to read this guide:**
 
 | You are… | Read first | Then |
 |----------|------------|------|
-| **Completely new to SELinux** | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) sections 1–7 (~15 min) | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (commands + outputs), then this guide sections 1–4 |
-| **Watching a colleague present** | Sections 1–4 below | Follow along during the 10 acts |
-| **Presenting the workshop** | Whole guide + rehearse with `--auto --demo-mode` | Presenter checklist (section 13) |
-| **Running the app team workflow after the demo** | [README.md](../../README.md) developer section | `dev_generate_policy.sh` |
+| **New to SELinux** | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) sections 1–7 (~15 min) | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)**, then this guide sections 1–4 |
+| **Watching a colleague** | Sections 1–4 below | Follow along during the 10 acts |
+| **Presenting internally** | Whole guide + rehearse with `--auto --demo-mode` | Presenter checklist (section 13) |
+| **Shipping policy for real** | [README.md](../../README.md) admin / developer sections | `dev_generate_policy.sh` + AAP |
 
-**Learning path:** [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) (concepts) → **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (hands-on on **RHEL dev**) → **this guide** (workshop) → [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (two boxes) → [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) (AAP) → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) (prod AVC) → [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) (admin rollout). **All docs:** [README.md](../README.md).
+**Ship path:** [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) → [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md). **All docs:** [README.md](../README.md).
 
 Prefer presenting on the **RHEL two-host lab**. `--use-vm` is a **backup** when those boxes are not available.
 
@@ -36,7 +36,7 @@ The presenter script [`scripts/demo_present.sh`](../../scripts/demo_present.sh) 
 
 ---
 
-## 2. Demo vocabulary
+## 2. Vocabulary
 
 | Term | Plain English |
 |------|---------------|
@@ -50,8 +50,8 @@ The presenter script [`scripts/demo_present.sh`](../../scripts/demo_present.sh) 
 | **Soak** | Run in permissive canary for **7–14 days** (production); gate on **net-new** needs vs installed policy |
 | **PR handoff** | Assembled markdown (`policy_out/pr_body.md`) admins review — curated sample: [`docs/examples/pr_body.example.md`](../examples/pr_body.example.md) |
 | **CI** | Automated checks on every PR: compile policy + block wildcards and high-privilege allows |
-| **Demo mode (`--demo-mode`)** | Workshop shortcut — skips the 7-day calendar wait only; everything else is real |
-| **`getenforce`** | Whole-system SELinux mode — stays **Enforcing** throughout this demo |
+| **`--demo-mode`** | Lab shortcut — skips the 7-day calendar wait only; everything else is real |
+| **`getenforce`** | Whole-system SELinux mode — stays **Enforcing** throughout |
 | **`avc.log` filter** | Only **myapp-related** denials exported — not every domain on the host |
 
 Confused about labels, `.te`/`.fc`, `restorecon`, or the two-layer model? See [SELINUX_BASICS.md §7–7.5](../policy/SELINUX_BASICS.md).
@@ -60,7 +60,7 @@ Endpoint and CI test reference: [TESTING.md](../developers/TESTING.md). Ansible 
 
 ---
 
-## 3. The demo app and HTTP endpoints
+## 3. The reference app and HTTP endpoints
 
 The **Order Processor** is a Flask app on port **8888**. Each endpoint exercises different SELinux rules:
 
@@ -85,7 +85,7 @@ Full SELinux walkthrough of `/save-log`: [SELINUX_BASICS.md §9](../policy/SELIN
 
 ## 4. Two roles in the story
 
-| Role | Responsibility in the demo |
+| Role | Responsibility |
 |------|----------------------------|
 | **Application team** | Run staging tests, export AVCs, generate policy, assemble PR body |
 | **Security / RHEL admin** | Review PR summary, deploy canary, verify labels, soak, enforce, rollback if needed |
@@ -99,7 +99,7 @@ Acts 1–5 = app team story. Acts 6–10 = admin story. The presenter script cov
 | Script | Best for | Pauses? | Full story? |
 |--------|----------|---------|-------------|
 | **`run_demo_prep.sh`** | Rehearsal / showcase with **talking points** (no flags) | Yes | Yes — acts 1–10 + typed show commands |
-| **`demo_present.sh`** | Live workshops, first-time audiences | Yes (skip with `--auto`) | Yes — 10 acts |
+| **`demo_present.sh`** | Internal enablement, first-time audiences | Yes (skip with `--auto`) | Yes — 10 acts |
 | **`run_demo.sh`** | Quick unattended run on native Linux | No | Partial — skips PR narration |
 | **`dev_generate_policy.sh`** | Real developer workflow (not a staged demo) | No | Developer path only |
 
@@ -113,7 +113,7 @@ Or `make demo-prep`. Talking points print before each act; show commands are typ
 
 ```mermaid
 flowchart TD
-  Start[Want to run the demo?] --> Live{Live audience?}
+  Start[Paced walkthrough?] --> Live{Live audience?}
   Live -->|yes| Present["demo_present.sh --demo-mode"]
   Live -->|no rehearsal| Auto["demo_present.sh --demo-mode --auto"]
   Start --> Quick[run_demo.sh for fast unattended run]
@@ -168,7 +168,7 @@ Step-by-step tables: [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAI
 
 ---
 
-## 7. How to run the demo
+## 7. How to run the walkthrough
 
 | Platform | Where you type | Command pattern |
 |----------|----------------|-----------------|
@@ -201,7 +201,7 @@ bash scripts/demo_present.sh --use-vm --demo-mode --auto      # backup: macOS Po
 **Expected start of output (run_demo_prep.sh):**
 
 ```text
-SELinux workshop — demo prep / showcase
+SELinux PaC — paced walkthrough
 Talking points + typed show commands + full presenter demo (acts 1–10).
 ```
 
@@ -236,7 +236,7 @@ Requires no pre-existing `policy_out/` — `--skip-ai` stages fixtures at demo s
 
 ---
 
-## 8. Demo mode vs production
+## 8. `--demo-mode` vs production
 
 | Topic | Production | Workshop (`--demo-mode`) |
 |-------|------------|---------------------------|
@@ -372,7 +372,7 @@ $ grep -E 'Policy access delta|Rules ADDED|Network Bindings|forbidden-patterns' 
 
 **Show on screen:** Admin Pass/Reject table in `policy_out/pr_body.md`.
 
-**Real GitHub PR (recommended for Act 4–5):** `main` already includes policy v1.1.2, so open a **review PR** against base branch `demo/policy-base-1.1.1` (v1.1.1 snapshot):
+**Real GitHub PR (recommended for Act 4–5):** `main` is currently policy **v1.1.3**. `open_demo_policy_pr.sh` still opens a **frozen review PR** of v1.1.1 → v1.1.2 against base branch `demo/policy-base-1.1.1` so the on-stage diff stays small:
 
 ```bash
 bash scripts/open_demo_policy_pr.sh --reuse-pr-body   # needs gh auth login
@@ -532,7 +532,7 @@ Playbook output should show `failed=0` on **Production smoke tests (unified endp
 
 ### Act 10 — Emergency rollback (Admin)
 
-**In plain English:** Show the outage playbook — not executed in the workshop.
+**In plain English:** Show the outage playbook — not executed in the paced walkthrough.
 
 **What runs:** Prints commands only.
 
@@ -548,7 +548,7 @@ Details: [PRODUCTION_READINESS.md §12](../admin/PRODUCTION_READINESS.md).
 
 ---
 
-## 10. What success looks like after the full demo
+## 10. What success looks like after the full walkthrough
 
 | Check | Expected result |
 |-------|-----------------|
@@ -614,8 +614,8 @@ Details: [PRODUCTION_READINESS.md §12](../admin/PRODUCTION_READINESS.md).
 | `connection refused` before compile | Podman machine stopped | `compile_and_validate.sh` now waits for VM — retry; run `bash scripts/fix_podman.sh` |
 | No AVC lines exported | `wc -l` shows 0 | Re-run Act 1; check `systemctl status auditd` |
 | AI generation fails | HTTP/timeout errors | Check `OPENAI_BASE_URL`; use `--skip-ai` |
-| Compile fails on macOS | Podman overlay/readlink errors | `source …/podman/env.sh`; `bash scripts/repair_podman_machine.sh`; `bash scripts/lib/selinux_build_image.sh pull` — [`DOCKER_HUB_COMPILE_IMAGE.md`](../admin/COMPILE_IMAGE.md) |
-| Enforce fails (no demo mode) | `Soak period not met` | Use `--demo-mode` for workshops |
+| Compile fails on macOS | Podman overlay/readlink errors | `source …/podman/env.sh`; `bash scripts/repair_podman_machine.sh`; `bash scripts/lib/selinux_build_image.sh pull` — [`COMPILE_IMAGE.md`](../admin/COMPILE_IMAGE.md) |
+| Enforce fails (no `--demo-mode`) | `Soak period not met` | Use `--demo-mode` to skip the calendar wait |
 | `/notify-socket` fails after enforce | Stale socket or backend not listening | Check `journalctl -u myapp-backend`; Ansible removes stale socket before restart |
 | `/probe-backend` Permission denied | Missing TCP `getopt` or backend down | Confirm `:8889/health`; check AVC for `tcp_socket getopt` |
 | `/run-script` Permission denied | Script calls `/usr/bin/*` (`bin_t`) | Keep `backup.sh` on bash builtins — CI forbids `bin_t:file execute` |
@@ -639,7 +639,7 @@ Details: [PRODUCTION_READINESS.md §12](../admin/PRODUCTION_READINESS.md).
 - [ ] Introduce the two roles (app team vs admin)
 - [ ] Call out **`--demo-mode`** honestly before Act 8
 - [ ] Show `pr_summary.md` and PR template table at Act 4
-- [ ] Emphasize port **8888** uses **`unreserved_port_t`** (not `http_port_t`)
+- [ ] Emphasize port **8888** uses dedicated **`myapp_port_t`** (not `http_port_t` / raw `unreserved_port_t`)
 - [ ] Optional: demonstrate enforce-mode denial (`permissive=0` AVC) after Act 9
 
 **After the session:**
@@ -652,7 +652,7 @@ Details: [PRODUCTION_READINESS.md §12](../admin/PRODUCTION_READINESS.md).
 ## 15. Quick command reference
 
 ```bash
-# Full paced workshop (RHEL dev)
+# Full paced walkthrough (RHEL dev)
 sudo bash scripts/demo_present.sh --demo-mode
 
 # Rehearsal (no pauses)

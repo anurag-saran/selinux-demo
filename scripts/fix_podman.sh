@@ -76,7 +76,7 @@ helper_binaries_dir = ["${PODMAN_HOME}/bin"]
 EOF
 
     cat > "${ENV_FILE}" <<EOF
-# Source this file before using Podman for the SELinux PoC:
+# Source this file before using Podman for this repo:
 #   source "${ENV_FILE}"
 export PATH="${PODMAN_HOME}/bin:\${PATH}"
 export CONTAINERS_CONF="${PODMAN_CONF}"
@@ -149,7 +149,7 @@ main() {
     repo_root="$(cd "$(dirname "$0")/.." && pwd)"
     printf '\n%b\n\n' "${GREEN}Podman fixed.${NC}"
     cat <<EOF
-Before running the PoC in this shell:
+Before using Podman in this shell:
   source "${ENV_FILE}"
 
 Permanent setup (add to ~/.zshrc):

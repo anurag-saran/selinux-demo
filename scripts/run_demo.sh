@@ -119,7 +119,7 @@ main() {
     echo "  selinux/policy_version.txt"
     echo "  policy_out/pr_summary.md"
     echo "  policy_out/${APP_NAME}.te"
-    echo "  For paced workshops: sudo bash scripts/demo_present.sh --demo-mode"
+    echo "  For paced walkthrough: sudo bash scripts/demo_present.sh --demo-mode"
     if command -v git >/dev/null 2>&1 && git -C "${PROJECT_ROOT}" rev-parse --git-dir >/dev/null 2>&1; then
         git -C "${PROJECT_ROOT}" diff -- selinux/ policy_out/ || true
     fi

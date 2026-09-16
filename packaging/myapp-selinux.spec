@@ -19,7 +19,7 @@ Source3:        selinux-manifest.yml
 %description
 Custom SELinux policy module (myapp) for the Order Processor reference application.
 Installs type enforcement for myapp_t and myapp_backend_t with FHS paths under
-/var/lib/myapp, /var/log/myapp, and /run/myapp.
+/var/lib/myapp, /var/log/myapp, /run/myapp, and /var/run/myapp (RHEL maps /run).
 
 %prep
 # Binary policy built by scripts/compile_and_validate.sh; manifest from config/
@@ -29,6 +29,9 @@ install -d %{buildroot}%{_datadir}/selinux/packages
 install -m 0644 %{SOURCE0} %{buildroot}%{_datadir}/selinux/packages/myapp.pp
 install -d %{buildroot}%{_sysconfdir}/myapp
 install -m 0644 %{SOURCE3} %{buildroot}%{_sysconfdir}/myapp/selinux-manifest.yml
+install -d %{buildroot}%{_datadir}/doc/%{name}-%{version}
+install -m 0644 %{SOURCE1} %{buildroot}%{_datadir}/doc/%{name}-%{version}/myapp.te
+install -m 0644 %{SOURCE2} %{buildroot}%{_datadir}/doc/%{name}-%{version}/myapp.fc
 
 %pre
 %selinux_relabel_pre -s targeted
@@ -58,13 +61,18 @@ fi
 %defattr(-,root,root,-)
 %{_datadir}/selinux/packages/myapp.pp
 %config(noreplace) %{_sysconfdir}/myapp/selinux-manifest.yml
-%doc %{SOURCE1}
-%doc %{SOURCE2}
+%doc %{_datadir}/doc/%{name}-%{version}/myapp.te
+%doc %{_datadir}/doc/%{name}-%{version}/myapp.fc
 
 %changelog
-* Sun Sep 13 2026 PoC Maintainer <maintainer@example.com> - 1.1.2-1
+* Wed Sep 16 2026 SELinux PaC maintainers <maintainer@example.com> - 1.1.3-1
+- Label /var/run/myapp (RHEL file_contexts.subs maps /run)
+- Allow dir search on myapp_script_exec_t; unix_stream connectto on myapp_t
+- Ship .te/.fc under %{_datadir}/doc (rpmbuild %doc SOURCE was broken)
+
+* Sun Sep 13 2026 SELinux PaC maintainers <maintainer@example.com> - 1.1.2-1
 - Requires selinux-policy-ops; ship manifest under /etc/myapp/
 - Policy 1.1.2 manage patterns, urand, narrowed /var/opt labeling
 
-* Sun Sep 13 2026 PoC Maintainer <maintainer@example.com> - 1.1.1-1
+* Sun Sep 13 2026 SELinux PaC maintainers <maintainer@example.com> - 1.1.1-1
 - Path traversal, daemon baseline, /var/log/myapp log type + filetrans

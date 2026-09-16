@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# demo_present.sh — Paced workshop demo: dev → PR → canary → guardrails → enforce
+# demo_present.sh — Optional paced walkthrough: dev → PR → canary → guardrails → enforce
 #
 set -euo pipefail
 
@@ -519,7 +519,7 @@ act_9_enforce() {
 act_10_rollback() {
     act_banner 10 "Emergency Rollback" "Outage escape hatch: permissive → export AVCs → AI patch"
     cat <<EOF
-${YELLOW}Show-only (not executed in workshop demo):${NC}
+${YELLOW}Show-only (not executed in the paced walkthrough):${NC}
 
   # Step 1: instant relief
   sudo semanage permissive -a ${DOMAIN}

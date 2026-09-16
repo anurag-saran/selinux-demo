@@ -11,6 +11,9 @@ source "${SCRIPT_DIR}/lib/avc_query.sh"
 # shellcheck source=lib/manifest_shell.sh
 source "${SCRIPT_DIR}/lib/manifest_shell.sh"
 
+# Ansible become shells often omit /usr/sbin; sesearch lives in /usr/bin or /bin.
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+
 DOMAIN="${SELINUX_DOMAIN:-}"
 PATHS="${MONITOR_PATHS:-}"
 SINCE="${MONITOR_SINCE:-recent}"
@@ -148,27 +151,33 @@ done <<< "${raw}"
 count="${#matches[@]}"
 
 net_new_json="$(mktemp)"
-net_new_count=-1
+net_new_count=0
 avc_fail_closed=0
-if [[ ${#matches[@]} -gt 0 ]] && [[ -f "${PROJECT_ROOT}/cli/soak_net_new.py" ]]; then
-    manifest_arg=()
-    [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]] && manifest_arg=(--manifest "${MANIFEST}")
-    if printf '%s\n' "${matches[@]}" | python3 "${PROJECT_ROOT}/cli/soak_net_new.py" \
-        "${manifest_arg[@]}" --policy-kern "${POLICY_KERN}" --json-out "${net_new_json}" >/dev/null 2>&1; then
-        net_new_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("net_new_count",-1))' "${net_new_json}")"
-        avc_fail_closed="$(python3 -c 'import json,sys; print(1 if json.load(open(sys.argv[1])).get("fail_closed") else 0)' "${net_new_json}")"
-    else
-        avc_fail_closed=1
+fail_closed_reason=""
+if [[ ${#matches[@]} -gt 0 ]]; then
+    soak_py=""
+    if [[ -f "${PROJECT_ROOT}/cli/soak_net_new.py" ]]; then
+        soak_py="${PROJECT_ROOT}/cli/soak_net_new.py"
+    elif [[ -f "${SCRIPT_DIR}/lib/soak_net_new.py" ]]; then
+        soak_py="${SCRIPT_DIR}/lib/soak_net_new.py"
     fi
-elif [[ -f "${SCRIPT_DIR}/lib/soak_net_new.py" ]]; then
-    manifest_arg=()
-    [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]] && manifest_arg=(--manifest "${MANIFEST}")
-    if printf '%s\n' "${matches[@]}" | python3 "${SCRIPT_DIR}/lib/soak_net_new.py" \
-        "${manifest_arg[@]}" --policy-kern "${POLICY_KERN}" --json-out "${net_new_json}" >/dev/null 2>&1; then
-        net_new_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("net_new_count",-1))' "${net_new_json}")"
-        avc_fail_closed="$(python3 -c 'import json,sys; print(1 if json.load(open(sys.argv[1])).get("fail_closed") else 0)' "${net_new_json}")"
-    else
+    if [[ -z "${soak_py}" ]]; then
+        net_new_count=-1
         avc_fail_closed=1
+        fail_closed_reason="soak_net_new.py missing on this host"
+    else
+        manifest_arg=()
+        [[ -n "${MANIFEST}" && -f "${MANIFEST}" ]] && manifest_arg=(--manifest "${MANIFEST}")
+        if printf '%s\n' "${matches[@]}" | python3 "${soak_py}" \
+            "${manifest_arg[@]}" --policy-kern "${POLICY_KERN}" --json-out "${net_new_json}" >/dev/null 2>&1; then
+            net_new_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("net_new_count",-1))' "${net_new_json}")"
+            avc_fail_closed="$(python3 -c 'import json,sys; print(1 if json.load(open(sys.argv[1])).get("fail_closed") else 0)' "${net_new_json}")"
+            fail_closed_reason="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("fail_closed_reason",""))' "${net_new_json}")"
+        else
+            net_new_count=-1
+            avc_fail_closed=1
+            fail_closed_reason="soak_net_new.py failed (sesearch / policy.kern)"
+        fi
     fi
 fi
 
@@ -197,6 +206,7 @@ if [[ "${fail}" -eq 1 && -n "${FAIL_DIR}" ]]; then
     MON_DOMAIN="${DOMAIN}" MON_SINCE="${SINCE}" MON_COUNT="${count}" \
         MON_MAX_AVC="${MAX_AVC}" MON_MAX_NET_NEW="${MAX_NET_NEW}" \
         MON_NET_NEW="${net_new_count}" MON_FAIL_CLOSED="${avc_fail_closed}" \
+        MON_FAIL_REASON="${fail_closed_reason}" \
         MON_NEXT_STEP="${NEXT_STEP}" MON_FAIL_DIR="${FAIL_DIR}" \
         python3 - "${net_new_json}" "${FAIL_DIR}/selinux_soak_last_fail.json" "${avc_excerpt}" <<'PY'
 import json, os, sys
@@ -213,6 +223,7 @@ payload = {
     "max_net_new": int(os.environ["MON_MAX_NET_NEW"]),
     "net_new_count": int(os.environ.get("MON_NET_NEW", "-1")),
     "avc_fail_closed": os.environ.get("MON_FAIL_CLOSED", "0") == "1",
+    "fail_closed_reason": os.environ.get("MON_FAIL_REASON", extra.get("fail_closed_reason", "")),
     "exceptions": extra.get("exceptions", [])[:20],
     "status": "fail",
     "next_step": os.environ.get("MON_NEXT_STEP", ""),
@@ -228,6 +239,7 @@ if [[ "${OUTPUT_FORMAT}" == "json" ]]; then
     MON_DOMAIN="${DOMAIN}" MON_SINCE="${SINCE}" MON_COUNT="${count}" \
         MON_MAX_AVC="${MAX_AVC}" MON_MAX_NET_NEW="${MAX_NET_NEW}" \
         MON_NET_NEW="${net_new_count}" MON_FAIL_CLOSED="${avc_fail_closed}" \
+        MON_FAIL_REASON="${fail_closed_reason}" \
         MON_STATUS="$([[ "${fail}" -eq 1 ]] && echo fail || echo pass)" \
         MON_NEXT_STEP="${NEXT_STEP}" \
         python3 - "${net_new_json}" <<'PY'
@@ -246,6 +258,7 @@ out = {
     "max_net_new": int(os.environ["MON_MAX_NET_NEW"]),
     "net_new_count": int(os.environ.get("MON_NET_NEW", "-1")),
     "avc_fail_closed": os.environ.get("MON_FAIL_CLOSED", "0") == "1",
+    "fail_closed_reason": os.environ.get("MON_FAIL_REASON", extra.get("fail_closed_reason", "")),
     "exceptions": extra.get("exceptions", [])[:20],
     "status": os.environ.get("MON_STATUS", "pass"),
 }

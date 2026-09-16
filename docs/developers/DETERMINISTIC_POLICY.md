@@ -53,7 +53,7 @@ Do not confuse missing ifgen with “no interface matched” — the latter is l
 | | |
 |--|--|
 | **Where** | **Repo root**; on Mac, `source …/podman/env.sh` first |
-| **Why** | Compiles run inside the Stream 9 tool container — see [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) |
+| **Why** | Compiles run inside the Stream 9 tool container — see [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) |
 
 **Demo default:** pull pre-built **CentOS Stream 9** image from Docker Hub (seconds):
 
@@ -63,7 +63,7 @@ bash scripts/lib/selinux_build_image.sh pull
 export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:stream9   # optional override
 ```
 
-Details: [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) — image **`asaran/selinux-demo-selinux-build:stream9`** is on Docker Hub; pull-first is the default. Maintainers republish with `scripts/publish_selinux_compile_image.sh` (Hub token via env only).
+Details: [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) — image **`asaran/selinux-demo-selinux-build:stream9`** is on Docker Hub; pull-first is the default. Maintainers republish with `scripts/publish_selinux_compile_image.sh` (Hub token via env only).
 
 **Automatic:** `dev_generate_policy.sh`, `compile_and_validate.sh`, and `compile_module.sh` call **`ensure_selinux_build_image`** (`SELINUX_BUILD_IMAGE_PULL=1` by default).
 

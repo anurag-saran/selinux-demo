@@ -1,6 +1,6 @@
-# Documentation map (start here)
+# SELinux PaC documentation
 
-This tree is the **admin + developer tool**. Training labs are optional.
+**SELinux PaC** is the admin + developer tool. Optional labs live under `training/` — they are not the product.
 
 | Pattern | Meaning |
 |---------|---------|
@@ -10,20 +10,25 @@ This tree is the **admin + developer tool**. Training labs are optional.
 
 **Terms** like domain, AVC, `.te`, and **`semanage`** are defined in [SELINUX_BASICS.md](policy/SELINUX_BASICS.md).
 
+| You are | Start here |
+|---------|------------|
+| **RHEL admin (customer env)** | [ADOPTION_CHECKLIST.md](admin/ADOPTION_CHECKLIST.md) → reading order below |
+| **Trying this on a Mac** | [../README.md](../README.md#try-it-on-a-mac) — two RHEL VMs + `setup_rhel_hosts.sh`, or Podman backup |
+
 ---
 
 ## Recommended reading order
 
 | Step | Document | You need |
 |------|----------|----------|
-| 1 | [RHEL_TWO_HOST.md](admin/RHEL_TWO_HOST.md) | Two RHEL boxes + Ansible from a controller |
+| 1 | [RHEL_TWO_HOST.md](admin/RHEL_TWO_HOST.md) | Two RHEL boxes + Ansible from a controller (Mac laptop is fine) |
 | 2 | [ANSIBLE_OPERATIONS.md](admin/ANSIBLE_OPERATIONS.md) | AAP / ansible-playbook (control plane) |
 | 3 | [DENIAL_RESPONSE.md](admin/DENIAL_RESPONSE.md) | File or port denied after ship |
 | 4 | [PRODUCTION_READINESS.md](admin/PRODUCTION_READINESS.md) | Soak, enforce, rollback, incident card |
 | 5 | [ONBOARDING.md](developers/ONBOARDING.md) | Point a developer at a new app |
 | 6 | [ADOPTION_CHECKLIST.md](admin/ADOPTION_CHECKLIST.md) | CODEOWNERS, RPM repo, branch protection |
 | 7 | [SELINUX_BASICS.md](policy/SELINUX_BASICS.md) §1–7 | Optional — SELinux concepts |
-| 8 | [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) / [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional training (`--demo-mode` skips 7-day soak) |
+| 8 | [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) / [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional labs (`--demo-mode` skips 7-day soak) |
 
 **Contributors (no SELinux on laptop):** from repo root run `make check` — see [TESTING.md](developers/TESTING.md) §1.6.
 
@@ -45,8 +50,8 @@ This tree is the **admin + developer tool**. Training labs are optional.
 | [TESTING.md](developers/TESTING.md) | CI, `make check`, integration endpoints (staged + batch) |
 | [DETERMINISTIC_POLICY.md](developers/DETERMINISTIC_POLICY.md) | Offline AVC → policy engine (default) |
 | [COMPILE_IMAGE.md](admin/COMPILE_IMAGE.md) | Internal compile image + signed RPM repo |
-| [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs (not the ship path) |
-| [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional 10-act walkthrough (`--demo-mode` skips calendar soak) |
+| [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
+| [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional paced walkthrough (`--demo-mode` skips calendar soak) |
 | [examples/README.md](examples/README.md) | Curated PR samples for offline demos |
 
 Repo entry point: [../README.md](../README.md). App manifest schema: [../config/README.md](../config/README.md). Ansible playbooks: [../ansible/README.md](../ansible/README.md). New app: `bash scripts/selinux_pac_adopt.sh init <app>`.

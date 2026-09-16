@@ -30,8 +30,8 @@
 - name: Fail when sesearch was unavailable (raw AVC fallback is not allowed)
   ansible.builtin.fail:
     msg: >-
-      Soak monitor fail-closed (sesearch missing). Install setools-console
-      on canary/prod — it is required by selinux-policy-ops.
+      Soak monitor fail-closed (sesearch missing or net-new analysis failed).
+      {{ soak_monitor.fail_closed_reason | default('Install setools-console on canary/prod — it is required by selinux-policy-ops.') }}
   when:
     - soak_use_net_new | default(true) | bool
     - soak_monitor.avc_fail_closed | default(false) | bool

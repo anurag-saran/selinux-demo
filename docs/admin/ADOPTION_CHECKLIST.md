@@ -1,6 +1,8 @@
 # Adoption checklist
 
-Use this when forking or rolling out SELinux Policy-as-Code in your org. **Ansible Automation Platform (AAP) is the production control plane** ([ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md)).
+Use this when forking or rolling out **SELinux PaC** in your org. **Ansible Automation Platform (AAP) is the production control plane** ([ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md)).
+
+Trying it first on a laptop: [README — Try it on a Mac](../../README.md#try-it-on-a-mac) (two RHEL VMs + `setup_rhel_hosts.sh`, or Podman backup). This checklist is the **customer** path.
 
 ## Host doctor
 
