@@ -21,6 +21,16 @@ Under [`tekton/`](../tekton/):
 - `pipelines/selinux-pac-release.yaml` — compile + RPM build
 - `pipelinerun/example-*.yaml` — myapp and payments samples
 
+## OpenShift install
+
+```bash
+oc login <api-url> --token=<token>   # or oc login from console
+export TEKTON_NAMESPACE=selinux-pac  # optional
+bash scripts/openshift/apply_tekton.sh
+```
+
+Requires **OpenShift Pipelines** operator. PipelineRuns need a git source (clone task or CI trigger) before `example-myapp.yaml` will pass.
+
 ## Deploy
 
 Do not run `semodule` on generic cluster workers. Use `tasks/trigger-ansible-deploy.yaml` (AWX webhook) or install RPMs manually and run `ansible-playbook`.
