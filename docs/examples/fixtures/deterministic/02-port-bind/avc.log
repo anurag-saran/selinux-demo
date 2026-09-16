@@ -1,0 +1,1 @@
+type=AVC msg=audit(1710000150.000:210): avc:  denied  { name_bind } for  pid=1234 comm="python3" src=8888 scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=1

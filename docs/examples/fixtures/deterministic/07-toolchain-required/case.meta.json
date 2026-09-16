@@ -1,0 +1,7 @@
+{
+  "exit_code": 1,
+  "stderr_substrings": [
+    "SEPOLGEN INTERFACE MATCHING IS NOT AVAILABLE",
+    "Boolean policy check could not run"
+  ]
+}

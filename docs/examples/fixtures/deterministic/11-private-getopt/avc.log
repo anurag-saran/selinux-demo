@@ -1,0 +1,1 @@
+type=AVC msg=audit(1710000170.000:212): avc:  denied  { getopt } for  pid=1234 comm="python3" scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:myapp_port_t:s0 tclass=tcp_socket permissive=1

@@ -1,0 +1,9 @@
+---
+- name: Soak monitor — AVC thresholds (scheduled / on-demand)
+  hosts: all
+  become: true
+  gather_facts: false
+  roles:
+    - role: selinux_pac
+      vars:
+        selinux_pac_phase: soak_monitor

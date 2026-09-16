@@ -1,0 +1,26 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: selinux-pac-policy-static
+spec:
+  params:
+    - name: policy-dir
+      type: string
+      default: selinux
+  workspaces:
+    - name: source
+      description: Repository checkout
+  steps:
+    - name: static
+      image: python:3.11-slim
+      workingDir: $(workspaces.source.path)
+      workspaces:
+        - name: source
+          workspace: source
+      script: |
+        #!/bin/sh
+        set -eu
+        POLICY_MODULE="$(basename "$(params.policy-dir)")"
+        export POLICY_MODULE SELINUX_DOMAIN="${POLICY_MODULE}_t"
+        bash scripts/validate_forbidden_patterns.sh "$(params.policy-dir)"
+        bash scripts/validate_version_consistency.sh

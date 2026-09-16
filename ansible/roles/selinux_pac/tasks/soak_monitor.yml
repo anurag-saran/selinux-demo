@@ -1,0 +1,31 @@
+---
+- name: Run soak AVC monitor
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ selinux_ops_dir }}/monitor_avc.sh \
+      --manifest {{ app_manifest_path }} \
+      --marker-file {{ soak_marker_file }} \
+      --max-avc {{ soak_max_avc | default(0) }} \
+      --max-net-new {{ soak_max_net_new | default(0) }} \
+      --show-lines {{ soak_show_lines | default(5) }} \
+      --format json
+  register: soak_monitor_json
+  changed_when: false
+
+- name: Parse soak monitor result
+  ansible.builtin.set_fact:
+    soak_monitor: "{{ soak_monitor_json.stdout | from_json }}"
+
+- name: Fail when soak monitor reports failure
+  ansible.builtin.fail:
+    msg: >-
+      Soak monitor failed: raw={{ soak_monitor.count }} net_new={{ soak_monitor.net_new_count }}
+      (max_avc={{ soak_max_avc | default(0) }} max_net_new={{ soak_max_net_new | default(0) }}).
+  when: soak_monitor.status == 'fail'
+
+- name: Soak monitor summary
+  ansible.builtin.debug:
+    msg: >-
+      Soak OK for {{ app_name }}: raw AVC={{ soak_monitor.count }},
+      net_new={{ soak_monitor.net_new_count }},
+      fail_closed={{ soak_monitor.avc_fail_closed }}.

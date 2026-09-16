@@ -1,0 +1,92 @@
+---
+# Emergency relief — stock binaries first; optional ops scripts after service is up.
+- name: Switch domain to permissive immediately
+  community.general.selinux_permissive:
+    name: "{{ domain }}"
+    permissive: true
+  register: permissive_relief
+  failed_when: false
+
+- name: Permissive relief via semanage when module unavailable
+  ansible.builtin.command: "semanage permissive -a {{ domain }}"
+  register: semanage_permissive
+  changed_when: semanage_permissive.rc == 0
+  failed_when: false
+  when: permissive_relief is failed or permissive_relief is skipped
+
+- name: Downgrade application SELinux RPM when rollback_dnf_version set
+  ansible.builtin.command: "dnf downgrade -y {{ app_name }}-selinux-{{ rollback_dnf_version }}"
+  register: dnf_downgrade
+  changed_when: dnf_downgrade.rc == 0
+  when: rollback_dnf_version is defined and rollback_dnf_version | length > 0
+
+- name: Restore dontaudit baseline after rollback
+  ansible.builtin.command: semodule -B
+  register: semodule_b_rb
+  changed_when: semodule_b_rb.rc == 0
+
+- name: Ensure persistent application directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ app_run_user | default(app_name) }}"
+    group: "{{ app_run_group | default(app_name) }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ var_dir }}", mode: "0750" }
+    - { path: "{{ log_dir }}", mode: "0750" }
+
+- name: Restore file contexts on persistent application paths
+  ansible.builtin.command: >-
+    restorecon -Rv {{ install_root }} {{ var_dir }} {{ log_dir }}
+  register: restorecon_rb
+  changed_when: restorecon_rb.rc == 0
+
+- name: Restart application services after rollback
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+  loop: "{{ selinux_pac_service_units }}"
+
+- name: Restore file contexts on runtime directory after service start
+  ansible.builtin.command: "restorecon -Rv {{ runtime_dir }}"
+  register: restorecon_run_rb
+  changed_when: restorecon_run_rb.rc == 0
+
+- name: Export recent AVC logs
+  ansible.builtin.shell: |
+    set -o pipefail
+    (ausearch --input-logs -m AVC,USER_AVC,SELINUX_ERR,USER_SELINUX_ERR -ts recent --format raw 2>/dev/null \
+      || grep -E '^(type=AVC|type=SELINUX_ERR)' /var/log/audit/audit.log) \
+      | grep -E '{{ domain }}|{{ install_root }}|{{ var_dir }}|{{ runtime_dir }}' > /tmp/emergency_avc.log
+  changed_when: true
+
+- name: Show emergency log path
+  ansible.builtin.debug:
+    msg: "Emergency AVC log: /tmp/emergency_avc.log (fetch for controller-side generate_emergency_patch.yml)"
+
+- name: Wait for endpoints when ops package available
+  ansible.builtin.command: >
+    {{ selinux_ops_dir }}/wait_for_endpoints.sh
+    --manifest {{ app_manifest_path }}
+    --host {{ http_probe_host }} --retries 15 --delay 2
+  changed_when: false
+  failed_when: false
+  when: selinux_ops_dir is defined
+
+- name: Write rollback deploy report when ops available
+  ansible.builtin.command: >
+    {{ selinux_ops_dir }}/post_deploy_report.sh
+    --phase rollback
+    --domain {{ domain }}
+    --var-dir {{ var_dir }}
+    --manifest {{ app_manifest_path }}
+    --marker-file {{ soak_marker_file }}
+    --policy-version {{ policy_version | default('unknown') }}
+  changed_when: false
+  failed_when: false
+  when: selinux_ops_dir is defined
+
+- name: Record rollback timestamp (reset soak clock)
+  ansible.builtin.shell: "date +%s > {{ soak_marker_file }}"
+  changed_when: true

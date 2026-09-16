@@ -1,0 +1,1 @@
+type=AVC msg=audit(1710000180.000:213): avc:  denied  { read open getattr } for  pid=1234 comm="python3" name="urandom" dev="vda4" ino=1 scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:random_device_t:s0 tclass=chr_file permissive=1

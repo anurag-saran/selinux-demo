@@ -1,0 +1,103 @@
+# Root Makefile — single entry point for local verification (see `make help`).
+.DEFAULT_GOAL := help
+
+PYTHON ?= python3
+PIP ?= pip3
+export SMOKE_SKIP_FLASK ?= 1
+
+.PHONY: help deps test check lint fixtures test-smoke test-static test-manifest \
+	test-rpm test-forbidden test-version test-fixtures test-blast-radius \
+	lint-shell lint-yaml lint-ansible image integration-compile integration-semantics \
+	training-lab demo-prep
+
+help: ## List targets (default)
+	@echo "SELinux demo — common targets:"
+	@echo ""
+	@grep -E '^[a-zA-Z0-9_.-]+:.*##' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*## "}; {printf "  %-22s %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Quick start:  make deps && make check"
+
+deps: ## Install Python deps for offline tests (no network after first run)
+	$(PIP) install -q -r cli/requirements.txt
+
+test: deps test-fixtures test-static test-smoke ## Offline health check (no SELinux, no podman)
+	@echo "make test OK"
+
+check: test lint ## Full repo health: offline tests + linters when installed
+
+fixtures: test-fixtures ## Deterministic + payments + blast-radius fixture suites only
+
+test-fixtures: ## Golden deterministic, payments leak check, blast-radius fixtures
+	bash scripts/run_deterministic_fixtures.sh
+	bash scripts/run_deterministic_payments_check.sh
+	bash scripts/run_blast_radius_fixtures.sh
+
+test-static: test-forbidden test-version test-rpm test-manifest ## Shell validators (offline)
+
+test-forbidden: ## Forbidden-pattern grep on selinux/
+	bash scripts/validate_forbidden_patterns.sh selinux
+
+test-version: ## policy_version.txt vs policy_module() consistency
+	bash scripts/validate_version_consistency.sh
+
+test-rpm: ## Ops RPM packaging allowlist
+	bash scripts/validate_rpm_ops_parity.sh
+
+test-manifest: deps ## App manifest YAML validation
+	bash scripts/validate_app_manifest.sh config/myapp.manifest.yml
+	bash scripts/validate_app_manifest.sh config/payments.manifest.example.yml
+
+test-smoke: deps ## Python smoke_test.py (skips live Flask by default)
+	$(PYTHON) scripts/smoke_test.py --no-require-backend
+
+test-blast-radius: ## Blast-radius fixtures only (skips Podman integration locally)
+	bash scripts/run_blast_radius_fixtures.sh
+
+lint: lint-shell lint-yaml lint-ansible ## Run linters (SKIP if tool not installed)
+
+lint-shell: ## shellcheck on scripts/
+	@command -v shellcheck >/dev/null 2>&1 || { echo "SKIP lint-shell: shellcheck not installed"; exit 0; }; \
+	shellcheck scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh scripts/validate_version_consistency.sh
+
+lint-yaml: ## yamllint on ansible/ and workflows/
+	@command -v yamllint >/dev/null 2>&1 || { echo "SKIP lint-yaml: yamllint not installed (pip install yamllint)"; exit 0; }; \
+	yamllint -d relaxed ansible/ .github/workflows/ tekton/
+
+lint-ansible: ## ansible-lint on playbooks
+	@command -v ansible-lint >/dev/null 2>&1 || { echo "SKIP lint-ansible: ansible-lint not installed (pip install ansible-lint)"; exit 0; }; \
+	ansible-galaxy collection install -r ansible/requirements.yml && \
+	ansible-lint ansible/*.yml
+
+lint-ansible-syntax: ## ansible-playbook --syntax-check (needs ansible)
+	@command -v ansible-playbook >/dev/null 2>&1 || { echo "SKIP lint-ansible-syntax: ansible not installed"; exit 0; }; \
+	bash scripts/ci/ansible_syntax_check.sh
+
+image: ## Ensure prebuilt SELinux compile container image (needs podman)
+	@command -v podman >/dev/null 2>&1 || { echo "SKIP make image: podman not installed"; exit 0; }
+	bash scripts/lib/selinux_build_image.sh ensure
+
+integration-compile: ## Compile selinux/ modules (needs podman or selinux-policy-devel)
+	@command -v podman >/dev/null 2>&1 || { \
+		if [ ! -f /usr/share/selinux/devel/Makefile ]; then \
+			echo "SKIP integration-compile: install podman or selinux-policy-devel"; exit 0; \
+		fi; \
+	}
+	bash scripts/ci/ensure_selinux_build_image.sh 2>/dev/null || true
+	bash scripts/compile_and_validate.sh selinux
+	POLICY_MODULE=payments SELINUX_DOMAIN=payments_t bash scripts/compile_and_validate.sh selinux/payments
+
+integration-semantics: integration-compile ## sesearch semantic assertions (needs podman)
+	@command -v podman >/dev/null 2>&1 || { echo "SKIP integration-semantics: podman not installed"; exit 0; }
+	bash scripts/validate_policy_semantics.sh selinux
+
+integration-blast-radius: ## Blast-radius with Podman integration (CI blast-radius job)
+	@command -v podman >/dev/null 2>&1 || { echo "SKIP integration-blast-radius: podman not installed"; exit 0; }
+	bash scripts/ci/ensure_selinux_build_image.sh
+	BLAST_RADIUS_REQUIRE_INTEGRATION=1 bash scripts/run_blast_radius_fixtures.sh
+
+training-lab: ## Guided lab walkthrough (typewriter + explanations; Mac uses Podman VM)
+	bash scripts/run_training_lab.sh
+
+demo-prep: ## Workshop demo prep: talk track + typed show commands (no flags)
+	bash scripts/run_demo_prep.sh

@@ -1,0 +1,7 @@
+[
+  {
+    "verdict": "boolean",
+    "tgt": "http_port_t",
+    "boolean": "httpd_can_network_connect"
+  }
+]

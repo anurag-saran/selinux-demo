@@ -1,0 +1,12 @@
+---
+- name: Reset host SELinux state after interrupted canary
+  hosts: all
+  become: true
+  collections:
+    - community.general
+  environment:
+    PATH: "{{ ansible_env_path | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
+  roles:
+    - role: selinux_pac
+      vars:
+        selinux_pac_phase: reset_host

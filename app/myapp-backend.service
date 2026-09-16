@@ -1,0 +1,30 @@
+[Unit]
+Description=Order Processor backend stub (Tier 6 outbound/Unix demo)
+Documentation=file:///opt/myapp/backend_stub.py
+After=network.target
+
+[Service]
+Type=simple
+# Explicit backend entrypoint (labeled myapp_backend_exec_t) — venv python alone stays in myapp_t.
+ExecStart=/opt/myapp/venv/bin/python /opt/myapp/backend_stub.py
+User=myapp
+Group=myapp
+WorkingDirectory=/opt/myapp
+Environment=MYAPP_NOTIFY_SOCK=/run/myapp/notify.sock
+Environment=PYTHONDONTWRITEBYTECODE=1
+RuntimeDirectory=myapp
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+KillMode=mixed
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# /opt/myapp must be writable for Python imports (__pycache__) and readable under ProtectSystem=strict.
+ReadWritePaths=/opt/myapp /run/myapp
+
+[Install]
+WantedBy=multi-user.target

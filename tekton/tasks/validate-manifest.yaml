@@ -1,0 +1,23 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: selinux-pac-validate-manifest
+spec:
+  params:
+    - name: manifest-path
+      type: string
+  workspaces:
+    - name: source
+      description: Repository checkout
+  steps:
+    - name: validate
+      image: python:3.11-slim
+      workingDir: $(workspaces.source.path)
+      workspaces:
+        - name: source
+          workspace: source
+      script: |
+        #!/bin/sh
+        set -eu
+        pip install -q pyyaml
+        bash scripts/validate_app_manifest.sh "$(params.manifest-path)"

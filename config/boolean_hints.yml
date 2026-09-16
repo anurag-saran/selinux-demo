@@ -1,0 +1,11 @@
+# Curated overrides (consulted before sesearch policy query).
+# Omit src_type to match any domain; use {domain} or {app_name}_t templates when needed.
+hints:
+  - boolean: httpd_can_network_connect
+    note: >-
+      Site policy: prefer toggling this boolean over a permanent allow on http_port_t
+      for outbound HTTP connects.
+    match:
+      tgt_type: http_port_t
+      tclass: tcp_socket
+      perms: [name_connect]

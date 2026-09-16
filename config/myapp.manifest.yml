@@ -1,0 +1,53 @@
+app_name: myapp
+domain: myapp_t
+
+paths:
+  install_root: /opt/myapp
+  var_dir: /var/lib/myapp
+  log_dir: /var/log/myapp
+  runtime_dir: /run/myapp
+  var_opt_dir: /var/opt/myapp
+
+services:
+  primary:
+    unit: myapp.service
+    domain: myapp_t
+  backend:
+    unit: myapp-backend.service
+    domain: myapp_backend_t
+
+http:
+  host: 127.0.0.1
+  port: 8888
+  endpoints:
+    - /
+    - /save-log
+    - /run-script
+    - /rotate-log
+    - /probe-backend
+    - /notify-socket
+  backend:
+    port: 8889
+    health_path: /health
+
+selinux_ports:
+  - port: 8888
+    proto: tcp
+    type: myapp_port_t
+  - port: 8889
+    proto: tcp
+    type: myapp_backend_port_t
+
+# Optional: run under permissive on staging to collect AVCs (documented workflow)
+integration_tests:
+  description: Order Processor demo curls (all paths) + export to policy_out/avc.log
+  command: bash -lc 'source scripts/lib/integration_probes.sh && INTEGRATION_UI=vm INTEGRATION_AUTO=1 run_integration_probes'
+  notes: Use real app test suite in production; see config/README.md
+
+policy:
+  module_dir: selinux
+  service_name: myapp.service
+
+deploy:
+  soak_marker_file: /var/lib/myapp/selinux_canary_deployed_at
+  deploy_report_file: /var/lib/myapp/selinux_deploy_report.json

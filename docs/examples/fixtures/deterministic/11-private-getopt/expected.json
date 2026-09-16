@@ -1,0 +1,6 @@
+[
+  {
+    "verdict": "direct",
+    "tgt": "myapp_port_t"
+  }
+]

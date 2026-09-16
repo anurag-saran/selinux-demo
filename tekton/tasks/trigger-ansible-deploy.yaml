@@ -1,0 +1,23 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: selinux-pac-trigger-awx
+spec:
+  params:
+    - name: awx-host
+      type: string
+    - name: job-template-id
+      type: string
+    - name: extra-vars-json
+      type: string
+      default: "{}"
+  steps:
+    - name: launch
+      image: curlimages/curl:8.5.0
+      script: |
+        #!/bin/sh
+        set -eu
+        curl -sf -X POST \
+          -H "Content-Type: application/json" \
+          -d "{\"extra_vars\": $(params.extra-vars-json)}" \
+          "$(params.awx-host)/api/v2/job_templates/$(params.job-template-id)/launch/"

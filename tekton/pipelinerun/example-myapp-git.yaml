@@ -1,0 +1,25 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: selinux-pac-myapp-pr-git
+spec:
+  pipelineRef:
+    name: selinux-pac-pr
+  params:
+    - name: manifest-path
+      value: config/myapp.manifest.yml
+    - name: policy-dir
+      value: selinux
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  timeouts:
+    pipeline: 1h0m0s

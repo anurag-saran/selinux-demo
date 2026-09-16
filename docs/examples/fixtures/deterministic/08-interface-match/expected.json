@@ -1,0 +1,6 @@
+[
+  {
+    "verdict": "interface",
+    "tgt": "var_log_t"
+  }
+]

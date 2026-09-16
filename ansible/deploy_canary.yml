@@ -1,0 +1,14 @@
+---
+- name: Canary deploy — permissive domain + policy install
+  hosts: all
+  become: true
+  serial: 1
+  collections:
+    - community.general
+    - ansible.posix
+  environment:
+    PATH: "{{ ansible_env_path | default('/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin') }}"
+  roles:
+    - role: selinux_pac
+      vars:
+        selinux_pac_phase: canary

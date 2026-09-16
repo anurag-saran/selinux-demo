@@ -1,0 +1,46 @@
+policy_module(payments, 1.0.0)
+
+########################################
+# Second onboarded app — scaffolded with sepolicy-generate on RHEL, then reviewed.
+# See docs/ONBOARDING_SECOND_APP.md and scripts/scaffold_sepolicy_module.sh
+########################################
+
+type payments_t;
+type payments_exec_t;
+type payments_var_lib_t;
+type payments_var_run_t;
+type payments_log_t;
+type payments_port_t;
+
+files_type(payments_var_lib_t)
+files_pid_file(payments_var_run_t)
+corenet_port(payments_port_t)
+
+init_daemon_domain(payments_t, payments_exec_t)
+init_daemon_run_dir(payments_var_run_t, "payments")
+logging_log_file(payments_log_t)
+
+files_read_etc_files(payments_t)
+sysnet_read_config(payments_t)
+kernel_read_system_state(payments_t)
+dev_read_urand(payments_t)
+
+files_search_var_lib(payments_t)
+
+manage_dirs_pattern(payments_t, payments_var_lib_t, payments_var_lib_t)
+manage_files_pattern(payments_t, payments_var_lib_t, payments_var_lib_t)
+
+logging_log_filetrans(payments_t, payments_log_t, file)
+logging_log_filetrans(payments_t, payments_log_t, dir)
+manage_dirs_pattern(payments_t, payments_log_t, payments_log_t)
+manage_files_pattern(payments_t, payments_log_t, payments_log_t)
+
+allow payments_t payments_port_t:tcp_socket name_bind;
+allow payments_t payments_port_t:tcp_socket { connect getattr read write };
+
+allow payments_t self:tcp_socket { create bind listen accept connect getattr setopt getopt read write };
+allow payments_t self:udp_socket { create bind connect getattr setopt getopt read write };
+
+allow payments_t self:process { fork sigchld signal signull };
+allow payments_t self:fifo_file { read write };
+allow payments_t self:unix_stream_socket { connectto create connect read write };

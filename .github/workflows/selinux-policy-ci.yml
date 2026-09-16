@@ -1,0 +1,297 @@
+name: SELinux Policy CI
+
+on:
+  pull_request:
+    paths:
+      - 'selinux/**'
+      - 'cli/**'
+      - 'scripts/**'
+      - 'config/**'
+      - 'packaging/**'
+      - 'ansible/**'
+      - 'Makefile'
+      - '.github/workflows/selinux-policy-ci.yml'
+      - '.github/PULL_REQUEST_TEMPLATE/**'
+      - 'packaging/**'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'selinux/**'
+      - 'cli/**'
+      - 'scripts/**'
+      - 'config/**'
+      - 'packaging/**'
+      - 'ansible/**'
+      - 'Makefile'
+
+jobs:
+  smoke:
+    name: smoke-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CLI dependencies
+        run: make deps
+
+      - name: Run smoke tests
+        run: make test-smoke
+
+  app-manifest:
+    name: app-manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install manifest dependencies
+        run: make deps
+
+      - name: Validate app manifests
+        run: make test-manifest
+
+  rpm-ops-parity:
+    name: rpm-ops-parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate selinux-policy-ops packaging allowlist
+        run: make test-rpm
+
+  forbidden-patterns:
+    name: forbidden-patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate forbidden SELinux patterns
+        run: make test-forbidden
+
+  version-consistency:
+    name: version-consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify policy version single source of truth
+        run: make test-version
+
+  deterministic-fixtures:
+    name: deterministic-fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CLI dependencies
+        run: make deps
+
+      - name: Run deterministic golden fixtures
+        run: bash scripts/run_deterministic_fixtures.sh
+
+      - name: Deterministic generator (payments manifest, no myapp leak)
+        run: bash scripts/run_deterministic_payments_check.sh
+
+  blast-radius:
+    name: blast-radius
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Cache SELinux build image
+        uses: actions/cache@v4
+        id: selinux-build-image
+        with:
+          path: /tmp/selinux-build-image.tar
+          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
+
+      - name: Load or build SELinux compile image
+        run: bash scripts/ci/ensure_selinux_build_image.sh
+
+      - name: Run blast-radius fixture suite
+        env:
+          BLAST_RADIUS_REQUIRE_INTEGRATION: "1"
+        run: make integration-blast-radius
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          make lint-shell
+
+  policy-diff-comment:
+    name: policy-diff-comment
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch for merge-base diff
+        run: git fetch origin main:refs/remotes/origin/main || git fetch origin master:refs/remotes/origin/master
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Cache SELinux build image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/selinux-build-image.tar
+          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
+
+      - name: Load or build SELinux compile image
+        run: bash scripts/ci/ensure_selinux_build_image.sh
+
+      - name: Post policy access delta comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/post_pr_policy_diff_comment.sh
+
+  policy-access-delta:
+    name: policy-access-delta
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch for merge-base diff
+        run: git fetch origin main:refs/remotes/origin/main || git fetch origin master:refs/remotes/origin/master
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Cache SELinux build image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/selinux-build-image.tar
+          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
+
+      - name: Load or build SELinux compile image
+        run: bash scripts/ci/ensure_selinux_build_image.sh
+
+      - name: Verify merge-base policy access delta renders
+        run: |
+          out="$(mktemp)"
+          bash scripts/lib/policy_module_diff.sh \
+            --app-name myapp \
+            --from-merge-base \
+            --cand-dir selinux \
+            --output "${out}" \
+            --format markdown
+          grep -q 'Policy access delta' "${out}"
+          rm -f "${out}"
+
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run yamllint
+        run: |
+          pip install yamllint
+          make lint-yaml
+
+  compile:
+    name: compile-policy
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - quay.io/centos/centos:stream9
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Cache SELinux build image
+        uses: actions/cache@v4
+        id: selinux-build-image
+        with:
+          path: /tmp/selinux-build-image.tar
+          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
+
+      - name: Load or build SELinux compile image
+        run: bash scripts/ci/ensure_selinux_build_image.sh
+
+      - name: Compile selinux/ module
+        run: make integration-compile
+
+      - name: Upload compiled policy package
+        uses: actions/upload-artifact@v4
+        with:
+          name: selinux-myapp-pp-${{ matrix.image }}
+          path: selinux/myapp.pp
+          if-no-files-found: error
+
+  ansible-lint:
+    name: ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ansible-lint
+        run: pip install ansible-lint
+
+      - name: Install Ansible collections
+        run: ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Lint Ansible playbooks
+        run: make lint-ansible
+
+  policy-semantics:
+    name: policy-semantics
+    needs: compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Run sesearch semantic assertions
+        env:
+          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
+        run: make integration-semantics

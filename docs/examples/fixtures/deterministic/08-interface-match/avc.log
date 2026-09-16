@@ -1,0 +1,1 @@
+type=AVC msg=audit(1710000195.000:215): avc:  denied  { search } for  pid=1234 comm="python3" name="log" path="/var/log" dev="vda4" ino=1 scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:var_log_t:s0 tclass=dir permissive=1

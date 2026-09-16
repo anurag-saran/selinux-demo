@@ -1,0 +1,4 @@
+/opt/payments(/.*)?                 gen_context(system_u:object_r:payments_exec_t,s0)
+/var/lib/payments(/.*)?             gen_context(system_u:object_r:payments_var_lib_t,s0)
+/var/log/payments(/.*)?             gen_context(system_u:object_r:payments_log_t,s0)
+/run/payments(/.*)?                 gen_context(system_u:object_r:payments_var_run_t,s0)

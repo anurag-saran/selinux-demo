@@ -1,0 +1,25 @@
+---
+- name: Restore dontaudit baseline on host
+  ansible.builtin.command: semodule -B
+  register: reset_semodule_b
+  changed_when: reset_semodule_b.rc == 0
+
+- name: Remove permissive flag from application domain
+  community.general.selinux_permissive:
+    name: "{{ domain }}"
+    permissive: false
+  register: reset_permissive
+  failed_when: false
+
+- name: Fallback remove permissive via semanage
+  ansible.builtin.command: "semanage permissive -d {{ domain }}"
+  register: reset_semanage
+  changed_when: reset_semanage.rc == 0
+  failed_when: false
+  when: reset_permissive is failed or reset_permissive is skipped
+
+- name: Host SELinux state reset complete
+  ansible.builtin.debug:
+    msg: >-
+      Restored dontaudit (semodule -B) and cleared permissive on {{ domain }}.
+      Policy module unchanged — re-run canary if needed.

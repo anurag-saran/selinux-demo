@@ -1,0 +1,56 @@
+policy_module(myapp, 1.0.0)
+
+#############################################
+# Staging stub: permissive domain for AVC collection
+#############################################
+
+require {
+    type init_t;
+    type unreserved_port_t;
+    type cert_t;
+    class process transition;
+    class file entrypoint;
+    class process { transition dyntransition siginh rlimitinh };
+    class sock_file { create write unlink setattr getattr open };
+    class tcp_socket { name_connect getopt connect };
+}
+
+type myapp_t;
+type myapp_exec_t;
+type myapp_var_lib_t;
+type myapp_script_exec_t;
+
+files_type(myapp_exec_t)
+files_type(myapp_var_lib_t)
+files_type(myapp_script_exec_t)
+
+init_daemon_domain(myapp_t, myapp_exec_t)
+
+# systemd (init_t) -> myapp_t when executing labeled entrypoint (FCOS user services)
+allow init_t myapp_exec_t:file { execute read open getattr map ioctl execute_no_trans };
+allow init_t myapp_t:process { transition dyntransition siginh rlimitinh };
+allow myapp_t myapp_exec_t:file entrypoint;
+type_transition init_t myapp_exec_t:process myapp_t;
+
+permissive myapp_t;
+
+allow myapp_t myapp_exec_t:file { execute execute_no_trans read open getattr map };
+allow myapp_t myapp_exec_t:dir { search getattr read open };
+allow myapp_t myapp_exec_t:lnk_file read;
+allow myapp_t myapp_script_exec_t:file { execute execute_no_trans read open getattr map };
+allow myapp_t myapp_var_lib_t:dir { add_name remove_name write search getattr open read create };
+allow myapp_t myapp_var_lib_t:file { create write read open getattr append unlink rename };
+allow myapp_t myapp_var_lib_t:sock_file { create write unlink setattr getattr open };
+allow myapp_t self:tcp_socket { create bind listen accept connect getattr setopt read write shutdown };
+allow myapp_t self:unix_stream_socket { create bind listen accept connect getattr setopt read write shutdown };
+
+# Podman FCOS staging: systemd often leaves user units in init_t (no transition to myapp_t).
+allow init_t myapp_exec_t:file { execute execute_no_trans read open getattr map ioctl };
+allow init_t myapp_script_exec_t:file { execute execute_no_trans read open getattr map ioctl };
+allow init_t myapp_var_lib_t:dir { add_name remove_name write search getattr open read create };
+allow init_t myapp_var_lib_t:file { create write read open getattr append unlink rename };
+allow init_t myapp_var_lib_t:sock_file { create write unlink setattr getattr open };
+allow init_t self:tcp_socket { create bind listen accept connect getattr setopt read write shutdown getopt };
+allow init_t unreserved_port_t:tcp_socket name_connect;
+allow init_t cert_t:file { read open getattr };
+allow init_t self:unix_stream_socket { create bind listen accept connect getattr setopt read write shutdown };

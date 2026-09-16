@@ -1,0 +1,12 @@
+policy_module(myapp, 1.0.0)
+
+type myapp_t;
+type myapp_exec_t;
+type myapp_var_lib_t;
+
+files_type(myapp_var_lib_t)
+
+init_daemon_domain(myapp_t, myapp_exec_t)
+
+allow myapp_t self:process signal;
+allow myapp_t myapp_var_lib_t:dir search;

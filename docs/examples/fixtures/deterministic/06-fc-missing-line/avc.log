@@ -1,0 +1,1 @@
+type=AVC msg=audit(1710000160.000:211): avc:  denied  { write } for  pid=1234 comm="python3" name="data" path="/opt/myapp/cache/data" dev="vda4" ino=99 scontext=system_u:system_r:myapp_t:s0 tcontext=system_u:object_r:var_lib_t:s0 tclass=file permissive=1

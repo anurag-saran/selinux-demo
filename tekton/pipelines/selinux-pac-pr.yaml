@@ -1,0 +1,43 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: selinux-pac-pr
+spec:
+  params:
+    - name: manifest-path
+      type: string
+    - name: policy-dir
+      type: string
+      default: selinux
+  workspaces:
+    - name: source
+  tasks:
+    - name: validate-manifest
+      taskRef:
+        name: selinux-pac-validate-manifest
+      params:
+        - name: manifest-path
+          value: $(params.manifest-path)
+      workspaces:
+        - name: source
+          workspace: source
+    - name: policy-static
+      runAfter: [validate-manifest]
+      taskRef:
+        name: selinux-pac-policy-static
+      params:
+        - name: policy-dir
+          value: $(params.policy-dir)
+      workspaces:
+        - name: source
+          workspace: source
+    - name: policy-compile
+      runAfter: [policy-static]
+      taskRef:
+        name: selinux-pac-policy-compile
+      params:
+        - name: policy-dir
+          value: $(params.policy-dir)
+      workspaces:
+        - name: source
+          workspace: source

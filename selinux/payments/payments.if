@@ -1,0 +1,34 @@
+## <desc>
+##	Payments service — public interfaces for dependent modules
+## </desc>
+## <summary>
+##	Read-only access to payments state directories (no domain transition).
+## </summary>
+## <param name="domain">
+##	<summary>Domain allowed to read payments public state.</summary>
+## </param>
+interface(`payments_read_public_state',`
+	gen_require(`
+		type payments_var_lib_t;
+		class dir { getattr open read search list };
+		class file { getattr open read ioctl lock map };
+	')
+
+	list_dirs_pattern($1, payments_var_lib_t)
+	read_files_pattern($1, payments_var_lib_t, payments_var_lib_t)
+')
+
+## <summary>
+##	Run payments helper scripts in the payments domain (domtrans).
+## </summary>
+## <param name="domain">
+##	<summary>Domain allowed to start payments executables.</summary>
+## </param>
+interface(`payments_domtrans',`
+	gen_require(`
+		type payments_t, payments_exec_t;
+		class process transition;
+	')
+
+	domtrans_run($1, payments_exec_t, payments_t)
+')

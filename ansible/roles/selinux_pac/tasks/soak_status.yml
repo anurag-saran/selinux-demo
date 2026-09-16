@@ -1,0 +1,25 @@
+---
+- name: Collect soak gate facts
+  ansible.builtin.command: >
+    {{ selinux_ops_dir }}/collect_soak_facts.sh
+    --domain {{ domain }}
+    --manifest {{ app_manifest_path }}
+    --marker-file {{ soak_marker_file }}
+    --report-file {{ pac_manifest.deploy.deploy_report_file | default(var_dir ~ '/selinux_deploy_report.json') }}
+    --var-dir {{ var_dir }}
+  register: soak_status_raw
+  changed_when: false
+
+- name: Parse soak status JSON
+  ansible.builtin.set_fact:
+    soak_status: "{{ soak_status_raw.stdout | from_json }}"
+
+- name: Soak status summary
+  ansible.builtin.debug:
+    msg: |
+      App: {{ app_name }} ({{ domain }})
+      Marker: {{ soak_status.marker_exists }} ({{ soak_marker_file }})
+      Days elapsed: {{ soak_status.days_elapsed }} / min {{ soak_min_days | default(7) }}
+      Raw AVCs since marker: {{ soak_status.avc_count_since_marker }}
+      Net-new access needs: {{ soak_status.avc_net_new_count }} (fail_closed={{ soak_status.avc_fail_closed }})
+      Deploy report: {{ soak_status.report_status }} gate_ok={{ soak_status.report_gate_ok }}

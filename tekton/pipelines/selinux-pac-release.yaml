@@ -1,0 +1,28 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: selinux-pac-release
+spec:
+  params:
+    - name: policy-dir
+      type: string
+      default: selinux
+  workspaces:
+    - name: source
+  tasks:
+    - name: policy-compile
+      taskRef:
+        name: selinux-pac-policy-compile
+      params:
+        - name: policy-dir
+          value: $(params.policy-dir)
+      workspaces:
+        - name: source
+          workspace: source
+    - name: build-rpms
+      runAfter: [policy-compile]
+      taskRef:
+        name: selinux-pac-build-rpms
+      workspaces:
+        - name: source
+          workspace: source

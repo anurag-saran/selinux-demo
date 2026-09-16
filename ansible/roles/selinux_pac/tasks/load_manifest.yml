@@ -1,0 +1,64 @@
+---
+- name: Stat app manifest on target
+  ansible.builtin.stat:
+    path: "{{ app_manifest_path }}"
+  register: pac_manifest_stat
+
+- name: Fail when app manifest missing
+  ansible.builtin.fail:
+    msg: "App manifest not found at {{ app_manifest_path }}"
+  when: not pac_manifest_stat.stat.exists
+
+- name: Read app manifest
+  ansible.builtin.slurp:
+    src: "{{ app_manifest_path }}"
+  register: pac_manifest_slurp
+
+- name: Parse app manifest YAML
+  ansible.builtin.set_fact:
+    pac_manifest: "{{ pac_manifest_slurp.content | b64decode | from_yaml }}"
+
+- name: Apply manifest-driven application facts
+  ansible.builtin.set_fact:
+    app_name: "{{ pac_manifest.app_name }}"
+    domain: "{{ pac_manifest.domain }}"
+    install_root: "{{ pac_manifest.paths.install_root }}"
+    var_dir: "{{ pac_manifest.paths.var_dir }}"
+    log_dir: "{{ pac_manifest.paths.log_dir | default('/var/log/' ~ pac_manifest.app_name) }}"
+    runtime_dir: "{{ pac_manifest.paths.runtime_dir | default('/run/' ~ pac_manifest.app_name) }}"
+    service_name: "{{ pac_manifest.services.primary.unit }}"
+    http_probe_host: "{{ pac_manifest.http.host | default(http_probe_host) }}"
+    soak_marker_file: "{{ pac_manifest.deploy.soak_marker_file | default(var_dir ~ '/selinux_canary_deployed_at') }}"
+    selinux_ports_list: "{{ pac_manifest.selinux_ports | default([]) }}"
+    selinux_repo_dir: >-
+      {{
+        policy_artifact_dir ~ '/' ~ (pac_manifest.policy.module_dir | default('selinux'))
+        if not (pac_manifest.policy.module_dir | default('selinux')) is match('^/')
+        else pac_manifest.policy.module_dir
+      }}
+    stub_policy_src: "{{ selinux_repo_dir }}/{{ pac_manifest.app_name }}_canary.pp"
+    stub_policy_staging: "/var/lib/selinux-policy-staging/{{ pac_manifest.app_name }}_canary.pp"
+    ports_cil_src: "{{ selinux_repo_dir }}/{{ pac_manifest.app_name }}_ports.cil"
+    ports_cil_staging: "/var/lib/selinux-policy-staging/{{ pac_manifest.app_name }}_ports.cil"
+    stub_module_name: "{{ pac_manifest.app_name }}_canary"
+
+- name: Build selinux_ports_list from http when manifest omits selinux_ports
+  ansible.builtin.set_fact:
+    selinux_ports_list: >-
+      {{
+        [{'port': pac_manifest.http.port, 'proto': 'tcp', 'type': pac_manifest.app_name ~ '_port_t'}]
+        + (
+          [{'port': pac_manifest.http.backend.port, 'proto': 'tcp', 'type': pac_manifest.app_name ~ '_backend_port_t'}]
+          if pac_manifest.services.backend is defined and pac_manifest.http.backend is defined
+          else []
+        )
+      }}
+  when: selinux_ports_list | length == 0
+
+- name: Build service unit restart list from manifest
+  ansible.builtin.set_fact:
+    selinux_pac_service_units: >-
+      {{
+        ([pac_manifest.services.backend.unit] if pac_manifest.services.backend is defined else [])
+        + [pac_manifest.services.primary.unit]
+      }}
