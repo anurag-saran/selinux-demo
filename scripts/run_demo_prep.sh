@@ -3,7 +3,7 @@
 # run_demo_prep.sh — Demo showcase / presenter prep (no flags required)
 #
 # Runs the full 10-act workshop with:
-#   • Talking points before each act (see docs/DEMO_GUIDE.md)
+#   • Talking points before each act (see docs/training/DEMO_GUIDE.md)
 #   • Typewriter-style “show on screen” commands after each act
 #   • Pauses between steps (rehearse what to say)
 #   • Built-in demo-mode + offline AI fixtures + Podman VM on macOS
@@ -38,7 +38,7 @@ Before first run on Mac:
 
 Acts 6–10 install ansible/requirements.yml collections on the VM automatically when needed.
 
-Docs: docs/DEMO_GUIDE.md
+Docs: docs/training/DEMO_GUIDE.md
 EOF
 }
 

@@ -1,4 +1,21 @@
 ---
+- name: Require change ticket for enforce
+  ansible.builtin.fail:
+    msg: >-
+      change_ticket is required for enforce (AWX survey or
+      -e change_ticket=CHG123). force_enforce=true still needs a ticket.
+  when: (change_ticket | default('') | trim | length) == 0
+
+- name: Refuse lab soak window on production group
+  ansible.builtin.fail:
+    msg: >-
+      soak_min_days={{ soak_min_days | default(7) }} is below 7 on a host in
+      group 'production'. That value is lab-only (inventory.dev.yml).
+      Do not copy it onto prod.
+  when:
+    - "'production' in group_names"
+    - (soak_min_days | default(7) | int) < 7
+
 - name: Collect soak gate facts on target
   ansible.builtin.command: >
     {{ selinux_ops_dir }}/collect_soak_facts.sh

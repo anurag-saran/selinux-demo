@@ -23,6 +23,15 @@
       (max_avc={{ soak_max_avc | default(0) }} max_net_new={{ soak_max_net_new | default(0) }}).
   when: soak_monitor.status == 'fail'
 
+- name: Fail when sesearch was unavailable (raw AVC fallback is not allowed)
+  ansible.builtin.fail:
+    msg: >-
+      Soak monitor fail-closed (sesearch missing). Install setools-console
+      on canary/prod — it is required by selinux-policy-ops.
+  when:
+    - soak_use_net_new | default(true) | bool
+    - soak_monitor.avc_fail_closed | default(false) | bool
+
 - name: Soak monitor summary
   ansible.builtin.debug:
     msg: >-

@@ -1,0 +1,23 @@
+{
+  "name": "SELinux – Enforce",
+  "description": "Remove permissive after soak. change_ticket is required. force_enforce defaults to false.",
+  "spec": [
+    {
+      "type": "text",
+      "question_name": "Change ticket",
+      "question_description": "ITSM / ServiceNow / Bugzilla id. Required for every enforce.",
+      "variable": "change_ticket",
+      "required": true,
+      "default": ""
+    },
+    {
+      "type": "multiplechoice",
+      "question_name": "Skip soak gate (break-glass)",
+      "question_description": "Leave false. true still requires a change ticket.",
+      "variable": "force_enforce",
+      "choices": ["false", "true"],
+      "default": "false",
+      "required": true
+    }
+  ]
+}

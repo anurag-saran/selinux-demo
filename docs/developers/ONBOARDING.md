@@ -2,14 +2,23 @@
 
 The repo ships **`myapp`** as the primary demo and **`payments`** as a second onboarded module: manifest template, policy under **`selinux/payments/`**, and a published **`.if`** interface for dependent modules.
 
-**Prerequisites:** read [SELINUX_BASICS.md](SELINUX_BASICS.md) §1–7 and [config/README.md](../config/README.md). **Doc index:** [README.md](README.md).
+**Prerequisites:** read [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). **Doc index:** [README.md](../README.md). Deploy: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md).
+
+**Fast path:**
+
+```bash
+bash scripts/setup_rhel_hosts.sh write --dev-host DEV --prod-host PROD
+bash scripts/selinux_pac_adopt.sh doctor          # on the RHEL host
+bash scripts/selinux_pac_adopt.sh init payments
+```
 
 **Where commands run:**
 
 | Step | Where |
 |------|--------|
-| Copy manifest, `validate_app_manifest.sh`, compile with Podman | **Repo root** (Mac or Linux) |
-| `scaffold_sepolicy_module.sh`, `semodule -i`, `restorecon` | **RHEL/Stream host with SELinux** (staging or VM) |
+| Copy manifest, `validate_app_manifest.sh`, compile | **Controller** (RHEL devel or Podman compile image as backup) |
+| `scaffold_sepolicy_module.sh`, `semodule -i`, `restorecon` | **RHEL dev** box |
+| `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` | **Controller** SSH to **RHEL prod** ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) |
 
 ---
 
@@ -64,7 +73,7 @@ Consumers (e.g. another module’s `.te`) call these inside `optional_policy` or
 
 ## Compile
 
-Uses the same compile image as `myapp` (override registry with **`SELINUX_BUILD_IMAGE`** — see [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md)):
+Uses the same compile image as `myapp` (override registry with **`SELINUX_BUILD_IMAGE`** — see [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md)):
 
 | | |
 |--|--|
@@ -93,5 +102,8 @@ sudo restorecon -Rv /opt/payments /var/lib/payments /var/log/payments /run/payme
 
 ## Related
 
-- [config/README.md](../config/README.md) — manifest schema
+- [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — two RHEL boxes, inventories
+- [config/README.md](../../config/README.md) — manifest schema (ports vs probe host)
+- [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) — canary / soak / enforce
 - [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) — AVC → policy with `--manifest config/payments.manifest.yml`
+- [ADOPTION_CHECKLIST.md](../admin/ADOPTION_CHECKLIST.md) — org fork checklist

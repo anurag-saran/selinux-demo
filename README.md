@@ -1,427 +1,92 @@
-# SELinux Policy-as-Code (PaC) Automation
+# SELinux Policy-as-Code
 
-Shift-left DevSecOps workflow: application teams version-control SELinux policy alongside code, generate updates from AVC audit logs with AI, and deploy safely via **per-domain permissive canary**, **enforce**, and **emergency rollback** Ansible playbooks.
+RHEL admins and application developers ship SELinux policy together: **PRs from dev**, **RPMs + Ansible/AWX on prod**. Only playbooks mutate SELinux on servers.
 
-**New here?** Read in order: [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) → [docs/SELINUX_TRAINING_LAB.md](docs/SELINUX_TRAINING_LAB.md) → [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md). Full doc index: [docs/README.md](docs/README.md).
+`myapp` is a **reference app**. Training labs are optional ([docs/README.md](docs/README.md)).
 
-**New contributor?** From a clean clone (Python 3.9+; no SELinux or Podman required):
+| You are | Start here |
+|---------|------------|
+| **RHEL admin / SRE** | [docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md) → [docs/admin/ANSIBLE_OPERATIONS.md](docs/admin/ANSIBLE_OPERATIONS.md) → [docs/admin/PRODUCTION_READINESS.md](docs/admin/PRODUCTION_READINESS.md) |
+| **Application developer** | [Developers](#developers) and [docs/developers/ONBOARDING.md](docs/developers/ONBOARDING.md) |
+| **Offline check (any laptop)** | `make check` |
 
-| | |
-|--|--|
-| **Where** | Any OS — **repo root** (folder with `Makefile` and `scripts/`) |
-| **Why** | Fast regression check before you touch policy or open a PR |
-
-```bash
-make check
-```
-
-`make test` runs golden fixtures, static policy validators, and smoke tests offline. `make lint` runs shellcheck, yamllint, and ansible-lint when those tools are installed (skipped otherwise). Run `make help` for the full target list.
-
-**Security model:** The host stays **`getenforce` = Enforcing** throughout staging and soak. Only the app domain (`myapp_t`) is set permissive via **`semanage permissive -a myapp_t`** (Linux only — updates the kernel policy database so that **one process type** logs denials instead of blocking). Export filters `policy_out/avc.log` to app-related denials; enforce removes permissive after soak gates pass.
-
-## Architecture
+**Security model:** `getenforce` stays **Enforcing**. Only the app domain is permissive during canary soak (`semanage permissive -a <domain>`). Enforce removes that flag after soak gates pass.
 
 ```text
-App change → staging (permissive myapp_t) → AVC logs
-    → cli/deterministic_gen.py (default policy) + optional cli/summarize_pr.py (LLM prose)
-    → merge + version bump + pr_summary.md + findings.json
-    → PR review → compile_and_validate.sh (CentOS Stream 9 compile image, pull-first)
-    → ansible/deploy_canary.yml → ansible/enforce_production.yml
-```
-
-## Project layout
-
-```text
-selinux-demo/
-├── app/                    Flask app, backend stub, systemd units, logrotate config
-│   ├── app.py              Six demo HTTP endpoints (incl. Tier 6 network probes)
-│   ├── backend_stub.py     Backend on :8889 + /run/myapp/notify.sock (myapp_backend_t)
-│   └── bin/backup.sh       Executed by /run-script (bash builtins only)
-├── cli/                    deterministic_gen.py (policy), summarize_pr.py (optional LLM summary), verify_avc_coverage.py
-├── config/                 App manifests (paths, probes, deploy artifacts)
-│   ├── myapp.manifest.yml  Demo app manifest (drives readiness scripts)
-│   └── README.md           Schema + onboarding for new apps
-├── selinux/                Version-controlled policy (source of truth)
-│   ├── myapp.te / myapp.fc
-│   ├── policy_version.txt
-│   └── stub/               Permissive staging module
-├── ansible/                Canary, enforce, emergency rollback
-├── scripts/                Setup, compile, demo, Podman VM helpers
-├── policy_out/             Build artifacts (gitignored .pp, avc exports)
-└── .github/                PR template for security review
+Dev (rhel-dev)     AVC → deterministic_gen.py → PR (CI compile + forbidden patterns)
+Admin (controller) compile_and_validate.sh → signed RPMs → internal repo
+Prod  (rhel-prod)  deploy_canary.yml → soak_monitor.yml → soak_status.yml → enforce_production.yml
 ```
 
 ---
 
-## Self-Service Workflow (App Team → Admin Team)
+## Admins
 
-```text
-┌─────────────────────────────────────────────────────────┐
-│ APPLICATION TEAM                                        │
-│  1. setup_staging_env.sh (permissive) + staged integration tests (integration_probes.sh)│
-│  2. dev_generate_policy.sh → selinux/ + pr_summary.md   │
-│  3. Open PR (CI validates compile + forbidden patterns) │
-└───────────────────────────┬─────────────────────────────┘
-                            │ Git Pull Request
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│ ADMIN / SECURITY TEAM                                   │
-│  1. Review plain-English pr_summary.md + CODEOWNERS     │
-│  2. Approve & merge                                     │
-│  3. Deploy workflow: canary → monitor → enforce         │
-└─────────────────────────────────────────────────────────┘
+Controller (laptop or AWX) SSHes to two RHEL boxes. **No git clone on prod.** Install `selinux-policy-ops` + `<app>-selinux` from a **signed internal yum/dnf repo**. Compile image: set `SELINUX_BUILD_IMAGE` to an internal mirror ([docs/admin/COMPILE_IMAGE.md](docs/admin/COMPILE_IMAGE.md)).
+
+```bash
+# Inventories (gitignored)
+bash scripts/setup_rhel_hosts.sh write --dev-host rhel-dev.example.com --prod-host rhel-prod.example.com
+bash scripts/setup_rhel_hosts.sh ping
+bash scripts/setup_rhel_hosts.sh doctor
+
+# Package + publish (see packaging/internal.env.example)
+bash packaging/build_rpms.sh
+bash packaging/publish_internal.sh
+
+# Prod lifecycle (AWX job templates in docs/admin/ANSIBLE_OPERATIONS.md)
+ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
+ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary   # schedule daily
+ansible-playbook -i ansible/inventory.production.yml ansible/soak_status.yml --limit canary
+ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
+  -e change_ticket=CHG123
 ```
 
-| Role | Command |
-|------|---------|
-| **Developer (offline / no API)** | `bash scripts/dev_generate_policy.sh --skip-export` — deterministic engine is default; see [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) |
-| **Developer (optional LLM summary)** | `bash scripts/dev_generate_policy.sh --llm-summary` — polishes `pr_summary.md` only |
-| **Developer (open PR)** | `bash scripts/dev_generate_policy.sh --use-vm --apply --open-pr` |
-| **PR body assembly** | `bash scripts/assemble_pr_body.sh` → `policy_out/pr_body.md` |
-| **CI (automatic on PR)** | `.github/workflows/selinux-policy-ci.yml` |
-| **Admin canary** | GitHub Actions → **SELinux Policy Deploy** → `canary` / `staging` |
-| **Admin enforce** | Same workflow → `enforce` / `production` (Environment approval) |
-| **Admin rollback** | Same workflow → `rollback` |
-| **App team incident card** | [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) §12.5 — checks when SELinux deploy breaks startup |
+Enforce **requires** `change_ticket`. `force_enforce=true` is break-glass only and still needs that ticket (AWX survey defaults `force_enforce` to false). Soak is **net-new** vs installed policy (`sesearch`); `setools-console` is a **hard RPM require**.
 
-### Branch protection (recommended)
+Rollback (no API key): `ansible-playbook -i ansible/inventory.production.yml ansible/emergency_rollback.yml --limit canary`
 
-Require these status checks on PRs touching `selinux/**`:
-
-- `smoke-tests`
-- `app-manifest`
-- `forbidden-patterns`
-- `compile-policy`
-
-Require review from CODEOWNERS (`.github/CODEOWNERS`) for `selinux/` and `ansible/`. Replace the placeholder `@your-org/security-team` in `.github/CODEOWNERS` before using branch protection in your org.
+Playbook variables and task order: [ansible/README.md](ansible/README.md). Adoption: [docs/admin/ADOPTION_CHECKLIST.md](docs/admin/ADOPTION_CHECKLIST.md).
 
 ---
 
 ## Developers
 
-### Where these commands run
-
-| Block below | Where |
-|-------------|--------|
-| `pip3`, `make check`, `deterministic_gen.py --explain` | **Repo root** on Mac, Linux, or WSL — no SELinux required |
-| `source …/env.sh`, `selinux_build_image.sh pull` | **Mac Terminal** at repo root (Podman); see [SELINUX_TRAINING_LAB.md](docs/SELINUX_TRAINING_LAB.md#running-on-macos) |
-| `setup_staging_env.sh`, `curl 127.0.0.1:8888` | **Linux with SELinux** — native host or **inside Podman VM** after `run_on_podman_vm.sh shell` |
-| `dev_generate_policy.sh --use-vm` | **Mac** at repo root; script SSHs into the VM for AVC export |
-
-### Quick start (self-service)
+On **rhel-dev** (repo checkout, SELinux Enforcing):
 
 ```bash
-pip3 install -r cli/requirements.txt
-# Optional: export OPENAI_API_KEY before --llm-summary (admin prose only; policy stays deterministic)
-
-# macOS / laptop: pull prebuilt CentOS Stream 9 compile image from Docker Hub (~seconds)
-source "${HOME}/.local/share/selinux-demo/podman/env.sh"   # once per shell on Mac
-export SELINUX_BUILD_IMAGE="${SELINUX_BUILD_IMAGE:-docker.io/asaran/selinux-demo-selinux-build:stream9}"
-bash scripts/lib/selinux_build_image.sh pull
-# See [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) (build/publish/repair)
-
-# Staging + tests (native Linux) — one batch; workshop shows policy_out/avc.log after Act 1
-sudo bash scripts/setup_staging_env.sh
-bash -lc 'source scripts/lib/integration_probes.sh && INTEGRATION_UI=vm INTEGRATION_AUTO=1 run_integration_probes'
-bash scripts/dev_generate_policy.sh --skip-export   # or export-avcs first; see docs/TESTING.md §1
-
-# Tier 6 endpoints require myapp-backend.service (installed by setup_staging_env.sh):
-#   /probe-backend  → TCP client to 127.0.0.1:8889 (myapp_backend_t)
-#   /notify-socket  → Unix client to /run/myapp/notify.sock
-
-# macOS: use --use-vm to export AVCs from Podman VM
-bash scripts/dev_generate_policy.sh --use-vm --apply
-
-# Optional: enforce-check before PR (compile + domain context + endpoints)
-bash scripts/dev_generate_policy.sh --use-vm --apply --enforce-check
-
-# Optional: open PR with assembled body + labels
-bash scripts/dev_generate_policy.sh --use-vm --apply --open-pr
+sudo bash scripts/setup_staging_env.sh          # reference app; skip for your own service
+bash scripts/dev_generate_policy.sh --apply     # deterministic engine; optional --llm-summary
+bash scripts/assemble_pr_body.sh
+gh pr create --body-file policy_out/pr_body.md --label security --label selinux
 ```
 
-This exports AVCs, runs **deterministic** generation, copies results into `selinux/`, assembles `policy_out/pr_body.md`, and prints PR steps.
+CI must pass `smoke-tests`, `app-manifest`, `forbidden-patterns`, `compile-policy`. CODEOWNERS (`@anurag-saran`) review `selinux/` and `ansible/`.
 
-### 1. Staging environment (permissive)
+New app: `bash scripts/selinux_pac_adopt.sh init payments` — [docs/developers/ONBOARDING.md](docs/developers/ONBOARDING.md).
 
-```bash
-sudo bash scripts/setup_staging_env.sh
-curl http://127.0.0.1:8888/save-log
-curl http://127.0.0.1:8888/run-script
-curl http://127.0.0.1:8888/rotate-log
-curl http://127.0.0.1:8888/probe-backend
-curl http://127.0.0.1:8888/notify-socket
-
-# Tier 6 endpoints require myapp-backend.service (installed by setup_staging_env.sh):
-#   /probe-backend  → TCP client to 127.0.0.1:8889 (myapp_backend_t)
-#   /notify-socket  → Unix client to /run/myapp/notify.sock
-```
-
-### 2. Export AVC logs
-
-```bash
-# Native Linux
-sudo ausearch -m avc -ts boot --raw | grep myapp > policy_out/avc.log
-
-# macOS + Podman VM
-bash scripts/run_on_podman_vm.sh export-avcs
-```
-
-### 3. Generate policy update
-
-```bash
-bash scripts/dev_generate_policy.sh --use-vm --apply
-# Optional admin-facing prose (does not change .te/.fc):
-# export OPENAI_API_KEY="your-key"
-# bash scripts/dev_generate_policy.sh --use-vm --apply --llm-summary
-```
-
-Or run the pieces manually:
-
-```bash
-python3 cli/deterministic_gen.py \
-  --avc-log policy_out/avc.log \
-  --manifest config/myapp.manifest.yml \
-  --existing-te selinux/myapp.te \
-  --existing-fc selinux/myapp.fc \
-  --out-dir policy_out \
-  --bump-version
-bash scripts/validate_forbidden_patterns.sh policy_out
-bash scripts/compile_and_validate.sh policy_out
-python3 cli/summarize_pr.py   # optional; needs OPENAI_API_KEY
-```
-
-Outputs: `policy_out/myapp.te`, `myapp.fc`, `pr_summary.md`, `pr_body.md`, and updated `selinux/policy_version.txt` when promoted with `--apply`. PR access delta is filled by [`assemble_pr_body.sh`](scripts/assemble_pr_body.sh) (merge-base **sesearch** diff via [`policy_module_diff.sh`](scripts/lib/policy_module_diff.sh)).
-
-### 4. Open a PR
-
-```bash
-bash scripts/assemble_pr_body.sh   # needs git merge-base + Podman for full §2.5 delta; --skip-policy-diff for offline smoke only
-gh pr create \
-  --title "security(selinux): Update policy module for myapp" \
-  --body-file policy_out/pr_body.md \
-  --label security --label selinux --label pending-admin-review
-```
-
-Template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`](.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md) (admin Pass/Reject table + CI check mapping).
+Ports stay in the committed manifest (`selinux_ports`). Probe host/IP is per inventory (`http_probe_host`).
 
 ---
 
-## CI / validation
+## Layout
 
-Runs automatically on PRs via [`.github/workflows/selinux-policy-ci.yml`](.github/workflows/selinux-policy-ci.yml) (separate jobs for offline checks, compile, and integration).
-
-| Job | Purpose |
-|-----|---------|
-| `smoke-tests` | Python smoke tests (every classification verdict has a golden fixture; version consistency; blast-radius fail-closed) |
-| `forbidden-patterns` | Wildcards and high-privilege denies in `.te` |
-| `version-consistency` | `policy_version.txt`, `policy_module()` in `.te`, and RPM spec wiring agree |
-| `compile-policy` / `policy-semantics` | Refpolicy build + container `sesearch` assertions |
-| `blast-radius` | [`tests/fixtures/blast_radius/`](tests/fixtures/blast_radius/) vs [`classify_policy_blast_radius.sh`](scripts/classify_policy_blast_radius.sh) |
-| `policy-diff-comment` | PR comment with merge-base **sesearch** access delta (not `sediff` on `.pp`) |
-| `ansible-lint`, `yamllint`, `shellcheck`, `app-manifest`, `rpm-ops-parity`, `deterministic-fixtures`, … | Supporting gates (see workflow file) |
-
-Local equivalents (same commands CI uses for offline gates):
-
-```bash
-make check          # test + lint (offline-clean test suite)
-make fixtures       # deterministic + payments + blast-radius fixture scripts only
-make integration-compile   # needs podman or selinux-policy-devel
-```
-
-PR CI also runs **`policy-semantics`** (`sesearch` via `validate_policy_semantics.sh`). Packaged installs: [`packaging/myapp-selinux.spec`](packaging/myapp-selinux.spec) builds an RPM from `selinux/`.
-
-Full test matrix: [`docs/TESTING.md`](docs/TESTING.md). **Ansible / AWX hub:** [`docs/ANSIBLE_OPERATIONS.md`](docs/ANSIBLE_OPERATIONS.md). Playbook reference: [`ansible/README.md`](ansible/README.md). Adoption: [`docs/ADOPTION_CHECKLIST.md`](docs/ADOPTION_CHECKLIST.md).
-
----
-
-## Admins — production deployment
-
-### Deploy paths (RHEL admin model)
-
-| When | Who | How |
-|------|-----|-----|
-| PR open | CI (automatic) | `smoke-tests`, `forbidden-patterns`, `compile-policy` |
-| Merge to `main` | Pipeline (automatic) | [`.github/workflows/selinux-staging-canary.yml`](.github/workflows/selinux-staging-canary.yml) → `staging-canary` + `staging-endpoint-smoke` |
-| Production cutover | Admin (manual) | **SELinux Policy Deploy** → `enforce` + GitHub `production` Environment approval |
-
-Production is **never** auto-enforced on merge.
-
-Full admin runbook: [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) — soak, canary hosts, enforce gates, deploy report JSON, app team incident card (§12.5), pass/fail examples, and admin sign-off checklist.
-
-### GitHub Actions deploy (recommended)
-
-Requires a **self-hosted runner** on a SELinux host:
-
-| Runner label | Environment | Inventory file |
-|--------------|-------------|----------------|
-| `selinux-staging` | `staging` | `ansible/inventory.staging.yml` (copy from [`inventory.staging.example.yml`](ansible/inventory.staging.example.yml)) |
-| `selinux-production` | `production` | `ansible/inventory.production.yml` (copy from [`inventory.production.example.yml`](ansible/inventory.production.example.yml)) |
-
-1. GitHub → **Actions** → **SELinux Policy Deploy** → **Run workflow**
-2. Choose `canary` on `staging`, monitor AVCs daily: `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0`
-3. After merge to `main`, CI runs **`staging-endpoint-smoke`** (`wait_for_endpoints.sh` + deploy report check on the staging runner)
-4. Deploy to **prod canary host**: `ansible-playbook ... deploy_canary.yml --limit canary` (fails if `canary_max_avc` exceeded, default 0)
-5. After soak (default **7** days; optional **`check_soak_ready.sh --auto-tier`** with `--base-policy` / `--candidate-policy` for blast-radius tiering — fail-closed on classifier errors), run **SELinux Policy Deploy** → `enforce` on `production`. Ansible enforce uses **`collect_soak_facts.sh`** with fixed `soak_min_days` unless you wire tiering on the controller separately ([`classify_policy_blast_radius.sh`](scripts/classify_policy_blast_radius.sh), gated by [`tests/fixtures/blast_radius/`](tests/fixtures/blast_radius/)).
-
-Canary runs **`semodule -DB`** during soak so dontaudit rules do not hide AVCs. Canary, enforce, and rollback playbooks all run **`wait_for_endpoints.sh`** (six HTTP endpoints + backend + **SELinux domain verification**) and write **`/var/lib/myapp/selinux_deploy_report.json`** via **`post_deploy_report.sh`**. Failed canary and rollback restore **`semodule -B`**. Enforce uses an Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive and services are restarted before the playbook fails.
-
-Secrets (optional):
-
-| Secret | Purpose |
-|--------|---------|
-| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL` | Emergency rollback AI patch generation |
-| `INCIDENT_WEBHOOK_URL` | Pass/fail notification from **SELinux Policy Deploy** workflow |
-
-### Reliability scripts (canary / enforce / rollback)
-
-| Script | Purpose |
-|--------|---------|
-| [`scripts/wait_for_endpoints.sh`](scripts/wait_for_endpoints.sh) | Unified systemd + six HTTP endpoint readiness + domain-context check |
-| [`scripts/post_deploy_report.sh`](scripts/post_deploy_report.sh) | Writes `/var/lib/myapp/selinux_deploy_report.json` deploy feedback |
-| [`scripts/lib/vm_ready.sh`](scripts/lib/vm_ready.sh) | Podman VM SSH readiness and recovery hints (macOS demo path) |
-
-### Manual Ansible (AWX/Tower compatible)
-
-#### Canary (permissive domain + policy install)
-
-```bash
-bash scripts/compile_and_validate.sh selinux
-ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
-  --limit canary \
-  -e "policy_pp_src=$(pwd)/selinux/myapp.pp" \
-  -e "policy_artifact_dir=$(pwd)"
-bash scripts/monitor_avc.sh --domain myapp_t --marker-file /var/lib/myapp/selinux_canary_deployed_at
-bash scripts/verify_file_contexts.sh --install-root /opt/myapp --var-dir /var/lib/myapp --log-dir /var/log/myapp
-```
-
-### Enforce production
-
-```bash
-bash scripts/check_soak_ready.sh --domain myapp_t --marker-file /var/lib/myapp/selinux_canary_deployed_at
-ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
-  -e "policy_pp_src=$(pwd)/selinux/myapp.pp" \
-  -e "policy_artifact_dir=$(pwd)"
-# Break-glass only: add -e "force_enforce=true"
-```
-
-### Emergency rollback
-
-```bash
-export OPENAI_API_KEY="your-key"
-ansible-playbook -i ansible/inventory.example.yml ansible/emergency_rollback.yml
-```
-
-Direct apply (without Ansible):
-
-```bash
-# Production canary (keeps myapp_t permissive + soak marker):
-sudo bash scripts/apply_policy.sh --canary policy_out
-
-# Dev/FCOS only — enforces immediately (skips soak gate):
-sudo bash scripts/apply_policy.sh policy_out
+```text
+config/       App manifests (bind ports, probes, domains)
+selinux/      Policy source of truth (.te/.fc, policy_version.txt)
+ansible/      selinux_pac role — canary, soak, enforce, rollback
+packaging/    selinux-policy-ops + <app>-selinux specs; publish_internal.sh
+scripts/      setup_rhel_hosts.sh, compile, ops scripts (also in the ops RPM)
+docs/admin/   RHEL + Ansible runbooks
+docs/developers/  Onboarding, generator, tests
 ```
 
 ---
 
-## macOS developers (Podman VM)
+## Safety
 
-macOS has no SELinux. Run these in **Terminal at the repo root** after one-time setup: `bash scripts/fix_podman.sh`, then `source` the env file (see [docs/SELINUX_TRAINING_LAB.md — Running on macOS](docs/SELINUX_TRAINING_LAB.md#running-on-macos) for where/why each step).
+- Never `force_enforce` without a change ticket. Never copy `soak_min_days: 0` from `inventory.dev.yml` onto prod (enforce refuses it on the `production` group).
+- Optional LLM polishes `pr_summary.md` only. Legacy `--legacy-full-policy` is emergency/controller-only.
+- Host CLI `apply_policy.sh` is **not** the control plane (skips AWX, RPMs, `serial: 1`).
 
-```bash
-source ~/.local/share/selinux-demo/podman/env.sh   # each new shell; puts user-local podman on PATH
-bash scripts/lib/selinux_build_image.sh pull   # docker.io/asaran/selinux-demo-selinux-build:stream9
-bash scripts/run_on_podman_vm.sh setup
-bash scripts/run_on_podman_vm.sh trigger   # all curls inside VM (sync first)
-bash scripts/demo_present.sh --use-vm --demo-mode
-bash scripts/run_on_podman_vm.sh export-avcs
-export OPENAI_API_KEY="your-key"
-bash scripts/run_on_podman_vm.sh generate-policy
-bash scripts/run_on_podman_vm.sh apply-policy
-```
-
----
-
-## Workshop demo (presenter)
-
-**New to the demo?** Follow the learning path: [`docs/SELINUX_BASICS.md`](docs/SELINUX_BASICS.md) → [`docs/SELINUX_TRAINING_LAB.md`](docs/SELINUX_TRAINING_LAB.md) (hands-on) → [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) (10 acts). **New to the codebase?** See [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md).
-
-Paced narration with pauses between acts (dev → PR → canary → guardrails → enforce):
-
-```bash
-export OPENAI_API_KEY="your-key"
-sudo bash scripts/demo_present.sh --demo-mode
-
-# Rehearsal (no pauses):
-sudo bash scripts/demo_present.sh --demo-mode --auto
-
-# macOS (Podman VM for SELinux acts):
-bash scripts/demo_present.sh --use-vm --demo-mode
-
-# No API key (existing policy_out/ artifacts):
-sudo bash scripts/demo_present.sh --skip-ai --demo-mode --acts 1-7
-```
-
-`--demo-mode` bypasses the **7-day soak gate only** for workshop time limits. Production requires full soak per [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md).
-
----
-
-## End-to-end demo (native Linux)
-
-```bash
-export OPENAI_API_KEY="your-key"
-sudo bash scripts/run_demo.sh
-```
-
-Fast unattended path (no narration). Uses `force_enforce=true` on the enforce step for demo compatibility.
-
----
-
-## CLI reference
-
-**Wrapper:** `bash scripts/selinux-gen` (alias for `cli/selinux_gen.py`)
-
-| Flag | Description |
-|------|-------------|
-| `--app-name` | Module name (default: `myapp`) |
-| `--audit-log` / `--avc-file` | AVC input file |
-| `--existing-te` / `--existing-fc` | Policy to extend |
-| `--bump-version` | Increment `selinux/policy_version.txt` |
-| `--generate-only` | Write artifacts only (no install) |
-| `--validate-compile` | Compile-check via checkmodule or podman |
-| `--apply` | Compile + `semodule -i` (root) |
-
-Environment: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_MODEL`, `OPENAI_TIMEOUT`.
-
----
-
-## Safety notes
-
-- Policy source of truth: **`selinux/`** — never commit API keys. Compiled **`selinux/myapp.pp`** is a CI artifact (build with `compile_and_validate.sh` before deploy); `policy_out/*.pp` is generation output.
-- **SemVer:** single source of truth is **`selinux/policy_version.txt`** — keep `policy_module(myapp, …)` in `.te` in sync (CI **`version-consistency`**). RPM **`Version:`** comes from that file via [`packaging/build_rpms.sh`](packaging/build_rpms.sh). Ansible reads the same file at runtime (no hardcoded version in inventory).
-- Unlike blind `audit2allow`, this workflow uses **AI + forbidden-pattern CI + semantic `sesearch` checks + human review** — see [docs/SELINUX_BEST_PRACTICES.md](docs/SELINUX_BEST_PRACTICES.md).
-- **`semodule -i`** upgrades the module in place — no `semodule -r` step before install (handled in `apply_policy.sh` and Ansible).
-- Path labels come from **`myapp.fc`** — run **`restorecon`** after install; `.fc` is the source of truth (no manual `chcon`).
-- AI-generated `.te` files must use **`policy_module()`** syntax; the CLI includes compile-retry.
-
-This is a **proof of concept**. All AI-generated policy requires human security review before production.
-
----
-
-## Documentation
-
-| Guide | For |
-|-------|-----|
-| [docs/README.md](docs/README.md) | **Start here** — reading order, where/why convention, index of all guides |
-| [docs/DETERMINISTIC_POLICY.md](docs/DETERMINISTIC_POLICY.md) | **Default generator** — house rules, sepolgen banners, `findings.json`, fixture catalog |
-| [docs/DOCKER_HUB_COMPILE_IMAGE.md](docs/DOCKER_HUB_COMPILE_IMAGE.md) | **Published** `asaran/selinux-demo-selinux-build:stream9` — pull-first, Mac repair, republish |
-| [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | **Code tour (beginner-friendly)** — repo map, plain-English pipeline, then scripts/CLI/CI |
-| [docs/SELINUX_BASICS.md](docs/SELINUX_BASICS.md) | **New to SELinux** — labels, `.te`/`.fc`/`.pp`, `restorecon`, `semanage` commands with example output |
-| [docs/SELINUX_TRAINING_LAB.md](docs/SELINUX_TRAINING_LAB.md) | **Hands-on course** — 10 labs with commands and sample outputs before the workshop |
-| [docs/TESTING.md](docs/TESTING.md) | **All test cases** — six HTTP endpoints, `smoke_test.py`, CI jobs, soak/enforce gates |
-| [docs/ANSIBLE_OPERATIONS.md](docs/ANSIBLE_OPERATIONS.md) | **Ansible / AWX** — job templates, soak monitor, enforce workflow |
-| [ansible/README.md](ansible/README.md) | **Ansible playbooks** — canary, soak, enforce, rollback task order and variables |
-| [docs/TEKTON.md](docs/TEKTON.md) | **Tekton** — PR/release pipelines (deploy via Ansible) |
-| [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) | Workshop demo for newbies — 10 acts, example output, observer vs presenter paths |
-| [docs/examples/](docs/examples/) | **Curated PR samples** — `pr_summary.example.md` and `pr_body.example.md` for Act 4 when staging is unavailable |
-| [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Post-demo admin runbook — soak, canary hosts, enforce gates, deploy report JSON, incident card §12.5, pass/fail examples |
-| [docs/SELINUX_BEST_PRACTICES.md](docs/SELINUX_BEST_PRACTICES.md) | **Policy-as-Code principles** — refpolicy interfaces, labeling, CI gates, soak/enforce anti-patterns (admin + reviewer checklist) |
+Podman / `--use-vm` is a laptop **backup** when the RHEL boxes are not available: [docs/training/SELINUX_TRAINING_LAB.md](docs/training/SELINUX_TRAINING_LAB.md).

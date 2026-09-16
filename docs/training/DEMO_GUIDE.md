@@ -6,12 +6,14 @@ This guide helps **newcomers**, **presenters**, and **observers** understand and
 
 | You are… | Read first | Then |
 |----------|------------|------|
-| **Completely new to SELinux** | [SELINUX_BASICS.md](SELINUX_BASICS.md) sections 1–7 (~15 min) | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (commands + outputs), then this guide sections 1–4 |
+| **Completely new to SELinux** | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) sections 1–7 (~15 min) | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (commands + outputs), then this guide sections 1–4 |
 | **Watching a colleague present** | Sections 1–4 below | Follow along during the 10 acts |
 | **Presenting the workshop** | Whole guide + rehearse with `--auto --demo-mode` | Presenter checklist (section 13) |
-| **Running the app team workflow after the demo** | [README.md](../README.md) developer section | `dev_generate_policy.sh` |
+| **Running the app team workflow after the demo** | [README.md](../../README.md) developer section | `dev_generate_policy.sh` |
 
-**Learning path:** [SELINUX_BASICS.md](SELINUX_BASICS.md) (concepts) → **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (hands-on) → **this guide** (workshop) → [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) (admin rollout). **All docs:** [README.md](README.md).
+**Learning path:** [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) (concepts) → **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (hands-on on **RHEL dev**) → **this guide** (workshop) → [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (two boxes) → [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) (AWX) → [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) (admin rollout). **All docs:** [README.md](../README.md).
+
+Prefer presenting on the **RHEL two-host lab**. `--use-vm` is a **backup** when those boxes are not available.
 
 ---
 
@@ -30,11 +32,11 @@ This demo shows how an application team and a security admin work together to up
 9. After a **soak period** (days in production; minutes in demo mode), the admin **enforces** — denials now block the app if policy is incomplete.
 10. If something breaks, **rollback** puts the domain back to permissive instantly.
 
-The presenter script [`scripts/demo_present.sh`](../scripts/demo_present.sh) walks through all of this with pauses between steps.
+The presenter script [`scripts/demo_present.sh`](../../scripts/demo_present.sh) walks through all of this with pauses between steps.
 
 ---
 
-## 2. Demo vocabulary (for newbies)
+## 2. Demo vocabulary
 
 | Term | Plain English |
 |------|---------------|
@@ -45,16 +47,16 @@ The presenter script [`scripts/demo_present.sh`](../scripts/demo_present.sh) wal
 | **semanage** | Linux command that edits SELinux’s **live policy database** (per-domain permissive, ports, booleans) — not the same as editing `.te` in Git |
 | **Enforce** | Remove permissive — denials now **block** the app (`semanage permissive -d myapp_t`) |
 | **Canary deploy** | Install real policy on a host, but keep the domain permissive while you watch for problems |
-| **Soak** | Run in permissive canary for **7–14 days** (production) to catch weekly jobs, cron, logrotate |
-| **PR handoff** | Assembled markdown (`policy_out/pr_body.md`) admins review — curated sample: [`docs/examples/pr_body.example.md`](examples/pr_body.example.md) |
+| **Soak** | Run in permissive canary for **7–14 days** (production); gate on **net-new** needs vs installed policy |
+| **PR handoff** | Assembled markdown (`policy_out/pr_body.md`) admins review — curated sample: [`docs/examples/pr_body.example.md`](../examples/pr_body.example.md) |
 | **CI** | Automated checks on every PR: compile policy + block wildcards and high-privilege allows |
 | **Demo mode (`--demo-mode`)** | Workshop shortcut — skips the 7-day calendar wait only; everything else is real |
 | **`getenforce`** | Whole-system SELinux mode — stays **Enforcing** throughout this demo |
 | **`avc.log` filter** | Only **myapp-related** denials exported — not every domain on the host |
 
-Confused about labels, `.te`/`.fc`, `restorecon`, or the two-layer model? See [SELINUX_BASICS.md §7–7.5](SELINUX_BASICS.md).
+Confused about labels, `.te`/`.fc`, `restorecon`, or the two-layer model? See [SELINUX_BASICS.md §7–7.5](../policy/SELINUX_BASICS.md).
 
-Endpoint and CI test reference: [TESTING.md](TESTING.md). Ansible playbook details: [../ansible/README.md](../ansible/README.md).
+Endpoint and CI test reference: [TESTING.md](../developers/TESTING.md). Ansible playbook details: [../ansible/README.md](../../ansible/README.md).
 
 ---
 
@@ -75,9 +77,9 @@ The **Order Processor** is a Flask app on port **8888**. Each endpoint exercises
 
 **Note:** `/rotate-log` simulates log rotation from Flask in `myapp_t`. It does **not** run system `logrotate` as `logrotate_t` — real production soak must exercise actual schedulers.
 
-Full SELinux walkthrough of `/save-log`: [SELINUX_BASICS.md §9](SELINUX_BASICS.md).
+Full SELinux walkthrough of `/save-log`: [SELINUX_BASICS.md §9](../policy/SELINUX_BASICS.md).
 
-**Act 1 flow:** [`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) curls all six paths + backend health in **one pass**, then Act 1 prints **`wc -l`** and **`head -1`** of **`policy_out/avc.log`** (live export on Mac VM, or offline fixture with `--skip-ai`). Act 2 narrates the same file for policy generation.
+**Act 1 flow:** [`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh) curls all six paths + backend health in **one pass**, then Act 1 prints **`wc -l`** and **`head -1`** of **`policy_out/avc.log`** (live export on Mac VM, or offline fixture with `--skip-ai`). Act 2 narrates the same file for policy generation.
 
 ---
 
@@ -101,7 +103,7 @@ Acts 1–5 = app team story. Acts 6–10 = admin story. The presenter script cov
 | **`run_demo.sh`** | Quick unattended run on native Linux | No | Partial — skips PR narration |
 | **`dev_generate_policy.sh`** | Real developer workflow (not a staged demo) | No | Developer path only |
 
-**Demo prep (recommended first run):** from repo root, no flags — built-in demo-mode, offline fixtures, and Podman VM on macOS. Act 1 uses **staged integration probes** (see §3).
+**Demo prep (recommended first run):** from repo root on the **RHEL dev** box. On a laptop without RHEL, `run_demo_prep.sh` falls back to the Podman VM. Act 1 uses **staged integration probes** (see §3).
 
 ```bash
 bash scripts/run_demo_prep.sh
@@ -115,10 +117,10 @@ flowchart TD
   Live -->|yes| Present["demo_present.sh --demo-mode"]
   Live -->|no rehearsal| Auto["demo_present.sh --demo-mode --auto"]
   Start --> Quick[run_demo.sh for fast unattended run]
-  Present --> MacOS{On macOS?}
-  Auto --> MacOS
-  MacOS -->|yes| UseVM[Add --use-vm flag]
-  MacOS -->|no| Sudo[Use sudo on native Linux]
+  Present --> Host{Two RHEL boxes?}
+  Auto --> Host
+  Host -->|yes| Sudo[SSH to rhel-dev; sudo demo_present.sh]
+  Host -->|no backup| UseVM[Mac: add --use-vm]
 ```
 
 **First-time presenters:** rehearse with `--demo-mode --auto` once, then present live without `--auto`.
@@ -134,9 +136,11 @@ flowchart TD
 - **`OPENAI_API_KEY`** set (unless using `--skip-ai`, which stages [`docs/examples/fixtures/skip_ai/`](../examples/fixtures/skip_ai/))
 - Optional: `OPENAI_BASE_URL` / `OPENAI_API_MODEL` for LiteLLM or other OpenAI-compatible endpoints
 
-**Don't have an API key?** Use `--skip-ai` — fixtures populate `policy_out/` with a deterministic baseline→generated diff (see `docs/examples/fixtures/skip_ai/README.md`). For live AVC classification without any API, the default engine is **`deterministic_gen.py`** ([`DETERMINISTIC_POLICY.md`](DETERMINISTIC_POLICY.md)).
+**Don't have an API key?** Use `--skip-ai` — fixtures populate `policy_out/` with a deterministic baseline→generated diff (see `docs/examples/fixtures/skip_ai/README.md`). For live AVC classification without any API, the default engine is **`deterministic_gen.py`** ([`DETERMINISTIC_POLICY.md`](../developers/DETERMINISTIC_POLICY.md)).
 
-### Native Linux (RHEL, Fedora, FCOS VM)
+### Native Linux (RHEL two-host preferred)
+
+Preferred lab: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — present on **rhel-dev**.
 
 - Root or `sudo` (SELinux policy install requires it)
 - SELinux **Enforcing** at OS level (app domain set permissive separately — see Basics §7)
@@ -144,7 +148,7 @@ flowchart TD
 - Acts **6–10** need Ansible collections: `ansible-galaxy collection install -r ansible/requirements.yml` (or let `demo_present.sh` / `run_demo_prep.sh` install them before act 6)
 - Port **8888** free on localhost
 
-### macOS
+### macOS (backup — no RHEL boxes yet)
 
 SELinux does **not** run natively on macOS. Use **Podman Machine** — same flow as the training lab.
 
@@ -168,8 +172,8 @@ Step-by-step tables: [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAI
 
 | Platform | Where you type | Command pattern |
 |----------|----------------|-----------------|
-| **Native Linux** | SSH or console on SELinux host, **repo root** | `sudo bash scripts/demo_present.sh …` |
-| **macOS** | Mac Terminal, **repo root** (after `source env.sh`) | `bash scripts/demo_present.sh --use-vm …` (no `sudo` on Mac) |
+| **RHEL two-host** | SSH to **rhel-dev**, **repo root** | `sudo bash scripts/demo_present.sh …` |
+| **macOS (backup)** | Mac Terminal, **repo root** (after `source env.sh`) | `bash scripts/demo_present.sh --use-vm …` (no `sudo` on Mac) |
 
 ### First rehearsal (recommended)
 
@@ -183,15 +187,15 @@ Fast unattended dry run (low-level script with flags):
 
 ```bash
 bash scripts/demo_present.sh --demo-mode --skip-ai --auto
-# macOS add: --use-vm
+# Backup only (no RHEL): add --use-vm
 ```
 
 With live OpenAI generation instead of fixtures:
 
 ```bash
 export OPENAI_API_KEY="your-key"
-sudo bash scripts/demo_present.sh --demo-mode --auto          # Linux
-bash scripts/demo_present.sh --use-vm --demo-mode --auto      # macOS
+sudo bash scripts/demo_present.sh --demo-mode --auto          # RHEL dev
+bash scripts/demo_present.sh --use-vm --demo-mode --auto      # backup: macOS Podman
 ```
 
 **Expected start of output (run_demo_prep.sh):**
@@ -237,14 +241,14 @@ Requires no pre-existing `policy_out/` — `--skip-ai` stages fixtures at demo s
 | Topic | Production | Workshop (`--demo-mode`) |
 |-------|------------|---------------------------|
 | Permissive soak | **7–14 real days** | Act 8 pre-seeds an 8-day-old marker |
-| Enforce gate | `check_soak_ready.sh` must pass (soak + AVCs + deploy report) | Act 9 uses `force_enforce=true` (break-glass) |
+| Enforce gate | Soak + **net-new** AVCs + deploy report (`soak_status.yml`) | Act 9 uses `force_enforce=true` (break-glass) |
 | Everything else | Same commands | **Real** — not simulated |
 
 **Say this to the audience before Act 8:**
 
 > "In production we wait a full business cycle so weekly cron and logrotate fire. Demo mode only skips the calendar — CI, labeling checks, and canary deploy are all real."
 
-Never use `force_enforce=true` in real production without documented approval. See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+Never use `force_enforce=true` in real production without documented approval. See [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md).
 
 ---
 
@@ -291,7 +295,7 @@ $ head -1 policy_out/avc.log
 type=AVC msg=audit(...): avc: denied { write } ...
 ```
 
-**SELinux concept:** Per-domain permissive (two-layer model) — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
+**SELinux concept:** Per-domain permissive (two-layer model) — [SELINUX_BASICS.md §7](../policy/SELINUX_BASICS.md).
 
 **Talking point:** *"SSH, systemd, and everything else stay enforcing — only our app domain is log-only so we can collect accurate AVC evidence without blocking the demo."*
 
@@ -317,7 +321,7 @@ type=AVC msg=audit(...): avc: denied { write } for comm="python3"
 
 All exported lines should show `myapp_t` in `scontext` and `permissive=1` during staging.
 
-**SELinux concept:** Reading AVC lines and export filter — [SELINUX_BASICS.md §8](SELINUX_BASICS.md).
+**SELinux concept:** Reading AVC lines and export filter — [SELINUX_BASICS.md §8](../policy/SELINUX_BASICS.md).
 
 **Talking point:** *"Every line here is myapp evidence from our tests — not SSH or cron denials from the rest of the server."*
 
@@ -341,7 +345,7 @@ Wrote policy_out/pr_summary.md
 Calling model 'gpt-4o-mini' for pr_summary narrative only...
 ```
 
-**SELinux concept:** `.te` allow rules — [SELINUX_BASICS.md §5](SELINUX_BASICS.md).
+**SELinux concept:** `.te` allow rules — [SELINUX_BASICS.md §5](../policy/SELINUX_BASICS.md).
 
 **Talking point:** *"Policy is merged into the existing module — not replaced blindly. CI writes the rules; the model only helps admins read the PR summary if we enable it."*
 
@@ -375,7 +379,7 @@ bash scripts/open_demo_policy_pr.sh --reuse-pr-body   # needs gh auth login
 # offline PR body only: add --push-only and open PR in browser (base demo/policy-base-1.1.1, head policy/myapp-update)
 ```
 
-Then share the PR URL — **Checks** tab runs [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selinux-policy-ci.yml).
+Then share the PR URL — **Checks** tab runs [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml).
 
 ---
 
@@ -383,7 +387,7 @@ Then share the PR URL — **Checks** tab runs [`.github/workflows/selinux-policy
 
 **In plain English:** Run the same checks GitHub Actions runs before merge.
 
-**What runs:** Same jobs as [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selinux-policy-ci.yml) — e.g. `validate_forbidden_patterns.sh`, `validate_version_consistency.sh`, `compile_and_validate.sh`, `validate_policy_semantics.sh`, `run_blast_radius_fixtures.sh` (Podman), `ansible-lint`. PRs also get **`policy-diff-comment`** (merge-base access delta).
+**What runs:** Same jobs as [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) — e.g. `validate_forbidden_patterns.sh`, `validate_version_consistency.sh`, `compile_and_validate.sh`, `validate_policy_semantics.sh`, `run_blast_radius_fixtures.sh` (Podman), `ansible-lint`. PRs also get **`policy-diff-comment`** (merge-base access delta).
 
 **What you should see:**
 
@@ -423,7 +427,7 @@ $ curl -sf http://127.0.0.1:8888/notify-socket
 
 **Canary playbook checks:** after restart, Ansible waits for `:8888/`, `:8889/health`, and `GET /notify-socket`, then curls `/save-log`, `/run-script`, `/rotate-log`, `/probe-backend`, and `/notify-socket`.
 
-**SELinux concept:** `semodule -i` + `restorecon` — [SELINUX_BASICS.md §5–6](SELINUX_BASICS.md). Two permissive phases — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
+**SELinux concept:** `semodule -i` + `restorecon` — [SELINUX_BASICS.md §5–6](../policy/SELINUX_BASICS.md). Two permissive phases — [SELINUX_BASICS.md §7](../policy/SELINUX_BASICS.md).
 
 **Talking point:** *"We deploy the real module early, but we don't enforce until we've watched production-like workloads for a full business cycle."*
 
@@ -446,7 +450,7 @@ Soak marker written: `/var/lib/myapp/selinux_canary_deployed_at` (soak clock sta
 [INFO] AVC report: domain=myapp_t since=... count=0
 ```
 
-**SELinux concept:** `restorecon -n` dry-run — [SELINUX_BASICS.md §6](SELINUX_BASICS.md).
+**SELinux concept:** `restorecon -n` dry-run — [SELINUX_BASICS.md §6](../policy/SELINUX_BASICS.md).
 
 **Talking point:** *"The most common production surprise is wrong file labels on existing data — we verify before restart."*
 
@@ -454,7 +458,7 @@ Soak marker written: `/var/lib/myapp/selinux_canary_deployed_at` (soak clock sta
 
 ### Act 8 — Soak period (Admin)
 
-**In plain English:** In production, the admin waits **7–14 real days** after canary deploy while `myapp_t` stays permissive and daily monitoring confirms zero new AVCs. Demo mode pre-seeds an old marker to show the gate passing.
+**In plain English:** In production, the admin waits **7–14 real days** after canary deploy while `myapp_t` stays permissive and **Ansible soak_monitor** confirms **zero net-new** access needs vs installed policy. Demo mode pre-seeds an old marker to show the gate passing.
 
 **Production soak checklist:**
 
@@ -462,10 +466,10 @@ Soak marker written: `/var/lib/myapp/selinux_canary_deployed_at` (soak clock sta
 |------|----------------|
 | Day 0 | Canary deploy writes `/var/lib/myapp/selinux_canary_deployed_at` |
 | Days 1–14 | `myapp_t` still permissive; `getenforce` still Enforcing |
-| Daily | `bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0` |
-| Before enforce | `check_soak_ready.sh` — marker age ≥ 7 days, zero new `myapp_t` AVCs, **and** passing deploy report at `/var/lib/myapp/selinux_deploy_report.json` |
+| Daily | AWX **Soak monitor** (`soak_monitor.yml`) — net-new vs `sesearch` |
+| Before enforce | `soak_status.yml` — marker age ≥ 7 days, `net_new_count=0`, passing deploy report |
 
-**What runs:** `check_soak_ready.sh` (passes in `--demo-mode` after marker is pre-seeded).
+**What runs:** `check_soak_ready.sh` in the demo (passes in `--demo-mode` after marker is pre-seeded). Production uses the same facts via Ansible.
 
 **What you should see (demo mode):**
 
@@ -480,7 +484,7 @@ Soak marker written: `/var/lib/myapp/selinux_canary_deployed_at` (soak clock sta
 [ERROR] Soak period not met — wait 6 more day(s)
 ```
 
-**SELinux concept:** Soak timeline — [SELINUX_BASICS.md §7.5](SELINUX_BASICS.md), [PRODUCTION_READINESS.md §3.5](PRODUCTION_READINESS.md).
+**SELinux concept:** Soak timeline — [SELINUX_BASICS.md §7.5](../policy/SELINUX_BASICS.md), [PRODUCTION_READINESS.md §3.5](../admin/PRODUCTION_READINESS.md).
 
 **Talking point:** *"In production we wait a full business cycle so weekly cron and logrotate fire. Demo mode only skips the calendar — permissive semantics are real."*
 
@@ -517,7 +521,7 @@ $ cat /var/lib/myapp/selinux_deploy_report.json
 
 Playbook output should show `failed=0` on **Production smoke tests (unified endpoint wait)** and **Write enforce deploy report**. If enforce fails, Ansible **block/rescue** restores `myapp_t` to permissive and restarts services before failing.
 
-**SELinux concept:** `semanage permissive -d` — [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
+**SELinux concept:** `semanage permissive -d` — [SELINUX_BASICS.md §7](../policy/SELINUX_BASICS.md).
 
 **Talking point:** *"After enforce, any missing permission becomes a hard denial — that's why soak and monitoring matter."*
 
@@ -539,7 +543,7 @@ Playbook output should show `failed=0` on **Production smoke tests (unified endp
 
 **Talking point:** *"If enforce causes an outage, the first move is permissive domain — not disabling SELinux globally."*
 
-Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
+Details: [PRODUCTION_READINESS.md §12](../admin/PRODUCTION_READINESS.md).
 
 ---
 
@@ -585,12 +589,12 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `policy_out/avc_summary.txt` | Merged net-new access needs (LLM input) |
 | `policy_out/pr_summary.md` | Plain-English summary for admins (live); sample: [`docs/examples/pr_summary.example.md`](../examples/pr_summary.example.md) |
 | `policy_out/pr_body.md` | Assembled GitHub PR body (live); sample: [`docs/examples/pr_body.example.md`](../examples/pr_body.example.md) |
-| `ansible/deploy_canary.yml` | Permissive canary deploy — see [ansible/README.md](../ansible/README.md) |
-| `ansible/enforce_production.yml` | Remove permissive + enforce — see [ansible/README.md](../ansible/README.md) |
-| `ansible/emergency_rollback.yml` | Outage response — see [ansible/README.md](../ansible/README.md) |
+| `ansible/deploy_canary.yml` | Permissive canary deploy — see [ansible/README.md](../../ansible/README.md) |
+| `ansible/enforce_production.yml` | Remove permissive + enforce — see [ansible/README.md](../../ansible/README.md) |
+| `ansible/emergency_rollback.yml` | Outage response — see [ansible/README.md](../../ansible/README.md) |
 | `scripts/lib/integration_probes.sh` | Act 1 / Lab 7 / VM `trigger` — all HTTP probes in one pass |
 | `scripts/wait_for_endpoints.sh` | Unified systemd + six HTTP endpoint readiness (canary/enforce gates) |
-| `docs/TESTING.md` | Full test matrix (endpoints, smoke_test.py, CI, gates) |
+| `docs/developers/TESTING.md` | Full test matrix (endpoints, smoke_test.py, CI, gates) |
 | `scripts/post_deploy_report.sh` | JSON deploy feedback → `/var/lib/myapp/selinux_deploy_report.json` |
 | `scripts/lib/vm_ready.sh` | Podman VM SSH readiness + recovery hints |
 | `.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md` | Admin review template |
@@ -608,7 +612,7 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 | `connection refused` before compile | Podman machine stopped | `compile_and_validate.sh` now waits for VM — retry; run `bash scripts/fix_podman.sh` |
 | No AVC lines exported | `wc -l` shows 0 | Re-run Act 1; check `systemctl status auditd` |
 | AI generation fails | HTTP/timeout errors | Check `OPENAI_BASE_URL`; use `--skip-ai` |
-| Compile fails on macOS | Podman overlay/readlink errors | `source …/podman/env.sh`; `bash scripts/repair_podman_machine.sh`; `bash scripts/lib/selinux_build_image.sh pull` — [`DOCKER_HUB_COMPILE_IMAGE.md`](DOCKER_HUB_COMPILE_IMAGE.md) |
+| Compile fails on macOS | Podman overlay/readlink errors | `source …/podman/env.sh`; `bash scripts/repair_podman_machine.sh`; `bash scripts/lib/selinux_build_image.sh pull` — [`DOCKER_HUB_COMPILE_IMAGE.md`](../admin/COMPILE_IMAGE.md) |
 | Enforce fails (no demo mode) | `Soak period not met` | Use `--demo-mode` for workshops |
 | `/notify-socket` fails after enforce | Stale socket or backend not listening | Check `journalctl -u myapp-backend`; Ansible removes stale socket before restart |
 | `/probe-backend` Permission denied | Missing TCP `getopt` or backend down | Confirm `:8889/health`; check AVC for `tcp_socket getopt` |
@@ -622,7 +626,7 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 
 **Before the session:**
 
-- [ ] Read [SELINUX_BASICS.md](SELINUX_BASICS.md) sections 3–7 if new to SELinux
+- [ ] Read [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) sections 3–7 if new to SELinux
 - [ ] Rehearse with `--demo-mode --auto` once on your platform
 - [ ] Confirm `OPENAI_API_KEY` works (or prepare `--skip-ai`)
 - [ ] Terminal font size readable for audience
@@ -638,21 +642,21 @@ Details: [PRODUCTION_READINESS.md §12](PRODUCTION_READINESS.md).
 
 **After the session:**
 
-- [ ] Point admins to [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)
-- [ ] Point developers to `dev_generate_policy.sh` and [README.md](../README.md)
+- [ ] Point admins to [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md)
+- [ ] Point developers to `dev_generate_policy.sh` and [README.md](../../README.md)
 
 ---
 
 ## 15. Quick command reference
 
 ```bash
-# Full paced workshop
+# Full paced workshop (RHEL dev)
 sudo bash scripts/demo_present.sh --demo-mode
 
 # Rehearsal (no pauses)
 sudo bash scripts/demo_present.sh --demo-mode --auto
 
-# macOS
+# Backup: macOS + Podman VM
 bash scripts/demo_present.sh --use-vm --demo-mode
 
 # Fast unattended (no narration)
@@ -668,8 +672,8 @@ bash scripts/demo_present.sh --help
 
 | Guide | Sections to read | Audience |
 |-------|------------------|----------|
-| [SELINUX_BASICS.md](SELINUX_BASICS.md) | §1–7 concepts; §9 worked example | New to SELinux |
-| [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md) | §1–4 policy + CI principles | Authors and reviewers |
+| [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | §1–7 concepts; §9 worked example | New to SELinux |
+| [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) | §1–4 policy + CI principles | Authors and reviewers |
 | **This file** | §1–4 before demo; §9 during demo | Presenters and observers |
-| [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | §1–14 after demo | RHEL admins |
-| [README.md](../README.md) | Self-service table | Day-to-day commands |
+| [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | §1–14 after demo | RHEL admins |
+| [README.md](../../README.md) | Self-service table | Day-to-day commands |

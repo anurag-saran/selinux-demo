@@ -2,13 +2,15 @@
 
 Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real RHEL/FCOS hosts. It does **not** install the application for the first time — use [`scripts/setup_staging_env.sh`](../scripts/setup_staging_env.sh) for that.
 
+**AWX job templates and soak workflow:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md).
+
 **Where commands run:**
 
 | What | Where |
 |------|--------|
 | `ansible-playbook …` | **Controller** (your laptop or CI runner) with SSH to inventory hosts |
 | `semanage`, `semodule`, soak scripts on hosts | **Target RHEL/Stream machines** in inventory |
-| `compile_and_validate.sh` before deploy | **Repo root** on controller (often with Podman — [DOCKER_HUB_COMPILE_IMAGE.md](../docs/DOCKER_HUB_COMPILE_IMAGE.md)) |
+| `compile_and_validate.sh` before deploy | **Repo root** on controller (RHEL devel, or compile image as **backup** — [COMPILE_IMAGE.md](../docs/admin/COMPILE_IMAGE.md)) |
 
 **Doc index:** [docs/README.md](../docs/README.md).
 
@@ -24,7 +26,7 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 
 Playbooks delegate to role [`roles/selinux_pac/`](roles/selinux_pac/). Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Demo/lab sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the checkout `scripts/` tree.
 
-Testing matrix: [`docs/TESTING.md`](../docs/TESTING.md). Admin runbook: [`docs/PRODUCTION_READINESS.md`](../docs/PRODUCTION_READINESS.md). Policy compiles on admin laptops via Podman: pull [`docs/DOCKER_HUB_COMPILE_IMAGE.md`](../docs/DOCKER_HUB_COMPILE_IMAGE.md) (`asaran/selinux-demo-selinux-build:stream9`).
+**Ansible / AWX hub:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md). Two-host lab: [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md). Testing matrix: [`docs/developers/TESTING.md`](../docs/developers/TESTING.md). Admin runbook: [`docs/admin/PRODUCTION_READINESS.md`](../docs/admin/PRODUCTION_READINESS.md). Laptop compile **backup:** [`docs/admin/COMPILE_IMAGE.md`](../docs/admin/COMPILE_IMAGE.md) (`asaran/selinux-demo-selinux-build:stream9`).
 
 ---
 
@@ -50,9 +52,10 @@ Collections: `community.general` (`selinux_permissive`, `seport`), `ansible.posi
 
 | File | Use |
 |------|-----|
-| [`inventory.example.yml`](inventory.example.yml) | Local / lab |
-| [`inventory.staging.example.yml`](inventory.staging.example.yml) | Staging runner |
-| [`inventory.production.example.yml`](inventory.production.example.yml) | Prod canary + fleet |
+| [`inventory.dev.example.yml`](inventory.dev.example.yml) | **RHEL dev box** (SSH from controller) — generate with `setup_rhel_hosts.sh` |
+| [`inventory.production.example.yml`](inventory.production.example.yml) | **RHEL prod box** (canary + production groups) |
+| [`inventory.staging.example.yml`](inventory.staging.example.yml) | Ansible **on** the staging host (`connection: local`) |
+| [`inventory.example.yml`](inventory.example.yml) | Local / single-host **backup** (Ansible on the box) |
 
 ---
 
@@ -64,15 +67,12 @@ Build the module before deploy (`.pp` is not committed). RPM version is taken fr
 bash scripts/compile_and_validate.sh selinux
 ```
 
-**Lab / staging (checkout on host or controller):** pass controller paths — see [`inventory.example.yml`](inventory.example.yml).
+**Two RHEL boxes (preferred):** [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md) — `bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …`.
+
+**Lab / checkout on the controller targeting DEV** (`inventory.dev.yml` already sets checkout paths):
 
 ```bash
-ansible-playbook -i ansible/inventory.example.yml ansible/deploy_canary.yml \
-  -e "policy_pp_src=$(pwd)/selinux/myapp.pp" \
-  -e "policy_artifact_dir=$(pwd)" \
-  -e "selinux_ops_from_package=false" \
-  -e "selinux_ops_dir=$(pwd)/scripts" \
-  -e "app_manifest_path=$(pwd)/config/myapp.manifest.yml"
+ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 ```
 
 **Production (no git on target):** install RPMs built from [`packaging/build_rpms.sh`](../packaging/build_rpms.sh) (`selinux-policy-ops`, `myapp-selinux-<version>`). Inventory sets `selinux_ops_from_package: true`, `app_manifest_path: /etc/myapp/selinux-manifest.yml`, and leaves `policy_pp_src` empty when the module comes only from the RPM.
@@ -98,19 +98,24 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/selinux
 | `policy_artifact_dir` | controller repo or `dist/` | **Controller only** — never used in remote `command` paths |
 | `policy_pp_src` | `…/selinux/myapp.pp` | **Controller only** — copied to `policy_staging_path` on target; empty when RPM-only |
 | `policy_staging_path` | `/var/lib/selinux-policy-staging/myapp.pp` | Target path for `semodule -i` |
-| `app_manifest_path` | `/etc/myapp/selinux-manifest.yml` (prod) or checkout `config/*.manifest.yml` (lab) | Passed to all `--manifest` ops scripts |
+| `app_manifest_path` | `/etc/myapp/selinux-manifest.yml` (prod) or checkout `config/*.manifest.yml` (lab) | Passed to all `--manifest` ops scripts; role **loads ports, units, paths** |
+| `http_probe_host` | `127.0.0.1` or canary VIP | Curl target; **not** the bind port (ports stay in `selinux_ports`) |
 | `soak_marker_file` | `{{ var_dir }}/selinux_canary_deployed_at` | Epoch file for soak clock |
 | `soak_min_days` | `7` | Minimum soak days (enforce gate) |
-| `soak_max_avc` | `0` | Max domain AVCs since marker |
+| `soak_max_avc` | `0` | Max raw AVCs since marker (used when net-new fail-closed) |
+| `soak_max_net_new` | `0` | Max **net-new** access needs vs installed policy |
+| `soak_use_net_new` | `true` | Prefer net-new gate in `enforce.yml` |
 | `canary_max_avc` | `0` | Max recent AVCs right after canary deploy |
-| `force_enforce` | `false` | Skip soak gate (break-glass) |
+| `selinux_pac_install_demo_units` | `false` | Lab only: copy `app/*.service` |
+| `force_enforce` | `false` | Skip soak gate (break-glass); **requires** `change_ticket` |
+| `change_ticket` | `CHG123` | **Required** on enforce (AWX survey) |
 | `rollback_dnf_version` | *(unset)* | e.g. `1.1.1-1` → `dnf downgrade myapp-selinux-…` on emergency rollback |
 
 **Deprecated (do not use on production targets):** `project_root`, `policy_pp_path`, `policy-history/`, `rollback_target_version`.
 
 **Optional blast-radius soak tier (`check_soak_ready.sh` on controller):** pass **`--auto-tier`** with **`--base-policy`** and **`--candidate-policy`** (paths to `.te`/`.pp` for previous vs candidate module). The script calls [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) (sesearch rule diff, not `sediff`). On classifier error or `fail_closed` JSON, minimum soak stays at **`soak_min_days`** (default 7) — never shortens the gate on failure. Tier logic is gated by CI job **`blast-radius`** ([`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/)).
 
-**Ansible enforce role** uses fixed **`soak_min_days`** via **`collect_soak_facts.sh`** unless you extend the role to pass tiering inputs.
+**Ansible enforce role** uses **`collect_soak_facts.sh`** with `soak_min_days` plus **`avc_net_new_count`**. `sesearch` (`setools-console`) is required on canary/prod.
 
 **Deprecated:** hardcoding `policy_version` in inventory — the role loads **`policy_version.txt`** from `policy_artifact_dir` (e.g. `policy_out/`) or **`selinux/policy_version.txt`** beside it.
 
@@ -143,8 +148,8 @@ Implements role phase **`canary`** ([`roles/selinux_pac/tasks/canary.yml`](roles
 | 1 | Install ops + app RPM (optional) | When `selinux_ops_from_package` |
 | 2 | Stage `.pp` from controller → `semodule -i` | When `policy_pp_src` set |
 | 3 | `semodule -DB` | Host-wide dontaudit off for soak |
-| 4 | `seport` 8888 / 8889 | When semanage available |
-| 5 | Permissive domain (+ FCOS overlay if needed) | RHEL: `semanage permissive`. FCOS (no `semanage`): install compiled **`selinux/myapp_canary.pp`** from controller (`stub_policy_src`, not under `policy_out/`). Build with `POLICY_MODULE=myapp_canary bash scripts/compile_and_validate.sh selinux`. FCOS also loads **`selinux/myapp_ports.cil`** when `seport` is skipped (8888/8889). |
+| 4 | `seport` from manifest `selinux_ports` | When semanage available; loop `item.port` / `item.proto` / `item.type` |
+| 5 | Permissive domain (+ FCOS overlay if needed) | RHEL: `semanage permissive`. FCOS (no `semanage`): install compiled **`{{ app_name }}_canary.pp`** from controller (`stub_policy_src`, not under `policy_out/`). FCOS also loads **`{{ app_name }}_ports.cil`** (packaged or templated from manifest) when `seport` is skipped. |
 | 6 | Ensure `var_dir` + `log_dir`; `restorecon` (no pre-restart `/run/myapp`) | |
 | 7 | `{{ selinux_ops_dir }}/verify_file_contexts.sh` | |
 | 8 | Soak marker; restart services; `restorecon` on `runtime_dir` | |
@@ -161,16 +166,20 @@ ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
 
 (Production inventory uses RPMs; staging/example passes `policy_pp_src` — see inventory files.)
 
-### GitHub Actions
+### GitHub Actions (optional)
+
+Same playbooks as AWX:
 
 - Merge to `main`: [`.github/workflows/selinux-staging-canary.yml`](../.github/workflows/selinux-staging-canary.yml)
 - Manual: **SELinux Policy Deploy** → `canary`
+
+Preferred admin UI: [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md).
 
 ---
 
 ## `enforce_production.yml`
 
-**When:** After soak gates pass (**fixed `soak_min_days`**, default 7).
+**When:** After soak gates pass (**`soak_min_days`**, default 7, plus **net-new** unless fail-closed).
 
 **Goal:** Remove permissive flag, run app under **enforcing** `myapp_t`, verify endpoints.
 
@@ -180,7 +189,7 @@ Role phase **`enforce`**. Uses **`serial: 1`**.
 
 | # | Task | Notes |
 |---|------|-------|
-| 1 | `collect_soak_facts.sh` → assert days/AVC/report | Skipped when `force_enforce=true` |
+| 1 | `collect_soak_facts.sh` → assert days / net-new / report | Skipped when `force_enforce=true`; raw AVC if `avc_fail_closed` |
 | 2 | `semodule -B` | Restore dontaudit before production |
 | 3 | Remove permissive; verify enforcing | |
 | 4 | Dirs + `restorecon`; verify contexts; restart; runtime `restorecon` | |
@@ -191,11 +200,25 @@ Role phase **`enforce`**. Uses **`serial: 1`**.
 
 ```bash
 ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
-  --limit production
+  --limit production \
+  -e change_ticket=CHG123
 
-# Break-glass only:
-ansible-playbook ... enforce_production.yml -e "force_enforce=true"
+# Break-glass only (ticket still required):
+ansible-playbook ... enforce_production.yml -e "force_enforce=true" -e change_ticket=CHG123
 ```
+
+---
+
+## `soak_monitor.yml` / `soak_status.yml`
+
+**When:** Daily during soak (`soak_monitor`); immediately before enforce (`soak_status`).
+
+| Playbook | Effect |
+|----------|--------|
+| `soak_monitor.yml` | Runs `monitor_avc.sh --format json` with `--max-avc` and `--max-net-new`; **fails** if `status=fail` |
+| `soak_status.yml` | Read-only `collect_soak_facts.sh` summary (no state change) |
+
+Schedule **Soak monitor** in AWX on the canary group. See [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md).
 
 ---
 
@@ -223,7 +246,9 @@ After an **interrupted canary** (host left on `semodule -DB` or permissive): `se
 
 ---
 
-## GitHub Actions integration
+## GitHub Actions integration (optional)
+
+Same playbooks as AWX — [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md) is the preferred admin UI.
 
 Workflow: [`.github/workflows/selinux-deploy.yml`](../.github/workflows/selinux-deploy.yml)
 
@@ -246,11 +271,13 @@ Installed by **`selinux-policy-ops`** RPM (or checkout when `selinux_ops_from_pa
 |--------|------------|
 | `verify_file_contexts.sh` | canary, enforce |
 | `wait_for_endpoints.sh` | canary, enforce, rollback (optional) |
-| `monitor_avc.sh` | canary |
-| `collect_soak_facts.sh` | enforce (soak gate) |
+| `monitor_avc.sh` | canary, **soak_monitor** |
+| `collect_soak_facts.sh` | enforce, **soak_status** |
+| `lib/soak_net_new.py` | called by `monitor_avc.sh` / `collect_soak_facts.sh` |
+| `check_soak_ready.sh` | optional host CLI (also in ops RPM) |
 | `post_deploy_report.sh` | canary, enforce, rollback (optional) |
 
-**Controller / CI only:** `compile_and_validate.sh`, `classify_policy_blast_radius.sh`, `check_soak_ready.sh` (manual CLI), `cli/selinux_gen.py`.
+**Controller / CI only:** `compile_and_validate.sh`, `classify_policy_blast_radius.sh`, `cli/selinux_gen.py`, `scripts/selinux_pac_adopt.sh`.
 
 Parity guard: [`scripts/validate_rpm_ops_parity.sh`](../scripts/validate_rpm_ops_parity.sh) (CI job `rpm-ops-parity`).
 
@@ -279,4 +306,4 @@ Parity guard: [`scripts/validate_rpm_ops_parity.sh`](../scripts/validate_rpm_ops
 | Enforce rescue | Deploy report at `{{ var_dir }}/selinux_deploy_report.json` |
 | Host noisy after failed canary | Run `reset_host_state.yml` or `semodule -B` + clear permissive |
 
-See [`PRODUCTION_READINESS.md`](../docs/PRODUCTION_READINESS.md) § troubleshooting.
+See [`PRODUCTION_READINESS.md`](../docs/admin/PRODUCTION_READINESS.md) § troubleshooting.

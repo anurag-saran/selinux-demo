@@ -6,11 +6,11 @@ This document is the **single reference** for how this repository tests SELinux 
 |----------|------------|------|
 | **App developer** | §1 Integration endpoints | §1.5 App manifest, §2 Local smoke tests |
 | **Policy author opening a PR** | §4 CI on pull requests | §5 Shell gate scripts |
-| **Admin / SRE** | §6 Staging and production gates | [`ansible/README.md`](../ansible/README.md), [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) |
+| **Admin / SRE** | §6 Staging and production gates | [`RHEL_TWO_HOST.md`](../admin/RHEL_TWO_HOST.md), [`ANSIBLE_OPERATIONS.md`](../admin/ANSIBLE_OPERATIONS.md), [`PRODUCTION_READINESS.md`](../admin/PRODUCTION_READINESS.md) |
 
-Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](SELINUX_BASICS.md) §9; hands-on prep in [`SELINUX_TRAINING_LAB.md`](SELINUX_TRAINING_LAB.md); workshop flow in [`DEMO_GUIDE.md`](DEMO_GUIDE.md) Acts 1–10; **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md). **Doc index:** [`README.md`](README.md).
+Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](../policy/SELINUX_BASICS.md) §9; hands-on prep in [`SELINUX_TRAINING_LAB.md`](../training/SELINUX_TRAINING_LAB.md); workshop flow in [`DEMO_GUIDE.md`](../training/DEMO_GUIDE.md) Acts 1–10; **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](../training/CODE_WALKTHROUGH.md). **Doc index:** [`README.md`](../README.md).
 
-**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Integration curls and `setup_staging_env.sh` run on a **SELinux Linux host** (or Podman VM), not on macOS alone.
+**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Integration curls and `setup_staging_env.sh` run on the **RHEL dev** box ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). Podman VM is a **backup**.
 
 ---
 
@@ -18,10 +18,10 @@ Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](SELINUX_BASICS.md) �
 
 The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is a deliberate probe of one SELinux permission surface. They are exercised by:
 
-- Developers during staging ([`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) — all paths in one pass; Act 1 then shows **`policy_out/avc.log`**)
-- [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) (canary, enforce, rollback — batch readiness, no AVC narration)
-- [`scripts/smoke_test.py`](../scripts/smoke_test.py) (`test_flask_endpoints`)
-- [`scripts/run_demo.sh`](../scripts/run_demo.sh)
+- Developers during staging ([`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh) — all paths in one pass; Act 1 then shows **`policy_out/avc.log`**)
+- [`scripts/wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) (canary, enforce, rollback — batch readiness, no AVC narration)
+- [`scripts/smoke_test.py`](../../scripts/smoke_test.py) (`test_flask_endpoints`)
+- [`scripts/run_demo.sh`](../../scripts/run_demo.sh)
 
 **Requires:** `myapp-backend.service` running for `/probe-backend` and `/notify-socket` (Tier 6).
 
@@ -44,7 +44,7 @@ The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is 
 
 | | |
 |--|--|
-| **Where** | On the **same Linux machine** where Flask listens on **8888** — staging server or Podman VM after Lab 6 / `setup_staging_env.sh` |
+| **Where** | On the **same Linux machine** where Flask listens on **8888** — **RHEL dev** after `setup_staging_env.sh` (Podman VM backup) |
 | **Why** | Each URL is a deliberate SELinux probe; failures show up as HTTP errors or AVC lines |
 
 **Workshop order (Act 1 / Lab 7 — one batch, then AVC file):**
@@ -57,7 +57,7 @@ for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; d
 done
 curl -sf http://127.0.0.1:8889/health; echo
 
-# Presenter demo (Mac VM): export + preview on the Mac
+# Presenter demo (backup Mac VM): export + preview on the Mac
 bash scripts/run_on_podman_vm.sh export-avcs
 wc -l policy_out/avc.log
 head -1 policy_out/avc.log
@@ -83,7 +83,7 @@ curl -sf http://127.0.0.1:8889/health; echo
 
 ## 1.5 App manifest (onboarding new apps)
 
-The demo’s six endpoints are **myapp-specific**. For a new application, copy [`config/payments.manifest.example.yml`](../config/payments.manifest.example.yml) to `config/<app_name>.manifest.yml` and declare paths, systemd units, HTTP probes, and SELinux domains. See [`config/README.md`](../config/README.md) for the full schema.
+The demo’s six endpoints are **myapp-specific**. For a new application, copy [`config/payments.manifest.example.yml`](../../config/payments.manifest.example.yml) to `config/<app_name>.manifest.yml` and declare paths, systemd units, HTTP probes, and SELinux domains. See [`config/README.md`](../../config/README.md) for the full schema.
 
 **Validate locally / in CI:**
 
@@ -161,11 +161,11 @@ python3 scripts/smoke_test.py --no-require-backend
 |------|---------|---------------------|
 | CLI + flask smoke | `python3 scripts/smoke_test.py` | No |
 | Forbidden patterns | `bash scripts/validate_forbidden_patterns.sh selinux` | No |
-| Compile | `bash scripts/lib/build_image.sh` once, then `bash scripts/compile_and_validate.sh selinux` | Podman prebuilt image or RHEL devel (see [§3.1](#31-podman-compile-image-timing)) |
-| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Podman |
-| Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes |
-| AI / deterministic generate | `bash scripts/dev_generate_policy.sh --use-vm --apply` (default engine: deterministic) | Yes (or `--use-vm`) |
-| **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root or `--use-vm`) |
+| Compile | `bash scripts/compile_and_validate.sh selinux` | RHEL devel, or Podman compile image as backup (see [§3.1](#31-podman-compile-image-timing)) |
+| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | RHEL / Podman compile image |
+| Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes (RHEL **dev**) |
+| AI / deterministic generate | `bash scripts/dev_generate_policy.sh --apply` (default engine: deterministic) | Yes (RHEL **dev**; `--use-vm` backup) |
+| **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root on RHEL **dev**; `--use-vm` backup) |
 
 **`--enforce-check`** compiles the candidate `.pp`, removes permissive on `myapp_t`, runs `wait_for_endpoints.sh` (including domain-context verification), and prints recent AVCs on failure.
 
@@ -191,7 +191,7 @@ Optional Docker Hub pull (demo laptops): `SELINUX_BUILD_IMAGE_PULL=1 bash script
 
 ## 4. CI on pull requests
 
-Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selinux-policy-ci.yml)
+Workflow: [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml)
 
 | Job | Script / action | Pass criteria |
 |-----|-----------------|---------------|
@@ -220,15 +220,16 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 
 | Script | When | Pass criteria |
 |--------|------|---------------|
-| [`verify_file_contexts.sh`](../scripts/verify_file_contexts.sh) | Before service restart after `semodule -i` | `matchpathcon -V`; `restorecon -Rv -n` shows no changes under data/log paths |
-| [`wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) | After canary / enforce / rollback restart | systemd active; **MainPID domain** matches manifest; HTTP probes from manifest (demo: six paths + backend health) |
-| [`monitor_avc.sh`](../scripts/monitor_avc.sh) | Daily during soak; canary post-deploy window | Domain AVC count ≤ threshold (default **0**) |
-| [`check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Manual pre-enforce on host (Ansible: **`collect_soak_facts.sh`**) | Marker age ≥ min days; AVC count ≤ max; deploy report pass + **domain_context_verified**. Optional **`--auto-tier --base-policy PATH --candidate-policy PATH`** sets min days from blast-radius classifier (fail-closed → `soak_min_days`) |
-| [`post_deploy_report.sh`](../scripts/post_deploy_report.sh) | End of canary / enforce / rollback | Writes deploy report JSON (path from manifest or default) |
-| [`validate_app_manifest.sh`](../scripts/validate_app_manifest.sh) | CI / onboarding | YAML schema + required fields |
-| [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) | Controller soak tier recommendation | sesearch rule diff between installed modules → 1 / 3 / 7 days; **`run_blast_radius_fixtures.sh`** (CI **`blast-radius`**) |
-| [`validate_version_consistency.sh`](../scripts/validate_version_consistency.sh) | CI / local | SemVer SSOT across `.te`, `policy_version.txt`, RPM spec |
-| [`assemble_pr_body.sh`](../scripts/assemble_pr_body.sh) | Before opening PR | Fills PR template + merge-base policy access delta (`policy_module_diff.sh`) |
+| [`verify_file_contexts.sh`](../../scripts/verify_file_contexts.sh) | Before service restart after `semodule -i` | `matchpathcon -V`; `restorecon -Rv -n` shows no changes under data/log paths |
+| [`wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) | After canary / enforce / rollback restart | systemd active; **MainPID domain** matches manifest; HTTP probes from manifest (demo: six paths + backend health) |
+| [`monitor_avc.sh`](../../scripts/monitor_avc.sh) | Daily during soak (`soak_monitor.yml`); canary post-deploy window | **Net-new** access needs ≤ `soak_max_net_new` (default **0**); raw count informational unless `sesearch` missing |
+| [`check_soak_ready.sh`](../../scripts/check_soak_ready.sh) | Manual pre-enforce on host (Ansible: **`collect_soak_facts.sh`** / **`soak_status.yml`**) | Marker age ≥ min days; net-new or AVC count ≤ max; deploy report pass + **domain_context_verified**. Optional **`--auto-tier --base-policy PATH --candidate-policy PATH`** sets min days from blast-radius classifier (fail-closed → `soak_min_days`) |
+| [`cli/soak_net_new.py`](../../cli/soak_net_new.py) | Soak exception JSON vs **installed** policy | `sesearch --allow`; `net_new_count` + `exceptions[]`; `fail_closed` without toolchain |
+| [`post_deploy_report.sh`](../../scripts/post_deploy_report.sh) | End of canary / enforce / rollback | Writes deploy report JSON (path from manifest or default) |
+| [`validate_app_manifest.sh`](../../scripts/validate_app_manifest.sh) | CI / onboarding | YAML schema + required fields |
+| [`classify_policy_blast_radius.sh`](../../scripts/classify_policy_blast_radius.sh) | Controller soak tier recommendation | sesearch rule diff between installed modules → 1 / 3 / 7 days; **`run_blast_radius_fixtures.sh`** (CI **`blast-radius`**) |
+| [`validate_version_consistency.sh`](../../scripts/validate_version_consistency.sh) | CI / local | SemVer SSOT across `.te`, `policy_version.txt`, RPM spec |
+| [`assemble_pr_body.sh`](../../scripts/assemble_pr_body.sh) | Before opening PR | Fills PR template + merge-base policy access delta (`policy_module_diff.sh`) |
 
 **Exit codes for `wait_for_endpoints.sh`:** `0` pass; `1` systemd; `2` HTTP; `4` domain mismatch.
 
@@ -236,27 +237,29 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 
 ## 6. Staging and production gates
 
-### Merge to `main` (automatic)
+### Merge to `main` (optional GHA staging)
 
-Workflow: [`.github/workflows/selinux-staging-canary.yml`](../.github/workflows/selinux-staging-canary.yml)
+Workflow: [`.github/workflows/selinux-staging-canary.yml`](../../.github/workflows/selinux-staging-canary.yml)
+
+Production control plane is still **Ansible / AWX** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)). If you use the GHA workflow:
 
 1. **`staging-canary`** — compile + `ansible/deploy_canary.yml` on self-hosted `selinux-staging` runner
 2. **`staging-endpoint-smoke`** — `wait_for_endpoints.sh` + deploy report exists
 
 ### Production (manual — admin)
 
-Workflow: [`.github/workflows/selinux-deploy.yml`](../.github/workflows/selinux-deploy.yml) or manual `ansible-playbook`.
+**Preferred:** AWX job templates — [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Optional: [`.github/workflows/selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml).
 
 | Phase | Playbook | Key tests embedded |
 |-------|----------|-------------------|
 | Canary | `deploy_canary.yml` | `verify_file_contexts`, `wait_for_endpoints`, `monitor_avc` (recent window), deploy report |
-| Soak | *(manual)* | Daily `monitor_avc.sh`; optional manual `check_soak_ready.sh` on host |
-| Enforce | `enforce_production.yml` | `collect_soak_facts.sh`, `semodule -B`, enforce domain, `wait_for_endpoints`, deploy report |
+| Soak | `soak_monitor.yml` / `soak_status.yml` | Daily net-new vs installed policy; read-only facts before enforce |
+| Enforce | `enforce_production.yml` | `collect_soak_facts.sh` (`avc_net_new_count` when `soak_use_net_new`), `semodule -B`, enforce domain, `wait_for_endpoints`, deploy report |
 | Rollback | `emergency_rollback.yml` | permissive relief, `wait_for_endpoints`, deploy report, AVC export |
 
-Full Ansible task order and variables: [`ansible/README.md`](../ansible/README.md).
+Full Ansible task order and variables: [`ansible/README.md`](../../ansible/README.md).
 
-Admin runbook with pass/fail examples: [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) §5–12.
+Admin runbook with pass/fail examples: [`PRODUCTION_READINESS.md`](../admin/PRODUCTION_READINESS.md) §5–12.
 
 ---
 
@@ -267,7 +270,7 @@ Layer 1  smoke_test.py + forbidden-patterns     PR / laptop (no SELinux)
 Layer 2  compile + policy-semantics + version-consistency + blast-radius + ansible-lint   PR (Podman)
 Layer 3  integration probes + policy_out/avc.log   staging discovery (permissive)
 Layer 4  deploy_canary + wait_for_endpoints   staging/prod canary host
-Layer 5  monitor_avc + check_soak_ready       soak period
+Layer 5  soak_monitor + soak_status + collect_soak_facts   soak period (net-new)
 Layer 6  enforce_production + wait_for_endpoints   production cutover
 Layer 7  emergency_rollback                   outage response
 ```
@@ -291,5 +294,5 @@ Layer 7  emergency_rollback                   outage response
 |-------|---------|
 | House-rule golden fixtures | `make test-fixtures` or `make test` |
 | Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
-| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md) |
+| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) |
 | Coverage gate | `bash scripts/verify_avc_coverage.sh` after generation |

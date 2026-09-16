@@ -2,7 +2,7 @@ policy_module(payments, 1.0.0)
 
 ########################################
 # Second onboarded app — scaffolded with sepolicy-generate on RHEL, then reviewed.
-# See docs/ONBOARDING_SECOND_APP.md and scripts/scaffold_sepolicy_module.sh
+# See docs/developers/ONBOARDING.md and scripts/scaffold_sepolicy_module.sh
 ########################################
 
 type payments_t;

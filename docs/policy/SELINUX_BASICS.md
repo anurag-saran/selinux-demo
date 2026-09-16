@@ -10,23 +10,23 @@ This guide explains **SELinux from zero** using the `myapp` demo in this reposit
 4. Sections 8–10 — **AVC denials**, export filtering, and a **worked example** tied to the demo
 5. Sections 11+ — reference tables, cheat sheet, and links to the live workshop
 
-**Hands-on practice (90–120 minutes):** work through **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** — copy/paste commands with expected outputs before the workshop.
+**Hands-on practice (90–120 minutes):** work through **[SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md)** — copy/paste commands with expected outputs before the workshop.
 
-**Before the live demo:** complete the training lab (or at least labs 1–7), then follow [DEMO_GUIDE.md](DEMO_GUIDE.md).
+**Before the live demo:** complete the training lab (or at least labs 1–7), then follow [DEMO_GUIDE.md](../training/DEMO_GUIDE.md).
 
-**After the demo (production rollout):** [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+**After the demo (production rollout):** [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md).
 
-**All documentation:** [docs/README.md](README.md).
+**All documentation:** [docs/README.md](../README.md).
 
 ### Where to run commands in this guide
 
 | What you are doing | Where |
 |--------------------|--------|
 | Reading sections 1–7 | Anywhere — no Linux required |
-| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, Labs in [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | **Linux with SELinux** (physical VM, cloud instance, or Podman Machine on Mac) |
+| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, Labs in [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | **Linux with SELinux** (physical VM, cloud instance, or Podman Machine on Mac) |
 | **`make check`**, reading `.te` files | **Repo root** on your laptop |
 
-macOS: you never run SELinux commands on the Mac itself — use [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos).
+macOS: you never run SELinux commands on the Mac itself — use [SELINUX_TRAINING_LAB.md — Running on macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos).
 
 ---
 
@@ -99,7 +99,7 @@ system_u : system_r : myapp_t : s0
 └── SELinux user (almost always system_u)
 ```
 
-### What you can ignore in this PoC
+### What you can ignore in this project
 
 | Part | Typical value | Do beginners need it? |
 |------|---------------|------------------------|
@@ -174,11 +174,11 @@ selinux/myapp.fc  ──┘
 - You **commit** `.te` and `.fc` to Git (source of truth).
 - CI/playbooks **compile** them to `.pp` via the refpolicy Makefile (`scripts/compile_and_validate.sh`; `checkmodule` fallback when devel Makefile is absent). The compiled `.pp` is uploaded as a CI artifact — it is **not** tracked in Git.
 - CI also runs **`validate_policy_semantics.sh`** (`sesearch` assertions on the compiled module).
-- Admins **install** `.pp` on staging/production hosts (`semodule -i` upgrades in place). Packaged delivery: [`packaging/myapp-selinux.spec`](../packaging/myapp-selinux.spec).
+- Admins **install** `.pp` on staging/production hosts (`semodule -i` upgrades in place). Packaged delivery: [`packaging/myapp-selinux.spec`](../../packaging/myapp-selinux.spec).
 
 ### Type Enforcement (`.te`) — permission rules
 
-From [`selinux/myapp.te`](../selinux/myapp.te):
+From [`selinux/myapp.te`](../../selinux/myapp.te):
 
 ```text
 type myapp_t;              # declare process domain
@@ -198,11 +198,11 @@ init_daemon_domain(myapp_t, myapp_exec_t);
 - **`init_daemon_domain`** — standard pattern for systemd services.
 - **`require { type ... }`** — types defined in the **base** RHEL policy that you reference but do not create.
 
-Early staging uses a minimal [`selinux/stub/myapp.te`](../selinux/stub/myapp.te) with `permissive myapp_t;` to collect AVCs before the full module is ready.
+Early staging uses a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;` to collect AVCs before the full module is ready.
 
 ### File contexts (`.fc`) — path → label mapping
 
-From [`selinux/myapp.fc`](../selinux/myapp.fc):
+From [`selinux/myapp.fc`](../../selinux/myapp.fc):
 
 ```text
 /opt/myapp/app\.py     -- gen_context(system_u:object_r:myapp_exec_t,s0)
@@ -253,7 +253,7 @@ system_u:object_r:myapp_log_t:s0    /var/log/myapp/data.log
 | `-v` | Verbose — print each path changed |
 | `-n` | **Dry run** — show what *would* change, change nothing |
 
-This repo runs `restorecon` in Ansible canary/enforce playbooks and checks with [`scripts/verify_file_contexts.sh`](../scripts/verify_file_contexts.sh) (`restorecon -Rv -n` must show no changes before restart).
+This repo runs `restorecon` in Ansible canary/enforce playbooks and checks with [`scripts/verify_file_contexts.sh`](../../scripts/verify_file_contexts.sh) (`restorecon -Rv -n` must show no changes before restart).
 
 **When to run it:** immediately after `semodule -i myapp.pp`, before `systemctl restart myapp`.
 
@@ -358,12 +358,12 @@ Day 0   Canary deploy
 
 Days 1–14   Soak (production)
         → app keeps running; myapp_t still log-only
-        → daily: bash scripts/monitor_avc.sh --domain myapp_t --max-avc 0
-        → goal: zero new myapp_t AVCs
+        → daily: ansible-playbook soak_monitor.yml (net-new vs installed policy)
+        → goal: zero **net-new** access needs (not zero raw AVC lines)
 
-Enforce gate   check_soak_ready.sh must pass ALL:
+Enforce gate   Ansible collect_soak_facts / soak_status must pass ALL:
         → marker age ≥ 7 days
-        → AVC count for myapp_t since marker ≤ 0
+        → net-new count for myapp_t since marker ≤ 0 (raw AVC if sesearch missing)
         → deploy report at /var/lib/myapp/selinux_deploy_report.json with pass + endpoint coverage
 
 Enforce   semanage permissive -d myapp_t
@@ -374,12 +374,12 @@ Enforce   semanage permissive -d myapp_t
 | Artifact | Purpose |
 |----------|---------|
 | `/var/lib/myapp/selinux_canary_deployed_at` | Epoch timestamp — soak clock starts here |
-| `scripts/monitor_avc.sh` | Daily check during soak — fail if new denials appear |
-| `scripts/check_soak_ready.sh` | Automated gate before enforce |
+| `ansible/soak_monitor.yml` | Daily check during soak — fail if **net-new** needs remain |
+| `ansible/soak_status.yml` / `collect_soak_facts.sh` | Facts for the enforce gate |
 
-**"Zero AVCs during soak"** means no **new** `myapp_t` denials since canary deploy — not that the audit log is empty globally.
+**"Zero AVCs during soak"** in this repo means no **net-new access needs** vs the **installed** canary module (duplicate log lines from cron do not fail the gate). It does **not** mean the audit log is empty globally.
 
-If policy changes mid-soak, redeploy canary and **reset the soak clock**. Full admin runbook: [PRODUCTION_READINESS.md §6–12](PRODUCTION_READINESS.md).
+If policy changes mid-soak, redeploy canary and **reset the soak clock**. Full admin runbook: [PRODUCTION_READINESS.md §6–12](../admin/PRODUCTION_READINESS.md). Ansible hub: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md).
 
 ---
 
@@ -436,7 +436,7 @@ This repo exports matching lines to `policy_out/avc.log` (raw audit trail for PR
 | `policy_out/avc.log` | Raw AVC lines from `ausearch` — kept for audit and PR excerpts |
 | `policy_out/avc_summary.txt` | Merged, deduped access needs sent to the LLM |
 
-Before calling the LLM, `cli/selinux_gen.py` (via [`cli/avc_preprocess.py`](../cli/avc_preprocess.py)):
+Before calling the LLM, `cli/selinux_gen.py` (via [`cli/avc_preprocess.py`](../../cli/avc_preprocess.py)):
 
 1. **Merge** — combine duplicate lines that share the same source type, target type, and object class (union permissions)
 2. **Subtract** — drop permissions already allowed in the existing `.te` file
@@ -450,7 +450,7 @@ Example: 42 raw lines may collapse to 6 merged rows, with only 2 net-new after s
 
 This ties labels, `.te`, `.fc`, AVCs, and the demo together.
 
-The Flask app ([`app/app.py`](../app/app.py)) exposes `GET /save-log`, which appends a line to `/var/log/myapp/data.log` (created by systemd `LogsDirectory=myapp`).
+The Flask app ([`app/app.py`](../../app/app.py)) exposes `GET /save-log`, which appends a line to `/var/log/myapp/data.log` (created by systemd `LogsDirectory=myapp`).
 
 ### Step 0 — Confirm two-layer SELinux state
 
@@ -480,7 +480,7 @@ Process is `myapp_t`. File is `myapp_log_t`. Good — labels match what policy e
 
 ### Step 2 — Policy must allow the write
 
-In [`selinux/myapp.te`](../selinux/myapp.te):
+In [`selinux/myapp.te`](../../selinux/myapp.te):
 
 ```text
 logging_log_filetrans(myapp_t, myapp_log_t, file)
@@ -570,13 +570,13 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 3. Generate policy                     →  selinux/myapp.te + .fc updates
 4. Review + CI                         →  no wildcards / no shadow_t allows
 5. Canary deploy                       →  semodule -i + semanage permissive -a
-6. Soak + monitor                      →  check_soak_ready.sh, monitor_avc.sh
+6. Soak + monitor                      →  soak_monitor.yml (net-new), soak_status.yml
 7. Enforce                             →  semanage permissive -d myapp_t (block/rescue on failure)
 8. Deploy verification                 →  wait_for_endpoints.sh + selinux_deploy_report.json
 9. Outage?                             →  emergency_rollback.yml (permissive + re-soak)
 ```
 
-**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (all six HTTP paths **plus domain-context check** — MainPID must be `myapp_t` / `myapp_backend_t`) and write `/var/lib/myapp/selinux_deploy_report.json`. `check_soak_ready.sh` requires that report (including verified `domain_context`) before enforce. Enforce uses Ansible **block/rescue** — on failure, `myapp_t` is restored to permissive before the playbook exits.
+**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (HTTP probes from the manifest **plus domain-context check**) and write a deploy report JSON. Enforce uses Ansible **block/rescue** — on failure, the app domain is restored to permissive before the playbook exits. Production soak uses **`soak_monitor.yml`** (net-new vs installed policy).
 
 ### App-visible SELinux signals
 
@@ -585,9 +585,9 @@ The demo app exposes SELinux state so app teams can distinguish policy issues fr
 - **`GET /`** health JSON includes `"selinux": { "mode", "domain", "domain_permissive", "policy_version" }`
 - Permission errors may include `"selinux_context"` alongside `"Permission denied"`
 
-Full triage steps for app teams: [PRODUCTION_READINESS.md §12.5](PRODUCTION_READINESS.md).
+Full triage steps for app teams: [PRODUCTION_READINESS.md §12.5](../admin/PRODUCTION_READINESS.md).
 
-Presenter steps: [DEMO_GUIDE.md](DEMO_GUIDE.md). Admin gates: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Principles and anti-patterns: [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md).
+Presenter steps: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md). Admin gates: [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md). Principles and anti-patterns: [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md).
 
 ---
 
@@ -624,7 +624,7 @@ sudo semodule -l | grep myapp
 
 ---
 
-## 14.5 Production topics (beyond this PoC)
+## 14.5 Production topics (beyond the reference app)
 
 This demo focuses on custom types, `.te` allows, canary soak, and enforce. Real RHEL apps often also need:
 
@@ -727,7 +727,7 @@ sudo semodule -i selinux/myapp.pp              # upgrades in place
 | **restorecon** | Re-apply policy-defined labels to files on disk |
 | **semanage** | Manage SELinux settings (including per-domain permissive list) |
 | **DAC** | Discretionary Access Control — classic Unix `rwx` permissions |
-| **MLS/MCS** | Advanced classification; not used in this PoC (always `s0`) |
+| **MLS/MCS** | Advanced classification; not used in this project (always `s0`) |
 
 ---
 
@@ -743,10 +743,10 @@ sudo semodule -i selinux/myapp.pp              # upgrades in place
 | Guide | Audience |
 |-------|----------|
 | **This file** | New to SELinux — labels, `.te`/`.fc`, commands with examples |
-| [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | **Hands-on labs** — train up for the demo |
-| [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, CI jobs |
-| [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) | Default offline policy generator from AVCs |
-| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Running the live workshop demo |
-| [TESTING.md](TESTING.md) | Endpoints, smoke tests, CI matrix |
-| [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | RHEL admins — soak, canary, enforce gates |
-| [README.md](../README.md) | Project overview and command index |
+| [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | **Hands-on labs** — train up for the demo |
+| [CODE_WALKTHROUGH.md](../training/CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, CI jobs |
+| [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline policy generator from AVCs |
+| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Running the live workshop demo |
+| [TESTING.md](../developers/TESTING.md) | Endpoints, smoke tests, CI matrix |
+| [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | RHEL admins — soak, canary, enforce gates |
+| [README.md](../../README.md) | Project overview and command index |

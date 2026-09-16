@@ -62,7 +62,7 @@ lint-shell: ## shellcheck on scripts/
 
 lint-yaml: ## yamllint on ansible/ and workflows/
 	@command -v yamllint >/dev/null 2>&1 || { echo "SKIP lint-yaml: yamllint not installed (pip install yamllint)"; exit 0; }; \
-	yamllint -d relaxed ansible/ .github/workflows/ tekton/
+	yamllint -d relaxed ansible/ .github/workflows/
 
 lint-ansible: ## ansible-lint on playbooks
 	@command -v ansible-lint >/dev/null 2>&1 || { echo "SKIP lint-ansible: ansible-lint not installed (pip install ansible-lint)"; exit 0; }; \
@@ -96,7 +96,7 @@ integration-blast-radius: ## Blast-radius with Podman integration (CI blast-radi
 	bash scripts/ci/ensure_selinux_build_image.sh
 	BLAST_RADIUS_REQUIRE_INTEGRATION=1 bash scripts/run_blast_radius_fixtures.sh
 
-training-lab: ## Guided lab walkthrough (typewriter + explanations; Mac uses Podman VM)
+training-lab: ## Guided lab walkthrough (RHEL two-host preferred; Mac Podman is backup)
 	bash scripts/run_training_lab.sh
 
 demo-prep: ## Workshop demo prep: talk track + typed show commands (no flags)

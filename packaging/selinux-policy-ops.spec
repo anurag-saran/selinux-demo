@@ -6,7 +6,7 @@ License:        MIT
 URL:            https://github.com/anurag-saran/selinux-demo
 BuildArch:      noarch
 Requires:       python3
-Recommends:     setools-console
+Requires:       setools-console
 
 %description
 Operational scripts for SELinux policy canary, enforce, and soak gates.

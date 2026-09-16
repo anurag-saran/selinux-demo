@@ -23,6 +23,6 @@ bash scripts/assemble_pr_body.sh
 # → policy_out/pr_summary.md and policy_out/pr_body.md
 ```
 
-Deterministic verdict fixtures: [`fixtures/deterministic/`](fixtures/deterministic/). Compile: pull Hub image — [`../DOCKER_HUB_COMPILE_IMAGE.md`](../DOCKER_HUB_COMPILE_IMAGE.md).
+Deterministic verdict fixtures: [`fixtures/deterministic/`](fixtures/deterministic/). Compile: pull Hub image — [`../DOCKER_HUB_COMPILE_IMAGE.md`](../admin/COMPILE_IMAGE.md).
 
 Do not edit `policy_out/` in Git — `.te`, `.fc`, and `policy_version.txt` there are local build output (gitignored). Offline demos use [`fixtures/skip_ai/`](fixtures/skip_ai/) via `--skip-ai`; refresh with `bash scripts/refresh_skip_ai_fixture.sh` when `selinux/` bumps.

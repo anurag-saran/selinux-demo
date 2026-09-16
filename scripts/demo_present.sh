@@ -503,10 +503,10 @@ act_8_soak() {
 
 act_9_enforce() {
     act_banner 9 "Enforce" "Admin removes permissive flag after soak gate passes"
-    local enforce_extra=()
+    local enforce_extra=(-e "change_ticket=workshop-demo")
     if [[ "${DEMO_MODE}" -eq 1 ]]; then
         log_warn "DEMO MODE: using force_enforce=true (break-glass — never use in real production without approval)"
-        enforce_extra=(-e "force_enforce=true")
+        enforce_extra+=(-e "force_enforce=true")
     fi
     if command -v ansible-playbook >/dev/null 2>&1 || [[ "${USE_VM}" -eq 1 ]]; then
         log_tool "ansible-playbook ansible/enforce_production.yml -e force_enforce=${DEMO_MODE}  (semodule -r myapp_canary on FCOS; wait_for_endpoints --skip-domain-check without semanage)"
@@ -530,7 +530,7 @@ ${YELLOW}Show-only (not executed in workshop demo):${NC}
   # Step 3: Ansible rollback + optional AI patch
   ansible-playbook -i ansible/inventory.example.yml ansible/emergency_rollback.yml
 
-See docs/PRODUCTION_READINESS.md for the full runbook.
+See docs/admin/PRODUCTION_READINESS.md for the full runbook.
 EOF
 }
 
@@ -592,8 +592,8 @@ main() {
     echo "  policy_out/pr_summary.md"
     echo "  policy_out/pr_body.md"
     echo "  GitHub PR (Act 4–5): bash scripts/open_demo_policy_pr.sh --reuse-pr-body"
-    echo "  Demo guide: docs/DEMO_GUIDE.md"
-    echo "  Runbook: docs/PRODUCTION_READINESS.md"
+    echo "  Demo guide: docs/training/DEMO_GUIDE.md"
+    echo "  Runbook: docs/admin/PRODUCTION_READINESS.md"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

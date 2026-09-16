@@ -9,36 +9,37 @@ This is a **practice course**. Each lab follows the same pattern:
 
 | Document | Role |
 |----------|------|
-| **[SELINUX_BASICS.md](SELINUX_BASICS.md)** | Concepts first — skim **§1–7** (~15 min) |
+| **[SELINUX_BASICS.md](../policy/SELINUX_BASICS.md)** | Concepts first — skim **§1–7** (~15 min) |
 | **This file** | Hands-on practice on a Linux host with SELinux |
 | **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Full workshop after the labs |
 | **[CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md)** | Where repo scripts and tools live |
-| **[README.md](README.md)** | Index of all docs and reading order |
+| **[README.md](../README.md)** | Index of all docs and reading order |
 
-**Time:** about **90–120 minutes** on a prepared VM (add time for Podman setup on macOS).
+**Time:** about **90–120 minutes** on a **RHEL dev** box (add time only if you fall back to Podman on macOS).
 
-**You need:** SELinux-enabled Linux (or Podman VM), `sudo`, this repo cloned, optional internet for Lab 6.
+**You need:** two RHEL boxes if following [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md), or at least one SELinux Linux host. **Podman VM is backup.** `sudo`, this repo cloned, optional internet for Lab 6.
 
-**Automated walkthrough:** from repo root on macOS (after `source …/podman/env.sh` and `run_on_podman_vm.sh setup`):
+**Automated walkthrough:** from repo root on the **RHEL dev** box (or on macOS after Podman setup):
 
 ```bash
 bash scripts/run_training_lab.sh
 ```
 
-Use `--auto` for no pauses, `--no-type` to skip the typewriter effect, `--short` for Labs 1+6+7 only. Lab **7** runs all integration curls in one pass via [`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh). See `bash scripts/run_training_lab.sh --help`.
+Use `--auto` for no pauses, `--no-type` to skip the typewriter effect, `--short` for Labs 1+6+7 only. Lab **7** runs all integration curls in one pass via [`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh). See `bash scripts/run_training_lab.sh --help`.
 
 **Convention:** Example output shows the **shape** of answers — your PIDs and timestamps will differ.
 
 **Repo root** = directory containing `scripts/` and `docs/` (clone path on Mac or Linux; inside the Podman VM it is usually `/home/core/selinux-demo` after `sync`).
 
-### Two learning paths (Linux vs macOS)
+### Two learning paths (RHEL preferred vs Podman backup)
 
 Lab **6** installs the demo app and **stub** policy. **Labs 2–5 and 7+ need that install** — paths under `/opt/myapp`, systemd units, permissive **`myapp_t`**.
 
 | Platform | One-time prep | Then do labs in this order |
 |----------|---------------|----------------------------|
-| **Native Linux** (RHEL, Fedora, Stream VM) | Clone repo; `cd` to repo root | **1 → 6 → 2 → 3 → 4 → 5 → 7 → 8 → 9** (10 optional). Lab **6** includes **`sudo bash scripts/setup_staging_env.sh`**. |
-| **macOS** | [Running on macOS](#running-on-macos) steps **1–5** on the Mac (step **4** runs the **same install as Lab 6**, via `run_on_podman_vm.sh setup`) | Open VM shell, `cd` to repo in VM: **1 → [Lab 6 verify only](#verify-the-install) → 2 → 3 → …** Do **not** run `setup_staging_env.sh` again unless you are **reinstalling** staging. |
+| **RHEL two-host (preferred)** | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — `setup_rhel_hosts.sh`; clone + `setup_staging_env.sh` on **dev** | **1 → 6 → 2 → 3 → 4 → 5 → 7 → 8 → 9** (10 optional). Lab **6** includes **`sudo bash scripts/setup_staging_env.sh`**. |
+| **Native Linux** (single RHEL/Fedora/Stream) | Clone repo; `cd` to repo root | Same lab order as the RHEL two-host row. |
+| **macOS + Podman (backup)** | [Running on macOS](#running-on-macos) steps **1–5** (step **4** is the same install as Lab 6 via `run_on_podman_vm.sh setup`) | Open VM shell: **1 → [Lab 6 verify only](#verify-the-install) → 2 → …** Do **not** run `setup_staging_env.sh` again unless reinstalling. |
 | **Demo prep (short)** | Same as your platform row above | **1 → Lab 6 (install or verify) → 7 → Finish** |
 
 **Staging stub vs full policy in Git:** Lab 6 installs the **stub** module (`selinux/stub/` — minimal rules, **`myapp_t` permissive**). **`selinux/myapp.te`** is the **full** module ( **`myapp_backend_t`**, **`myapp_log_t`**, ports, etc.). Lab examples often show **full-policy** names; on stub-only staging the Flask app matches, but the **backend process** usually runs as **`myapp_t`**, not **`myapp_backend_t`**, until you install the full `.pp`. See [Lab 3](#lab-3--read-process-labels) and [Troubleshooting](#troubleshooting).
@@ -56,6 +57,8 @@ Lab **6** installs the demo app and **stub** policy. **Labs 2–5 and 7+ need th
 ---
 
 ## Running on macOS
+
+**Backup path** when you do not have the two RHEL boxes yet. Preferred lab: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md).
 
 macOS has **no SELinux** — no `getenforce`, no AVC audit stack, no `semanage`. You still **prepare** the lab from your Mac, but you **run every lab command inside a small Linux VM** that Podman starts for you.
 
@@ -142,7 +145,7 @@ cd /home/core/selinux-demo   # FCOS may show /var/home/core — run pwd if unsur
 
 **While in the VM:** curl **`http://127.0.0.1:8888`** there — the demo app listens inside the VM, not on your Mac’s localhost.
 
-More Podman/image detail: [DOCKER_HUB_COMPILE_IMAGE.md](DOCKER_HUB_COMPILE_IMAGE.md).
+More Podman/image detail: [DOCKER_HUB_COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md).
 
 ---
 
@@ -209,7 +212,7 @@ Current mode:                   enforcing
 
 **Checkpoint:** You can say why Lab 1 must pass before Labs 2–10.
 
-**Learn:** [SELINUX_BASICS.md §7](SELINUX_BASICS.md) — Enforcing vs Permissive vs Disabled.
+**Learn:** [SELINUX_BASICS.md §7](../policy/SELINUX_BASICS.md) — Enforcing vs Permissive vs Disabled.
 
 ---
 
@@ -324,7 +327,7 @@ myapp_t
 
 **Setup script errors:** **`FATAL: myapp-backend.service running as unknown`** means the backend had no running process when the script checked — usually **not active**. Use [If `myapp-backend.service` is not active](#if-myapp-backendservice-is-not-active) above, not a blind second setup.
 
-**If it fails:** See [TESTING.md](TESTING.md) and [Troubleshooting](#troubleshooting).
+**If it fails:** See [TESTING.md](../developers/TESTING.md) and [Troubleshooting](#troubleshooting).
 
 ---
 
@@ -374,7 +377,7 @@ matchpathcon /var/log/myapp/data.log
 
 **Checkpoint:** You can name the **type** (third field) for the app binary vs the log file.
 
-**Learn:** [SELINUX_BASICS.md §3–4](SELINUX_BASICS.md).
+**Learn:** [SELINUX_BASICS.md §3–4](../policy/SELINUX_BASICS.md).
 
 ---
 
@@ -419,7 +422,7 @@ system_u:system_r:myapp_t:s0    ... backend_stub.py
 
 **Checkpoint:** You can explain that **`myapp_t` on the process** is not the same as **`myapp_log_t` on the log file** — rules in **`selinux/myapp.te`** connect them (stub is intentionally minimal).
 
-**Learn:** [SELINUX_BASICS.md §4](SELINUX_BASICS.md).
+**Learn:** [SELINUX_BASICS.md §4](../policy/SELINUX_BASICS.md).
 
 ---
 
@@ -467,7 +470,7 @@ ls -Z /var/log/myapp/data.log
 
 **Checkpoint:** “`.fc` defines the label; `restorecon` applies it to disk.”
 
-**Learn:** [SELINUX_BASICS.md §6](SELINUX_BASICS.md).
+**Learn:** [SELINUX_BASICS.md §6](../policy/SELINUX_BASICS.md).
 
 ---
 
@@ -505,7 +508,7 @@ sudo semanage permissive -a myapp_t
 
 **Checkpoint:** “SSH and system services stay enforcing; only our app domain is permissive for evidence gathering.”
 
-**Learn:** [SELINUX_BASICS.md §7](SELINUX_BASICS.md).
+**Learn:** [SELINUX_BASICS.md §7](../policy/SELINUX_BASICS.md).
 
 ---
 
@@ -616,7 +619,7 @@ sudo ausearch -m avc -ts recent 2>/dev/null | grep myapp_t | tail -3
 
 **Checkpoint:** Read one line aloud: “**myapp_t** tried to **write** a **file** labeled **myapp_log_t**.”
 
-**Learn:** [SELINUX_BASICS.md §8](SELINUX_BASICS.md).
+**Learn:** [SELINUX_BASICS.md §8](../policy/SELINUX_BASICS.md).
 
 ---
 
@@ -657,7 +660,7 @@ grep myapp_log selinux/myapp.fc
 
 **Checkpoint:** Given a write AVC to `myapp_log_t`, you can point at an `allow` or explain what rule would need to be added.
 
-**Learn:** [SELINUX_BASICS.md §9](SELINUX_BASICS.md) — `/save-log` walkthrough.
+**Learn:** [SELINUX_BASICS.md §9](../policy/SELINUX_BASICS.md) — `/save-log` walkthrough.
 
 ---
 
@@ -673,7 +676,7 @@ Skip until you run the generator; optional for demo-only attendees.
 
 **What is `config/myapp.manifest.yml`?**
 
-One YAML file that describes **this app** for scripts and Ansible: app name, SELinux domain, install paths, systemd unit names, HTTP endpoints, and where deploy reports go. Export and readiness scripts read it so they do not hard-code `/opt/myapp` in every shell script.
+One YAML file that describes **this app** for scripts and Ansible: app name, SELinux domain, install paths, systemd unit names, **bind ports** (`selinux_ports`), HTTP endpoints, and where deploy reports go. Keep ports the same across environments; change probe host/IP in inventory. Export and readiness scripts read the manifest so they do not hard-code `/opt/myapp` in every shell script.
 
 **Where to run:** Repo root (`cd` to the directory that contains `scripts/` and `config/`).
 
@@ -795,7 +798,7 @@ wc -l policy_out/avc.log
 
 | Guide | Use when |
 |-------|----------|
-| [SELINUX_BASICS.md](SELINUX_BASICS.md) | Concept reference |
+| [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | Concept reference |
 | **This file** | Guided labs with **why** + **what each command does** |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Live workshop |
 | [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md) | Repository tour |

@@ -58,5 +58,9 @@
   run_once: true
   when: selinux_pac_phase not in ['soak_monitor', 'soak_status', 'rollback', 'reset_host']
 
+- name: Require sesearch for canary / soak / enforce
+  ansible.builtin.import_tasks: require_sesearch.yml
+  when: selinux_pac_phase in ['canary', 'soak_monitor', 'soak_status', 'enforce']
+
 - name: Run selinux_pac role phase
   ansible.builtin.import_tasks: "{{ selinux_pac_phase }}.yml"

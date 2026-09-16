@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: myapp_selinux
+  author: selinux-pac
+  description: Removed stub — use selinux_pac
+  license: MIT
+  min_ansible_version: "2.14"

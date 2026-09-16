@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Sign selinux-pac RPMs and publish them to an internal file repo.
+#
+#   cp packaging/internal.env.example packaging/internal.env   # edit
+#   bash packaging/build_rpms.sh
+#   bash packaging/publish_internal.sh
+#
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${SELINUX_INTERNAL_ENV:-${ROOT}/packaging/internal.env}"
+
+if [[ -f "${ENV_FILE}" ]]; then
+    # shellcheck disable=SC1090
+    set -a
+    source "${ENV_FILE}"
+    set +a
+fi
+
+REPO_DIR="${SELINUX_RPM_REPO:-}"
+if [[ -z "${REPO_DIR}" ]]; then
+    echo "Set SELINUX_RPM_REPO (see packaging/internal.env.example)" >&2
+    exit 2
+fi
+
+DIST="${ROOT}/dist"
+if ! compgen -G "${DIST}/*.rpm" >/dev/null; then
+    echo "No RPMs in ${DIST}/ — run bash packaging/build_rpms.sh first" >&2
+    exit 1
+fi
+
+if [[ -n "${SELINUX_GPG_NAME:-}" ]] && command -v rpmsign >/dev/null 2>&1; then
+    echo "Signing RPMs with GPG name ${SELINUX_GPG_NAME}"
+    rpmsign --addsign --key-id "${SELINUX_GPG_NAME}" "${DIST}"/*.rpm
+else
+    echo "WARN: rpmsign skipped (install rpm-sign and set SELINUX_GPG_NAME)" >&2
+fi
+
+sudo mkdir -p "${REPO_DIR}"
+sudo cp -f "${DIST}"/*.rpm "${REPO_DIR}/"
+if command -v createrepo_c >/dev/null 2>&1; then
+    sudo createrepo_c "${REPO_DIR}"
+elif command -v createrepo >/dev/null 2>&1; then
+    sudo createrepo "${REPO_DIR}"
+else
+    echo "WARN: createrepo_c not installed — repo metadata not refreshed" >&2
+fi
+
+cat <<EOF
+Published ${REPO_DIR}
+
+On RHEL targets, install a .repo (adjust baseurl) and import the GPG key:
+
+  [selinux-pac]
+  name=SELinux Policy-as-Code
+  baseurl=https://yum.example.internal/selinux-pac
+  enabled=1
+  gpgcheck=1
+  gpgkey=https://yum.example.internal/selinux-pac/RPM-GPG-KEY
+
+Compile image (controller / CI) — never Docker Hub in production:
+
+  export SELINUX_BUILD_IMAGE=${SELINUX_BUILD_IMAGE:-registry.example.internal/security/selinux-build:stream9}
+  export SELINUX_BUILD_IMAGE_PULL=1
+
+Docs: docs/admin/COMPILE_IMAGE.md
+EOF

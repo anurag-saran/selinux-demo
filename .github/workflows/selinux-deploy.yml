@@ -22,6 +22,15 @@ on:
         description: Policy source directory (relative to repo root)
         required: false
         default: selinux
+      change_ticket:
+        description: Change ticket (required for enforce)
+        required: false
+        default: ""
+      force_enforce:
+        description: Break-glass skip soak (still requires change_ticket)
+        required: false
+        type: boolean
+        default: false
       host_limit:
         description: Ansible --limit (blank = auto canary/production on prod)
         required: false
@@ -101,7 +110,9 @@ jobs:
             -e "policy_artifact_dir=${{ github.workspace }}" \
             -e "selinux_ops_from_package=false" \
             -e "selinux_ops_dir=${{ github.workspace }}/scripts" \
-            -e "app_manifest_path=${{ github.workspace }}/config/myapp.manifest.yml")
+            -e "app_manifest_path=${{ github.workspace }}/config/myapp.manifest.yml" \
+            -e "change_ticket=${{ inputs.change_ticket }}" \
+            -e "force_enforce=${{ inputs.force_enforce }}")
           if [[ -n "${{ steps.limit.outputs.value }}" ]]; then
             args+=(--limit "${{ steps.limit.outputs.value }}")
           fi
@@ -152,10 +163,11 @@ jobs:
             echo "## Production enforce"
             echo ""
             echo "- Host limit: \`${{ steps.limit.outputs.value || 'all inventory hosts' }}\`"
-            echo "- Soak gate: \`check_soak_ready.sh\` (7+ days, zero domain AVCs by default)"
-            echo "- Override: \`-e force_enforce=true\` break-glass only"
+            echo "- Change ticket: \`${{ inputs.change_ticket }}\`"
+            echo "- Soak gate: \`collect_soak_facts.sh\` / \`soak_status.yml\` (7+ days, zero **net-new** access needs by default)"
+            echo "- force_enforce: \`${{ inputs.force_enforce }}\` (break-glass only; ticket still required)"
             echo "- Deploy report: \`/var/lib/myapp/selinux_deploy_report.json\`"
-            echo "- Runbook: [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md)"
+            echo "- Runbook: [docs/admin/PRODUCTION_READINESS.md](docs/admin/PRODUCTION_READINESS.md)"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Deploy failure summary
@@ -167,5 +179,5 @@ jobs:
             echo "- Action: \`${{ inputs.action }}\`"
             echo "- Environment: \`${{ inputs.environment }}\`"
             echo "- Check uploaded Ansible log artifact"
-            echo "- App team card: docs/PRODUCTION_READINESS.md (App team incident card)"
+            echo "- App team card: docs/admin/PRODUCTION_READINESS.md (App team incident card)"
           } >> "${GITHUB_STEP_SUMMARY}"

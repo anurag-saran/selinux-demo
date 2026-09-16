@@ -1,6 +1,6 @@
-# Security/platform team owns policy and deployment playbooks.
-# Replace @your-org/security-team with your GitHub team or usernames.
+# Security/platform owners for policy and deploy playbooks.
+# GitHub CODEOWNERS: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
-/selinux/                    @your-org/security-team
-/ansible/                    @your-org/security-team
-/.github/workflows/selinux-deploy.yml  @your-org/security-team
+/selinux/                    @anurag-saran
+/ansible/                    @anurag-saran
+/.github/workflows/selinux-deploy.yml  @anurag-saran

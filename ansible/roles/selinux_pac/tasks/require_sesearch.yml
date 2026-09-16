@@ -1,0 +1,7 @@
+---
+- name: Require sesearch (setools-console) for net-new soak
+  ansible.builtin.shell: command -v sesearch
+  register: pac_sesearch
+  changed_when: false
+  failed_when: pac_sesearch.rc != 0
+  when: soak_use_net_new | default(true) | bool

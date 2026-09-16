@@ -1,39 +1,9 @@
 ---
-- name: Stat policy_version.txt in policy artifact dir (policy_out layout)
-  ansible.builtin.stat:
-    path: "{{ policy_artifact_dir }}/policy_version.txt"
-  register: myapp_pv_artifact
-  run_once: true
-
-- name: Stat selinux/policy_version.txt next to artifact dir (repo checkout)
-  ansible.builtin.stat:
-    path: "{{ policy_artifact_dir }}/../selinux/policy_version.txt"
-  register: myapp_pv_selinux
-  when: not myapp_pv_artifact.stat.exists
-  run_once: true
-
-- name: Fail when policy version file is missing
+# Removed. Import selinux_pac instead (ansible/roles/selinux_pac/).
+- name: myapp_selinux role was removed
   ansible.builtin.fail:
     msg: >-
-      No policy_version.txt under {{ policy_artifact_dir }}
-      or {{ policy_artifact_dir }}/../selinux/ — run dev_generate_policy or stage_skip_ai_fixture
-  when:
-    - not myapp_pv_artifact.stat.exists
-    - not (myapp_pv_selinux.stat.exists | default(false))
-  run_once: true
-
-- name: Load policy version
-  ansible.builtin.set_fact:
-    policy_version: >-
-      {{
-        lookup(
-          'file',
-          (policy_artifact_dir ~ '/policy_version.txt')
-          if myapp_pv_artifact.stat.exists
-          else (policy_artifact_dir ~ '/../selinux/policy_version.txt')
-        ) | trim
-      }}
-  run_once: true
-
-- name: Run myapp_selinux role phase
-  ansible.builtin.import_tasks: "{{ myapp_selinux_phase }}.yml"
+      Role myapp_selinux is gone. Use role selinux_pac with selinux_pac_phase
+      (canary, soak_monitor, soak_status, enforce, rollback, reset_host).
+      Playbooks: ansible/deploy_canary.yml, soak_monitor.yml, soak_status.yml,
+      enforce_production.yml. Docs: docs/admin/ANSIBLE_OPERATIONS.md

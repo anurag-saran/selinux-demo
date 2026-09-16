@@ -2,7 +2,7 @@
 #
 # run_training_lab.sh — Guided SELinux training lab (typewriter + explanations)
 #
-# Runs labs 1 → 6 verify → 2–5 → 7–9 from docs/SELINUX_TRAINING_LAB.md
+# Runs labs 1 → 6 verify → 2–5 → 7–9 from docs/training/SELINUX_TRAINING_LAB.md
 # with Why/What text and simulated typing. Commands execute for real.
 #
 # Usage (from repo root):
@@ -34,7 +34,7 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Runs the hands-on training lab with explanations and typed commands.
-See docs/SELINUX_TRAINING_LAB.md for the full course.
+See docs/training/SELINUX_TRAINING_LAB.md for the full course.
 
 Options:
   --use-vm          Run every command inside Podman Machine (macOS)
@@ -231,7 +231,7 @@ lab_6_verify
 if [[ "${TLAB_SHORT}" -eq 1 ]]; then
     lab_7
     echo -e "${TLAB_GREEN}${TLAB_BOLD}Short path complete (Labs 1, 6, 7).${TLAB_NC}"
-    echo "Next: docs/DEMO_GUIDE.md or re-run without --short for Labs 2–5, 8–9."
+    echo "Next: docs/training/DEMO_GUIDE.md or re-run without --short for Labs 2–5, 8–9."
     echo "Presenter demo: bash scripts/demo_present.sh --use-vm --demo-mode --skip-ai --auto"
     exit 0
 fi
@@ -250,7 +250,7 @@ fi
 
 echo
 echo -e "${TLAB_GREEN}${TLAB_BOLD}Full training lab run complete.${TLAB_NC}"
-echo "Finish checklist: docs/SELINUX_TRAINING_LAB.md"
+echo "Finish checklist: docs/training/SELINUX_TRAINING_LAB.md"
 echo "Next (workshop demo): bash scripts/demo_present.sh --use-vm --demo-mode --skip-ai --auto"
 echo "Policy PR for Act 4: bash scripts/open_demo_policy_pr.sh --reuse-pr-body  (needs gh auth login)"
 echo

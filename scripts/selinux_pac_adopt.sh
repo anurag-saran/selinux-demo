@@ -18,6 +18,10 @@ Subcommands:
   doctor              Check host prerequisites (SELinux, audit, tools)
   init APP_NAME       Print manifest + Ansible onboarding steps
 
+Two-host RHEL lab (preferred):
+  bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …
+  See docs/admin/RHEL_TWO_HOST.md (Podman is backup only).
+
 Options (init):
   --manifest PATH     Manifest path (default: config/APP.manifest.yml)
 EOF
@@ -27,7 +31,7 @@ doctor() {
     echo "=== selinux-pac doctor ==="
     getenforce 2>/dev/null || echo "WARN: getenforce unavailable"
     command -v ausearch >/dev/null && echo "OK ausearch" || echo "WARN: ausearch missing"
-    command -v sesearch >/dev/null && echo "OK sesearch" || echo "WARN: sesearch missing (install setools-console for net-new soak)"
+    command -v sesearch >/dev/null && echo "OK sesearch" || { echo "FAIL: sesearch missing (dnf install setools-console)"; exit 1; }
     command -v ansible-playbook >/dev/null && echo "OK ansible-playbook" || echo "INFO: ansible-playbook on controller only"
     [[ -x "${SCRIPT_DIR}/monitor_avc.sh" ]] && echo "OK ops scripts in repo" || true
 }
@@ -39,20 +43,17 @@ init_app() {
     echo "2. Scaffold policy: bash scripts/scaffold_sepolicy_module.sh ${APP_NAME} ${APP_NAME}_t"
     echo "3. Validate: bash scripts/validate_app_manifest.sh ${MANIFEST}"
     echo "4. Compile: POLICY_MODULE=${APP_NAME} bash scripts/compile_and_validate.sh selinux/${APP_NAME}"
-    echo "5. Canary (controller):"
+    echo "5. Two-host lab: bash scripts/setup_rhel_hosts.sh write --dev-host DEV --prod-host PROD"
+    echo "6. Canary on DEV:"
     cat <<EOF
-ansible-playbook -i ansible/inventory.example.yml ansible/deploy_canary.yml \\
+ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml \\
   -e app_name=${APP_NAME} \\
   -e "policy_pp_src=\$(pwd)/selinux/${APP_NAME}/${APP_NAME}.pp" \\
   -e "policy_artifact_dir=\$(pwd)" \\
-  -e "app_manifest_path=\$(pwd)/${MANIFEST#${PROJECT_ROOT}/}" \\
-  -e selinux_ops_from_package=false \\
-  -e selinux_ops_dir=\$(pwd)/scripts \\
-  -e selinux_pac_install_demo_units=false
+  -e "app_manifest_path=\$(pwd)/${MANIFEST#${PROJECT_ROOT}/}"
 EOF
-    echo "6. Soak: ansible-playbook -i ansible/inventory.example.yml ansible/soak_monitor.yml"
-    echo "7. Enforce: ansible-playbook -i ansible/inventory.example.yml ansible/enforce_production.yml"
-    echo "Docs: docs/ANSIBLE_OPERATIONS.md docs/ADOPTION_CHECKLIST.md"
+    echo "7. Prod canary/soak/enforce: -i ansible/inventory.production.yml"
+    echo "Docs: docs/admin/RHEL_TWO_HOST.md docs/admin/ANSIBLE_OPERATIONS.md"
 }
 
 if [[ $# -lt 1 ]]; then

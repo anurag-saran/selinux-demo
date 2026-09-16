@@ -108,7 +108,8 @@ main() {
             "${ANSIBLE}/enforce_production.yml" \
             -e "policy_pp_src=${POLICY_OUT}/${APP_NAME}.pp" \
             -e "policy_artifact_dir=${POLICY_OUT}" \
-            -e "force_enforce=true"
+            -e "force_enforce=true" \
+            -e "change_ticket=workshop-demo"
     else
         log_warn "ansible-playbook not found; applying policy directly"
         bash "${SCRIPT_DIR}/apply_policy.sh" "${POLICY_OUT}"

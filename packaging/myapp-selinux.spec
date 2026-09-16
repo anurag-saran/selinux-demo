@@ -2,7 +2,7 @@ Name:           myapp-selinux
 # modver is passed by packaging/build_rpms.sh from selinux/policy_version.txt (single source of truth).
 Version:        %{modver}
 Release:        1%{?dist}
-Summary:        SELinux policy module for Order Processor demo application
+Summary:        SELinux policy module for Order Processor reference application
 License:        MIT
 URL:            https://github.com/anurag-saran/selinux-demo
 BuildArch:      noarch
@@ -17,7 +17,7 @@ Source2:        myapp.fc
 Source3:        selinux-manifest.yml
 
 %description
-Custom SELinux policy module (myapp) for the Order Processor PoC application.
+Custom SELinux policy module (myapp) for the Order Processor reference application.
 Installs type enforcement for myapp_t and myapp_backend_t with FHS paths under
 /var/lib/myapp, /var/log/myapp, and /run/myapp.
 

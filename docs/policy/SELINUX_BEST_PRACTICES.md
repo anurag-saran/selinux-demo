@@ -4,13 +4,13 @@ This guide captures **design principles and anti-patterns** enforced in this rep
 
 | You are… | Read this for… | Then use… |
 |----------|----------------|-----------|
-| **Policy author / app developer** | How to write `.te`/`.fc` and pass CI | [README.md](../README.md), [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [cli/prompt_templates.py](../cli/prompt_templates.py) |
-| **Security / admin reviewer** | PR review checklist and gates | [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md), §Review checklist below |
-| **RHEL admin running deploy** | Step-by-step rollout | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md), [ansible/README.md](../ansible/README.md) |
-| **Testing / CI author** | Endpoint matrix, smoke tests, gates | [TESTING.md](TESTING.md) |
+| **Policy author / app developer** | How to write `.te`/`.fc` and pass CI | [README.md](../../README.md), [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md), [cli/prompt_templates.py](../../cli/prompt_templates.py) |
+| **Security / admin reviewer** | PR review checklist and gates | [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md), §Review checklist below |
+| **RHEL admin running deploy** | Step-by-step rollout | [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md), [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md), [ansible/README.md](../../ansible/README.md) |
+| **Testing / CI author** | Endpoint matrix, smoke tests, gates | [TESTING.md](../developers/TESTING.md) |
 | **New to SELinux concepts** | Labels, soak, permissive domains | [SELINUX_BASICS.md](SELINUX_BASICS.md) |
 
-**Doc index and reading order:** [README.md](README.md).
+**Doc index and reading order:** [README.md](../README.md).
 
 Current module version: read **`selinux/policy_version.txt`** (SemVer). Keep the `policy_module(myapp, …)` line in **`selinux/myapp.te`** in sync — CI job **`version-consistency`** fails on drift. Do not duplicate the version in Ansible inventory or the RPM spec (spec uses `Version: %{modver}` from `build_rpms.sh`).
 
@@ -29,7 +29,7 @@ Current module version: read **`selinux/policy_version.txt`** (SemVer). Keep the
 | TCP client to backend | Correct permission class | `allow myapp_t myapp_backend_port_t:tcp_socket name_connect` |
 | Unix socket to backend | Peer connection | `allow myapp_t myapp_backend_t:unix_stream_socket connectto` |
 | `policy_module()` syntax | Required for refpolicy Makefile compile | Top of every `.te` |
-| Incremental allows from AVCs | Least privilege | AI prompt: net-new rows only |
+| Incremental allows from AVCs | Least privilege | Deterministic generator: net-new rows only (`findings.json`) |
 
 ### Don’t
 
@@ -51,7 +51,7 @@ bash scripts/compile_and_validate.sh selinux
 # Uses scripts/lib/compile_policy.sh → make -f /usr/share/selinux/devel/Makefile
 ```
 
-Build target OS: **CentOS Stream 9** (RHEL 9 upstream). Published compile image: `docker.io/asaran/selinux-demo-selinux-build:stream9` — [`DOCKER_HUB_COMPILE_IMAGE.md`](DOCKER_HUB_COMPILE_IMAGE.md).
+Build target OS: **CentOS Stream 9** (RHEL 9 upstream). Published compile image: `docker.io/asaran/selinux-demo-selinux-build:stream9` — [`DOCKER_HUB_COMPILE_IMAGE.md`](../admin/COMPILE_IMAGE.md).
 
 ---
 
@@ -109,7 +109,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | CI builds `.pp` as artifact only | `compile-policy` job upload (not committed) |
 | Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` (container-only; `--direct`) |
 | Verify service runs in expected domain | `wait_for_endpoints.sh` domain-context check |
-| Tier soak by blast radius | `classify_policy_blast_radius.sh` + fixtures in [`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/) (CI **`blast-radius`**); optional `check_soak_ready.sh --auto-tier` on controller (fail-closed) |
+| Tier soak by blast radius | `classify_policy_blast_radius.sh` + fixtures in [`tests/fixtures/blast_radius/`](../../tests/fixtures/blast_radius/) (CI **`blast-radius`**); optional `check_soak_ready.sh --auto-tier` on controller (fail-closed) |
 | Include policy access delta in PR body | `assemble_pr_body.sh` + `policy_module_diff.sh` (sesearch / merge-base; not `sediff` on `.pp`) |
 | Lint shell and YAML | `shellcheck`, `yamllint`, `ansible-lint` in CI |
 
@@ -133,7 +133,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | **Per-domain permissive only** during soak | `semanage permissive -a myapp_t`; OS stays Enforcing |
 | **`semodule -DB` at canary start** | Surfaces dontaudit-hidden denials during soak |
 | **`semodule -B` on canary failure / rollback / before enforce** | Restores dontaudit baseline — host-wide change |
-| Register ports at deploy | `community.general.seport` in canary playbook |
+| Register ports at deploy | `community.general.seport` loop from manifest `selinux_ports` |
 | Unified endpoint smoke | `wait_for_endpoints.sh` (6 HTTP paths + backend + **domain context**) |
 | Deploy feedback JSON | `/var/lib/myapp/selinux_deploy_report.json` |
 | Rollback via RPM | `dnf downgrade myapp-selinux-<version>` (`rollback_dnf_version` inventory var) |
@@ -149,7 +149,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | Manual `python app.py` for staging tests | Wrong domain transition vs systemd |
 | Enforce without prior canary on host | `enforce_production.yml` assumes policy already installed |
 
-**Packaging path (production-grade):** [`packaging/myapp-selinux.spec`](../packaging/myapp-selinux.spec) — RPM with `%selinux_modules_install`, relabel macros, port registration in `%post`.
+**Packaging path (production-grade):** [`packaging/myapp-selinux.spec`](../../packaging/myapp-selinux.spec) — RPM with `%selinux_modules_install`, relabel macros, port registration in `%post`.
 
 ---
 
@@ -162,8 +162,8 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | **7–14 day soak** after canary | Capture cron, logrotate, cert renewals |
 | **`ausearch --input-logs --subject myapp_t`** | Counts rotated logs; filters by subject domain |
 | Include **`SELINUX_ERR`** events | Not just `-m avc` — constraint / invalid context failures |
-| Daily **`monitor_avc.sh --max-avc 0`** | During soak |
-| **`check_soak_ready.sh`** before enforce | Soak days + event count + deploy report endpoint pass; optional **`--auto-tier`** with base/candidate policy paths |
+| Daily **`soak_monitor.yml`** (or `monitor_avc.sh --max-net-new 0`) | Net-new vs **installed** policy; raw AVC count is informational |
+| **`collect_soak_facts.sh` / `soak_status.yml`** before enforce | Soak days + net-new (or raw AVC if `sesearch` missing) + deploy report |
 | Canary AVC gate | `canary_max_avc: 0` default in `deploy_canary.yml` |
 | Reset soak clock on policy change | New marker after redeploy or rollback |
 
@@ -173,6 +173,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 |--------------|--------------|
 | Substring grep `myapp_t` in audit.log | False positives (`myapp_tmp_t`); misses multiline events |
 | `ausearch` without `--input-logs` on 7-day soak | Rotated logs drop early denials → false “zero AVCs” |
+| Zero raw AVC lines as the soak gate | Duplicate cron denials fail the gate; use **net-new** vs installed policy |
 | Zero AVCs without endpoint coverage | Low traffic ≠ safe policy — require deploy report pass |
 | `ausearch -ts recent` for soak | ~10 minutes — fine post-canary only, not for soak gate |
 
@@ -187,7 +188,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | Immediate relief | `semanage permissive -a myapp_t` (via `emergency_rollback.yml`) |
 | Version rollback | `-e rollback_dnf_version=1.1.1-1` on emergency rollback (`dnf downgrade myapp-selinux-*`) |
 | Export AVCs after outage | `/tmp/emergency_avc.log` in rollback playbook |
-| App team triage | [PRODUCTION_READINESS.md §12.5](PRODUCTION_READINESS.md) — health JSON, deploy report |
+| App team triage | [PRODUCTION_READINESS.md §12.5](../admin/PRODUCTION_READINESS.md) — health JSON, deploy report |
 | Full recovery loop | permissive → policy PR → canary → soak → enforce |
 
 ### Don’t
@@ -200,22 +201,24 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 
 ---
 
-## 7. AI policy generation
+## 7. AI policy generation (optional)
 
-The CLI follows the same rules as hand-written policy. See [`cli/prompt_templates.py`](../cli/prompt_templates.py):
+Default policy is **`cli/deterministic_gen.py`**. Optional **`cli/summarize_pr.py`** polishes `pr_summary.md` only. Legacy all-in-one LLM (`cli/selinux_gen.py --legacy-full-policy`) is for emergency rollback patches on the **controller**, not day-to-day `.te` authoring.
+
+The LLM path follows the same house rules as hand-written policy. See [`cli/prompt_templates.py`](../../cli/prompt_templates.py):
 
 - Prefer refpolicy **interfaces** (embedded allowlist in system prompt)
 - Ban raw syslog / `unreserved_port_t` / `bin_t` patterns
 - FHS `.fc` template without `--` on directories
 - Compile-retry on `policy_module()` / macro errors
 
-**Human review is mandatory** — AI output passes CI but does not replace admin sign-off.
+**Human review is mandatory** — generated output passes CI but does not replace admin sign-off.
 
 ---
 
 ## 8. Review checklist (admins)
 
-Use with the [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md):
+Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md):
 
 - [ ] `.te` uses refpolicy interfaces, not audit2allow-style raw allows
 - [ ] Port 8888 / 8889 use `myapp_port_t` / `myapp_backend_port_t`, not `unreserved_port_t`
@@ -224,9 +227,10 @@ Use with the [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_revie
 - [ ] Version bump: `selinux/policy_version.txt` and matching `policy_module(myapp, …)` in `.te` only (no duplicate version in spec/inventory)
 - [ ] `verify_file_contexts.sh` passes after `restorecon` (includes `/var/log/myapp`)
 - [ ] Canary plan: `semodule -DB`, endpoint smoke, **domain context** in deploy report, soak marker
-- [ ] Enforce plan: `collect_soak_facts.sh` gate (or manual `check_soak_ready.sh`), `semodule -B`, block/rescue tested or briefed
+- [ ] Enforce plan: `collect_soak_facts.sh` / `soak_status.yml` (net-new), `semodule -B`, block/rescue tested or briefed
 - [ ] Developers can run `dev_generate_policy.sh --enforce-check` before opening PR
 - [ ] Rollback owner knows `emergency_rollback.yml`, optional `rollback_dnf_version`, and `reset_host_state.yml` for interrupted canary
+- [ ] AWX job templates mapped ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md))
 
 ---
 
@@ -234,9 +238,10 @@ Use with the [PR template](../.github/PULL_REQUEST_TEMPLATE/selinux_policy_revie
 
 | Guide | Role |
 |-------|------|
-| [TESTING.md](TESTING.md) | Endpoint probes, smoke_test.py, CI and deploy gates |
-| [../ansible/README.md](../ansible/README.md) | Ansible playbook task order and variables |
+| [TESTING.md](../developers/TESTING.md) | Endpoint probes, smoke_test.py, CI and deploy gates |
+| [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AWX job templates and soak monitor |
+| [../ansible/README.md](../../ansible/README.md) | Ansible playbook task order and variables |
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | Concepts and beginner mistakes |
-| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Workshop acts 1–10 |
-| [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
-| [README.md](../README.md) | Commands, CI, GitHub Actions |
+| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Workshop acts 1–10 |
+| [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
+| [README.md](../../README.md) | Commands, CI, Ansible pointer |

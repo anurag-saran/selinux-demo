@@ -8,7 +8,8 @@ app_manifest_path: /etc/myapp/selinux-manifest.yml
 
 # Controller-side policy artifacts (never referenced in remote command paths).
 policy_artifact_dir: "{{ playbook_dir }}/.."
-policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name | default('myapp') }}.pp"
+# Empty on production (RPM-only). Dev inventory sets a controller checkout path.
+policy_pp_src: ""
 policy_staging_path: /var/lib/selinux-policy-staging/{{ app_name | default('myapp') }}.pp
 
 # policy_version is loaded from selinux/policy_version.txt in tasks/main.yml (not duplicated here).
@@ -35,6 +36,12 @@ selinux_pac_phase: canary
 selinux_pac_install_demo_units: false
 
 # Soak gates (enforce + soak_monitor playbook).
+soak_min_days: 7
+soak_max_avc: 0
 soak_use_net_new: true
 soak_max_net_new: 0
 http_probe_host: "127.0.0.1"
+
+# Enforce / AWX survey. force_enforce never skips the change_ticket check.
+force_enforce: false
+change_ticket: ""

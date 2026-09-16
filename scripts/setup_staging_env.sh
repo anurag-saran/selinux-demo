@@ -56,7 +56,7 @@ check_selinux() {
     local mode
     mode="$(getenforce)"
     if [[ "${mode}" == "Disabled" ]]; then
-        log_error "SELinux is disabled. Enable SELinux and reboot before running this PoC."
+        log_error "SELinux is disabled. Enable SELinux and reboot before running staging setup."
         exit 1
     fi
     log_info "SELinux mode: ${mode}"

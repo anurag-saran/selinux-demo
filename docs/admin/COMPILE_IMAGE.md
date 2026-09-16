@@ -1,12 +1,10 @@
 # SELinux compile image (CentOS Stream 9)
 
-Pre-baked **CentOS Stream 9** image with `selinux-policy-devel`, `setools-console`, and targeted policy. Matches **RHEL 9 deploys** (Stream is RHEL upstream). No per-run `dnf` on compile.
+Pre-baked **CentOS Stream 9** image with `selinux-policy-devel`, `setools-console`, and targeted policy. Matches **RHEL 9 deploys**.
 
-**Who this is for:** developers who need to **compile** `.te`/`.fc` into `.pp` on a laptop without installing full SELinux devel packages on the host.
+**Production:** set **`SELINUX_BUILD_IMAGE`** to an **internal registry** (copy [`packaging/internal.env.example`](../../packaging/internal.env.example)). Do not pull Docker Hub from canary/prod controllers. On RHEL with `selinux-policy-devel`, compile natively — [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md).
 
-**Doc index:** [README.md](README.md).
-
-**Registry:** Demo tags are published on Docker Hub; production shops set **`SELINUX_BUILD_IMAGE`** to an internal mirror (no script edits). See [Internal registry](#internal-registry-regulated-environments) below.
+**Doc index:** [README.md](../README.md).
 
 ## Published image (pull-first)
 
@@ -25,7 +23,7 @@ docker.io/asaran/selinux-demo-selinux-build:stream9
 
 | | |
 |--|--|
-| **Where (Mac)** | Terminal at **repo root** after `bash scripts/fix_podman.sh` and `source …/env.sh` — see [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos) |
+| **Where (Mac)** | Terminal at **repo root** after `bash scripts/fix_podman.sh` and `source …/env.sh` — see [SELINUX_TRAINING_LAB.md — Running on macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos) |
 | **Where (Linux)** | Repo root; Podman or Docker if you use the container compile path |
 | **Why** | Pulling the image is faster than building Stream 9 + `selinux-policy-devel` on every compile |
 
@@ -71,7 +69,7 @@ export SELINUX_BUILD_BASE_IMAGE=quay.io/centos/centos:stream9
 
 ## macOS Podman notes
 
-Full first-time setup (where each command runs): **[SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos)**.
+Full first-time setup (where each command runs): **[SELINUX_TRAINING_LAB.md — Running on macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos)**.
 
 | Issue | Fix |
 |-------|-----|
@@ -101,23 +99,26 @@ You may keep publishing to the same Hub tag `:stream9`; document in release note
 
 | Variable | Default |
 |----------|---------|
-| `SELINUX_BUILD_IMAGE` | `docker.io/asaran/selinux-demo-selinux-build:stream9` |
+| `SELINUX_BUILD_IMAGE` | **Production:** `packaging/internal.env`. Local fallback `localhost/selinux-build:stream9` |
 | `SELINUX_BUILD_BASE_IMAGE` | `quay.io/centos/centos:stream9` |
 | `SELINUX_COMPILE_IMAGE` | `quay.io/centos/centos:stream9` (slow path) |
 | `SELINUX_BUILD_IMAGE_PULL` | `1` |
 | `SELINUX_BUILD_IMAGE_AUTO` | `1` |
 | `CONTAINERS_STORAGE_DRIVER` | `vfs` on macOS (via `~/.local/share/selinux-demo/podman/env.sh`) |
 
-### Internal registry (regulated environments)
+### Internal registry (required for canary/prod controllers)
 
-Docker Hub is optional. Point **`SELINUX_BUILD_IMAGE`** at any registry mirror (no script edits):
+Do not pull Docker Hub from production. Copy [`packaging/internal.env.example`](../../packaging/internal.env.example) and export **`SELINUX_BUILD_IMAGE`**:
 
 ```bash
-export SELINUX_BUILD_IMAGE=registry.example.com/security/selinux-demo-selinux-build:stream9
-export SELINUX_BUILD_IMAGE_PULL=1   # or 0 to build only from Stream base locally
+cp packaging/internal.env.example packaging/internal.env   # gitignored
+# edit registry + SELINUX_RPM_REPO
+set -a && source packaging/internal.env && set +a
 bash scripts/lib/selinux_build_image.sh ensure
+bash packaging/build_rpms.sh
+bash packaging/publish_internal.sh   # rpmsign + createrepo_c
 ```
 
-Local-only shops: `SELINUX_BUILD_IMAGE_PULL=0` and `bash scripts/build_selinux_compile_image.sh` (never pushes).
+Laptop backup only: `SELINUX_BUILD_IMAGE_PULL=0` and `bash scripts/build_selinux_compile_image.sh` (never pushes).
 
-Related: [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [TESTING.md](TESTING.md), [README.md](../README.md).
+Related: [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md), [TESTING.md](../developers/TESTING.md), [README.md](../../README.md).
