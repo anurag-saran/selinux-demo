@@ -145,21 +145,20 @@ main() {
 
     init_machine
 
+    local repo_root
+    repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+    printf '\n%b\n\n' "${GREEN}Podman fixed.${NC}"
     cat <<EOF
-
-${GREEN}Podman fixed.${NC}
-
 Before running the PoC in this shell:
   source "${ENV_FILE}"
 
 Permanent setup (add to ~/.zshrc):
   source "${ENV_FILE}"
 
-Then:
-  cd "$(cd "$(dirname "$0")/.." && pwd)"
-  bash scripts/podman_build.sh
-  bash scripts/podman_run.sh up
-  bash scripts/podman_run.sh setup
+Then (from repo root):
+  cd "${repo_root}"
+  bash scripts/run_on_podman_vm.sh sync
+  bash scripts/run_on_podman_vm.sh setup
 
 Optional system-wide install (overrides old Homebrew 2.0.6):
   sudo installer -pkg ${INSTALLER_DIR}/podman-installer-v${PODMAN_VERSION}.pkg -target /

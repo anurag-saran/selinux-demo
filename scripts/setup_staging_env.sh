@@ -133,11 +133,25 @@ install_application() {
     # Flask runs from a venv under /opt/myapp (FCOS-friendly install path)
 }
 
+clear_staging_deploy_artifacts() {
+    local removed=0
+    for f in "${VAR_DIR}/selinux_canary_deployed_at" "${VAR_DIR}/selinux_deploy_report.json"; do
+        if [[ -e "${f}" ]]; then
+            rm -f "${f}"
+            removed=1
+        fi
+    done
+    if [[ "${removed}" -eq 1 ]]; then
+        log_info "Removed prior demo/canary deploy markers under ${VAR_DIR} (fresh stub staging)"
+    fi
+}
+
 compile_stub_policy() {
     local work_dir pp_path
     work_dir="$(mktemp -d)"
     pp_path="${work_dir}/myapp.pp"
 
+    clear_staging_deploy_artifacts
     log_info "Compiling stub SELinux policy module..."
     for mod in myapp_ports myapp_canary myapp; do
         semodule -r "${mod}" 2>/dev/null || true
@@ -240,10 +254,8 @@ wait_for_service() {
 }
 
 print_next_steps() {
+    printf '\n%b\n\n' "${GREEN}Setup complete.${NC}"
     cat <<EOF
-
-${GREEN}Setup complete.${NC}
-
 Trigger SELinux AVC denials (permissive mode — requests may still succeed):
 
   curl -v http://127.0.0.1:8888/

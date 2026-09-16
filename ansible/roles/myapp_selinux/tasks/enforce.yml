@@ -128,6 +128,7 @@
         {{ selinux_ops_dir }}/wait_for_endpoints.sh
         --manifest {{ app_manifest_path }}
         --host 127.0.0.1 --retries 15 --delay 2
+        {{ '' if semanage_bin.stat.exists else '--skip-domain-check' }}
       changed_when: false
 
     - name: Write enforce deploy report
@@ -163,6 +164,7 @@
         {{ selinux_ops_dir }}/wait_for_endpoints.sh
         --manifest {{ app_manifest_path }}
         --host 127.0.0.1 --retries 10 --delay 2
+        {{ '' if semanage_bin.stat.exists else '--skip-domain-check' }}
       changed_when: false
 
     - name: Enforce failed — domain reverted to permissive

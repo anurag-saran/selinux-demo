@@ -49,7 +49,8 @@ app = Flask(__name__)
 
 def read_process_context() -> str | None:
     try:
-        return Path("/proc/self/attr/current").read_text(encoding="utf-8").strip()
+        raw = Path("/proc/self/attr/current").read_text(encoding="utf-8")
+        return raw.replace("\x00", "").strip()
     except OSError:
         return None
 

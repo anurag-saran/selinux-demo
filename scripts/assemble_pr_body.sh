@@ -58,6 +58,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+[[ -f "${CAND_DIR}/policy_version.txt" ]] && VERSION_FILE="${CAND_DIR}/policy_version.txt"
+
 [[ -f "${TEMPLATE}" ]] || { echo "Missing template: ${TEMPLATE}" >&2; exit 1; }
 [[ -f "${PR_SUMMARY}" ]] || { echo "Missing pr_summary: ${PR_SUMMARY}" >&2; exit 1; }
 

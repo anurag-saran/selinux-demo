@@ -35,7 +35,7 @@ _integration_audit_tail_body() {
 count=$(sudo ausearch -m avc -ts recent 2>/dev/null | grep -cE 'myapp|init_t' || true)
 echo "--- Recent myapp/init_t AVC lines in audit: ${count} ---"
 sudo ausearch -m avc -ts recent 2>/dev/null | grep -E 'myapp|init_t' | tail -5 \
-  || echo '(no matching lines — stub/permissive may allow everything; Act 2 uses policy_out/avc.log)'
+  || echo '(no matching lines - stub/permissive may allow everything; Act 2 uses policy_out/avc.log)'
 EOS
 }
 
@@ -67,7 +67,8 @@ _integration_run_probes_on_host() {
             ;;
         demo)
             log_info "Integration tests — all workshop HTTP paths in order (one VM session on Mac)."
-            echo -e "\033[0;32m\$\033[0m for path in / /save-log /run-script …; do curl -sf http://${INTEGRATION_HOST}:${INTEGRATION_PORT}\${path}; done"
+            log_tool 'for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do curl -sf "http://127.0.0.1:8888${path}"; done; curl -sf http://127.0.0.1:8889/health'
+            echo -e "\033[0;32m\$\033[0m for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do curl -sf http://${INTEGRATION_HOST}:${INTEGRATION_PORT}\${path}; done"
             if [[ "${USE_VM:-0}" -eq 1 ]]; then
                 _integration_demo_vm_run "${body}" || log_warn "integration probes failed"
             else

@@ -54,6 +54,7 @@ NC='\033[0m'
 log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+log_tool() { echo -e "${CYAN}[TOOL]${NC} $*"; }
 
 usage() {
     cat <<EOF
@@ -262,6 +263,7 @@ act_1_staging() {
             exit 1
         fi
         log_info "Waiting for HTTP endpoints before integration probes (domain check skipped on stub staging)"
+        log_tool "vm: bash scripts/wait_for_endpoints.sh --manifest config/${APP_NAME}.manifest.yml --skip-domain-check"
         if ! vm_run "bash scripts/wait_for_endpoints.sh --manifest ${VM_PROJECT}/config/${APP_NAME}.manifest.yml --skip-domain-check --retries 15 --delay 2"; then
             log_error "Staging endpoints not ready. Run: bash scripts/run_on_podman_vm.sh setup"
             exit 1
@@ -299,9 +301,12 @@ act_2_export() {
     act_banner 2 "AVC Export" "Capture denials from audit log for AI policy input"
     if [[ "${SKIP_AI}" -eq 1 ]]; then
         log_info "Using recorded fixture AVC log (--skip-ai)"
+        log_tool "bash scripts/lib/stage_skip_ai_fixture.sh  (copies docs/examples/fixtures/skip_ai/avc.log → policy_out/avc.log)"
+        log_tool "Live path: bash scripts/run_on_podman_vm.sh export-avcs policy_out/avc.log  (ausearch --subject myapp_t --input-logs)"
         pause_step
         return 0
     fi
+    log_tool "bash scripts/run_on_podman_vm.sh export-avcs ${AVC_LOG}"
     if [[ "${USE_VM}" -eq 1 ]]; then
         bash "${VM_HELPER}" export-avcs "${AVC_LOG}" || true
     else
@@ -314,6 +319,7 @@ act_3_generate() {
     if [[ "${SKIP_AI}" -eq 1 ]]; then
         bash "${SCRIPT_DIR}/lib/stage_skip_ai_fixture.sh"
         log_info "Offline generation (--skip-ai): staged fixture → policy_out/"
+        log_tool "python3 cli/deterministic_gen.py --avc-log policy_out/avc.log  (skipped; using fixtures/skip_ai/generated/)"
         log_info "Diff baseline (1.1.0) → generated (matches selinux/):"
         if command -v git >/dev/null 2>&1; then
             git -C "${PROJECT_ROOT}" diff --no-index \
@@ -361,17 +367,43 @@ act_4_pr_handoff() {
         --app-name "${APP_NAME}"
         --staging-host "workshop-staging"
         --test-suite "Presenter demo integration tests"
+        --candidate-dir "${POLICY_OUT}"
     )
-    if [[ "${SKIP_AI}" -eq 1 ]]; then
+    local diff_file="${POLICY_OUT}/.policy_access_delta.md"
+    local diff_src="${PROJECT_ROOT}/docs/examples/fixtures/skip_ai/policy_access_delta.md"
+    local policy_diff="${SCRIPT_DIR}/lib/policy_module_diff.sh"
+    if bash "${policy_diff}" \
+        --app-name "${APP_NAME}" \
+        --base-dir "${PROJECT_ROOT}/docs/examples/fixtures/skip_ai/baseline" \
+        --cand-dir "${POLICY_OUT}" \
+        --domains "${DOMAIN},myapp_backend_t" \
+        --output "${diff_file}" \
+        --format markdown 2>/dev/null; then
+        assemble_args+=(--policy-diff-file "${diff_file}")
+        log_info "Policy access delta: sesearch allow diff (baseline 1.1.0 → policy_out)"
+        log_tool "bash scripts/lib/policy_module_diff.sh --base-dir docs/examples/fixtures/skip_ai/baseline --cand-dir policy_out"
+    elif [[ -f "${diff_src}" ]]; then
+        assemble_args+=(--policy-diff-file "${diff_src}")
+        log_warn "Using static policy access delta fixture (run policy_module_diff with Podman for live sesearch)"
+        log_tool "bash scripts/assemble_pr_body.sh --policy-diff-file docs/examples/fixtures/skip_ai/policy_access_delta.md"
+    else
         assemble_args+=(--skip-policy-diff)
+        log_warn "No policy diff available — PR body will show 'Policy diff skipped'"
     fi
+    log_tool "bash scripts/assemble_pr_body.sh → policy_out/pr_body.md"
     bash "${ASSEMBLE}" "${assemble_args[@]}"
     log_info "PR body preview (first 25 lines):"
     head -n 25 "${PR_BODY}" || true
+    echo ""
+    log_info "Real GitHub PR for Act 4–5 screen share:"
+    log_tool "bash scripts/open_demo_policy_pr.sh --reuse-pr-body   # base: demo/policy-base-1.1.1 → head: policy/myapp-update"
+    echo "  https://github.com/anurag-saran/selinux-demo/compare/demo/policy-base-1.1.1...policy/myapp-update"
 }
 
 act_5_ci_gates() {
     act_banner 5 "CI Gates" "Forbidden-pattern checks and compile validation (mirrors GitHub Actions)"
+    log_tool "bash scripts/validate_forbidden_patterns.sh policy_out/myapp.te"
+    log_tool "bash scripts/compile_and_validate.sh policy_out  (Podman refpolicy Makefile → policy_out/myapp.pp)"
     bash "${FORBIDDEN}" "${POLICY_OUT}"
     bash "${COMPILE}" "${POLICY_OUT}"
 }
@@ -413,6 +445,7 @@ act_6_canary() {
         POLICY_MODULE=myapp_canary bash "${COMPILE}" "${PROJECT_ROOT}/selinux"
     fi
     if command -v ansible-playbook >/dev/null 2>&1 || [[ "${USE_VM}" -eq 1 ]]; then
+        log_tool "ansible-playbook ansible/deploy_canary.yml -e policy_pp_src=policy_out/myapp.pp  (semodule -i, restorecon, wait_for_endpoints)"
         run_canary_playbook
     else
         log_warn "ansible-playbook not found; applying policy directly"
@@ -424,6 +457,8 @@ act_7_guardrails() {
     act_banner 7 "Production Guardrails" "Verify file contexts and run daily AVC monitor"
     local verify_cmd="sudo bash scripts/verify_file_contexts.sh --install-root ${INSTALL_ROOT} --var-dir ${VAR_DIR} --app-name ${APP_NAME}"
     local monitor_cmd="sudo bash scripts/monitor_avc.sh --domain ${DOMAIN} --manifest ${MANIFEST} --marker-file ${SOAK_MARKER} --max-avc -1"
+    log_tool "matchpathcon -V /opt/myapp/... + restorecon dry-run (verify_file_contexts.sh)"
+    log_tool "monitor_avc.sh --marker-file ${SOAK_MARKER}  (ausearch since canary deploy epoch)"
     if [[ "${USE_VM}" -eq 1 ]]; then
         vm_run "${verify_cmd} || ${verify_cmd} --skip-if-unavailable"
         vm_run "${monitor_cmd} --skip-if-unavailable"
@@ -474,6 +509,7 @@ act_9_enforce() {
         enforce_extra=(-e "force_enforce=true")
     fi
     if command -v ansible-playbook >/dev/null 2>&1 || [[ "${USE_VM}" -eq 1 ]]; then
+        log_tool "ansible-playbook ansible/enforce_production.yml -e force_enforce=${DEMO_MODE}  (semodule -r myapp_canary on FCOS; wait_for_endpoints --skip-domain-check without semanage)"
         run_enforce_playbook "${enforce_extra[@]}"
     else
         log_warn "ansible-playbook not found; apply_policy.sh enforce path not shown"
@@ -555,6 +591,7 @@ main() {
     log_info "Presenter demo complete."
     echo "  policy_out/pr_summary.md"
     echo "  policy_out/pr_body.md"
+    echo "  GitHub PR (Act 4–5): bash scripts/open_demo_policy_pr.sh --reuse-pr-body"
     echo "  Demo guide: docs/DEMO_GUIDE.md"
     echo "  Runbook: docs/PRODUCTION_READINESS.md"
 }

@@ -350,7 +350,7 @@ ls -Z /var/log/myapp/data.log
 
 **What this does:** `ls` lists files; **`-Z`** adds the SELinux context (the label).
 
-**What to look at:** The **type** — third field in the context — e.g. **`myapp_exec_t`**, **`myapp_var_lib_t`**. The log file **`myapp_log_t`** appears after **`curl /save-log`** (Lab 2 preview or Lab 7) or when **full** policy from `selinux/myapp.fc` is installed; **stub** staging may show a generic type until then.
+**What to look at:** The **type** — third field in the context — e.g. **`myapp_exec_t`**, **`myapp_var_lib_t`**. On **stub** staging (Lab 6), **`/var/log/myapp/data.log`** often stays **`var_log_t`** because **`selinux/stub/myapp.fc`** does not define log paths. **Full** policy in **`selinux/myapp.fc`** expects **`myapp_log_t`** after **`restorecon`** (Lab 9 maps the Git rules).
 
 **Missing log file?** Run `curl -s http://127.0.0.1:8888/save-log` once, then `ls -Z` again.
 
@@ -782,7 +782,8 @@ wc -l policy_out/avc.log
 | `203/EXEC` on `backend_stub.py` | Shebang exec + SELinux/systemd on FCOS | Use current `app/myapp-backend.service` (venv python path); `daemon-reload` + restart |
 | `FATAL: myapp-backend … unknown` at setup end | Backend not running when script checked | VM: [Lab 6 — journalctl + restart](#if-myapp-backendservice-is-not-active) |
 | `FATAL: … not myapp_backend_t` (stub staging) | **`wait_for_endpoints`** expects full manifest domains; stub uses **`myapp_t`** for both | Ignore if units are **active** and curls work; install full **`selinux/myapp.pp`** for production-like checks |
-| Empty `ausearch` | auditd off or no denials yet | `systemctl start auditd`; Lab 7 |
+| `selinux_canary_deployed_at` in `/var/lib/myapp` during training | Leftover from **`demo_present`** canary (Act 6) | Re-run **`bash scripts/run_on_podman_vm.sh setup`** (removes markers when reinstalling stub) or delete files manually |
+| Empty `ausearch` | auditd off or no denials yet | `systemctl start auditd`; Lab 7; Lab 8 shows a **sample** AVC when live count is 0 |
 | `curl` fails | App or backend not running | Lab 6 verify; `systemctl restart myapp-backend myapp` |
 | Wrong file types | Disk ≠ policy | `sudo restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp` |
 | `curl` on Mac to 8888 fails | App listens **inside VM only** | `run_on_podman_vm.sh shell`, then curl **127.0.0.1** there |

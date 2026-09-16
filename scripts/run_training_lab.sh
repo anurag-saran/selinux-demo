@@ -117,6 +117,7 @@ lab_6_verify() {
     tlab_pause
     tlab_explain "Health check on port 8888 inside this Linux environment (not your Mac)."
     tlab_run_cmd "curl -s http://127.0.0.1:8888/ | head -c 200; echo"
+    echo -e "${TLAB_DIM}Note:${TLAB_NC} On Podman FCOS, JSON may show process_context init_t while selinux.domain stays myapp_t until full policy transition; null bytes are stripped in app output."
     tlab_pause
     tlab_explain "Host should stay Enforcing; myapp_t should be permissive when semanage is available."
     tlab_run_cmd "getenforce"
@@ -130,7 +131,7 @@ lab_2() {
     tlab_why "Policy rules talk about types on files (myapp_exec_t, myapp_log_t), not Unix usernames."
     tlab_question "What type does policy assign to each path?"
     tlab_explain "ls -Z shows the SELinux context; focus on the third field (the type)."
-    tlab_explain "Create the log file once so ls -Z can show myapp_log_t (full staged HTTP probes are in Lab 7)."
+    tlab_explain "Create the log file with save-log; on stub staging the log may stay var_log_t until full selinux/myapp.fc is installed (Lab 9 shows myapp_log_t in Git)."
     tlab_run_cmd "curl -sf -o /dev/null http://127.0.0.1:8888/save-log || true"
     tlab_run_cmd "ls -Z /opt/myapp/app.py"
     tlab_run_cmd "ls -Z /var/lib/myapp"
@@ -138,7 +139,7 @@ lab_2() {
     tlab_pause
     tlab_explain "matchpathcon shows what loaded policy expects for a path (from .fc rules)."
     tlab_run_cmd "matchpathcon /var/log/myapp/data.log 2>/dev/null || matchpathcon /var/log/myapp"
-    tlab_checkpoint "You can name the type on the app binary vs data/log paths."
+    tlab_checkpoint "App binary uses myapp_exec_t; stub log may be var_log_t — full policy + restorecon targets myapp_log_t (Lab 9)."
     tlab_pause_lab
 }
 
@@ -147,8 +148,7 @@ lab_3() {
     tlab_why "Running processes have a domain (type). Rules allow myapp_t to touch files — not the myapp user account."
     tlab_question "What domain is the Flask (and backend) process running in?"
     tlab_explain "On Podman FCOS you may see init_t instead of myapp_t — stub policy still allows the demo."
-    tlab_run_cmd "ps -eZ | grep /opt/myapp/app.py || ps -eZ | grep app.py | head -3"
-    tlab_run_cmd "ps -eZ | grep backend_stub || true"
+    tlab_lab3_show_process_labels
     tlab_checkpoint "Process domain is not the same as file types on disk."
     tlab_pause_lab
 }
@@ -199,7 +199,8 @@ lab_8() {
     tlab_run_cmd_sudo "systemctl status auditd --no-pager | head -3"
     tlab_run_cmd_sudo "ausearch -m avc -ts recent 2>/dev/null | tail -5 || echo '(no recent AVC lines — often normal after Lab 7)'"
     tlab_run_cmd_sudo "ausearch -m avc -ts recent 2>/dev/null | grep -E 'myapp|init_t' | tail -3 || true"
-    tlab_checkpoint "You can read scontext, tcontext, and denied { … } on an AVC line."
+    tlab_lab8_show_sample_avc_if_needed
+    tlab_checkpoint "You can read scontext, tcontext, and denied { … } on an AVC line (live or sample above)."
     tlab_pause_lab
 }
 
@@ -207,7 +208,7 @@ lab_9() {
     tlab_print_section "Lab 9 — Map AVC to .te rule"
     tlab_why "Git selinux/myapp.te is what reviewers approve — connect logs to allow rules."
     tlab_question "Which rule in Git explains log access?"
-    tlab_explain "grep the Type Enforcement file and file contexts for myapp_log."
+    tlab_explain "grep the Type Enforcement file and file contexts for myapp_log (full module in Git; stub may still use var_log_t on disk)."
     tlab_run_cmd "cd ${TLAB_VM_PROJECT} && grep -n myapp_log_t selinux/myapp.te | head -10"
     tlab_run_cmd "cd ${TLAB_VM_PROJECT} && grep myapp_log selinux/myapp.fc"
     tlab_checkpoint "Given a write to myapp_log_t, you can point at an allow or macro in .te."
@@ -231,6 +232,7 @@ if [[ "${TLAB_SHORT}" -eq 1 ]]; then
     lab_7
     echo -e "${TLAB_GREEN}${TLAB_BOLD}Short path complete (Labs 1, 6, 7).${TLAB_NC}"
     echo "Next: docs/DEMO_GUIDE.md or re-run without --short for Labs 2–5, 8–9."
+    echo "Presenter demo: bash scripts/demo_present.sh --use-vm --demo-mode --skip-ai --auto"
     exit 0
 fi
 
@@ -248,5 +250,7 @@ fi
 
 echo
 echo -e "${TLAB_GREEN}${TLAB_BOLD}Full training lab run complete.${TLAB_NC}"
-echo "Finish checklist: docs/SELINUX_TRAINING_LAB.md — ready for DEMO_GUIDE.md"
+echo "Finish checklist: docs/SELINUX_TRAINING_LAB.md"
+echo "Next (workshop demo): bash scripts/demo_present.sh --use-vm --demo-mode --skip-ai --auto"
+echo "Policy PR for Act 4: bash scripts/open_demo_policy_pr.sh --reuse-pr-body  (needs gh auth login)"
 echo
