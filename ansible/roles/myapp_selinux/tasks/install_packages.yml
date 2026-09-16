@@ -1,0 +1,31 @@
+---
+- name: Install shared SELinux ops package
+  ansible.builtin.dnf:
+    name: selinux-policy-ops
+    state: present
+  when: selinux_ops_from_package | bool
+
+- name: Install application SELinux policy RPM
+  ansible.builtin.dnf:
+    name: "{{ myapp_selinux_package }}"
+    state: present
+  when: selinux_ops_from_package | bool
+
+- name: Ensure policy staging directory exists
+  ansible.builtin.file:
+    path: "{{ policy_staging_path | dirname }}"
+    state: directory
+    mode: "0750"
+
+- name: Stage policy module from controller artifact
+  ansible.builtin.copy:
+    src: "{{ policy_pp_src }}"
+    dest: "{{ policy_staging_path }}"
+    mode: "0644"
+  when: policy_pp_src is defined and policy_pp_src | length > 0
+
+- name: Install staged policy module when artifact provided
+  ansible.builtin.command: "semodule -i {{ policy_staging_path }}"
+  register: semodule_staged
+  changed_when: semodule_staged.rc == 0
+  when: policy_pp_src is defined and policy_pp_src | length > 0
