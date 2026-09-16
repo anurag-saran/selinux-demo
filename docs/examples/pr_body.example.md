@@ -107,7 +107,7 @@ type=AVC msg=audit(1730000006.106:506): avc: denied { connectto } for pid=4421 c
 | **Compilation Test** | ✅ Pass | CI `compile-policy` artifact + refpolicy Makefile build |
 | **Path Labeling (restorecon -n)** | ⬜ Pending | `verify_file_contexts.sh` after canary deploy on staging |
 | **Domain Context Verified** | ⬜ Pending | Deploy report: `myapp.service` → `myapp_t`, backend → `myapp_backend_t` |
-| **Soak Period (7–14 days)** | ⬜ Pending | AWX `soak_monitor.yml` daily (net-new vs installed policy); `soak_status.yml` before enforce |
+| **Soak Period (7–14 days)** | ⬜ Pending | AAP `soak_monitor.yml` daily (net-new vs installed policy); `soak_status.yml` before enforce |
 | **Systemd-Only Restart** | ✅ Pass | Services restarted via systemd in Ansible playbooks |
 | **Prod Canary Host** | ⬜ Pending | `deploy_canary.yml --limit canary` before fleet enforce |
 | **Canary Readiness** | ⬜ Pending | Plan to run `deploy_canary.yml` before production enforce |
@@ -115,17 +115,18 @@ type=AVC msg=audit(1730000006.106:506): avc: denied { connectto } for pid=4421 c
 
 ### 7. Admin Action
 
-**After merge:** Compile with CLI, then AWX **SELinux – Canary** (`ansible/deploy_canary.yml`). Optional GHA staging-canary only if a `selinux-staging` runner exists.
+**After merge:** Compile with CLI, then AAP **SELinux – Release canary** (`ansible/deploy_canary.yml`). Optional GHA staging-canary only if a `selinux-staging` runner exists.
 
-**Soak:** Daily AWX **Soak monitor** (`soak_monitor.yml`). Before enforce: **Soak status** (`soak_status.yml`).
+**Soak:** Daily AAP **Soak monitor** (`soak_monitor.yml`). Before enforce: **Soak status** (`soak_status.yml`). Soak fail → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md), not live patch.
 
-**Production enforce (manual):** AWX **SELinux – Enforce** (`ansible/enforce_production.yml`). See [`docs/admin/ANSIBLE_OPERATIONS.md`](../admin/ANSIBLE_OPERATIONS.md) and [`docs/admin/PRODUCTION_READINESS.md`](../admin/PRODUCTION_READINESS.md).
+**Production enforce (manual):** AAP **SELinux – Promote to enforce** (`ansible/enforce_production.yml`). See [`ansible/aap/`](../../ansible/aap/), [`docs/admin/ANSIBLE_OPERATIONS.md`](../admin/ANSIBLE_OPERATIONS.md) and [`docs/admin/PRODUCTION_READINESS.md`](../admin/PRODUCTION_READINESS.md).
 
 ```bash
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_status.yml --limit canary
-ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml
+ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
+  -e change_ticket=CHG123
 ```
 
 **Rollback:** `ansible-playbook ansible/emergency_rollback.yml`

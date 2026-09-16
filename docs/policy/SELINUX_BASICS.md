@@ -358,8 +358,9 @@ Day 0   Canary deploy
 
 Days 1–14   Soak (production)
         → app keeps running; myapp_t still log-only
-        → daily: ansible-playbook soak_monitor.yml (net-new vs installed policy)
+        → daily: AAP **SELinux – Soak monitor** (`soak_monitor.yml`, net-new vs installed policy)
         → goal: zero **net-new** access needs (not zero raw AVC lines)
+        → if net-new appears: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) (PR, not live patch)
 
 Enforce gate   Ansible collect_soak_facts / soak_status must pass ALL:
         → marker age ≥ 7 days
@@ -374,12 +375,13 @@ Enforce   semanage permissive -d myapp_t
 | Artifact | Purpose |
 |----------|---------|
 | `/var/lib/myapp/selinux_canary_deployed_at` | Epoch timestamp — soak clock starts here |
-| `ansible/soak_monitor.yml` | Daily check during soak — fail if **net-new** needs remain |
-| `ansible/soak_status.yml` / `collect_soak_facts.sh` | Facts for the enforce gate |
+| `/var/lib/myapp/selinux_soak_last_fail.json` | Last soak-monitor fail (copy to rhel-dev; see [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)) |
+| `ansible/soak_monitor.yml` | Daily AAP **Soak monitor** — fail if **net-new** needs remain |
+| `ansible/soak_status.yml` / `collect_soak_facts.sh` | First node of **Promote to enforce** |
 
 **"Zero AVCs during soak"** in this repo means no **net-new access needs** vs the **installed** canary module (duplicate log lines from cron do not fail the gate). It does **not** mean the audit log is empty globally.
 
-If policy changes mid-soak, redeploy canary and **reset the soak clock**. Full admin runbook: [PRODUCTION_READINESS.md §6–12](../admin/PRODUCTION_READINESS.md). Ansible hub: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md).
+If policy changes mid-soak, redeploy canary and **reset the soak clock**. Full admin runbook: [PRODUCTION_READINESS.md §6–12](../admin/PRODUCTION_READINESS.md). Ansible hub: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
 
 ---
 
@@ -569,14 +571,14 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 2. Export AVCs                         →  policy_out/avc.log
 3. Generate policy                     →  selinux/myapp.te + .fc updates
 4. Review + CI                         →  no wildcards / no shadow_t allows
-5. Canary deploy                       →  semodule -i + semanage permissive -a
-6. Soak + monitor                      →  soak_monitor.yml (net-new), soak_status.yml
-7. Enforce                             →  semanage permissive -d myapp_t (block/rescue on failure)
+5. Canary deploy                       →  AAP **Release canary** (semodule -i + permissive domain)
+6. Soak + monitor                      →  AAP **Soak monitor** (net-new); fail → DENIAL_RESPONSE.md
+7. Enforce                             →  AAP **Promote to enforce** (`change_ticket`)
 8. Deploy verification                 →  wait_for_endpoints.sh + selinux_deploy_report.json
-9. Outage?                             →  emergency_rollback.yml (permissive + re-soak)
+9. Outage?                             →  AAP **Rollback**, then PR (not live semodule -i)
 ```
 
-**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (HTTP probes from the manifest **plus domain-context check**) and write a deploy report JSON. Enforce uses Ansible **block/rescue** — on failure, the app domain is restored to permissive before the playbook exits. Production soak uses **`soak_monitor.yml`** (net-new vs installed policy).
+**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (HTTP probes from the manifest **plus domain-context check**) and write a deploy report JSON. Enforce uses Ansible **block/rescue** — on failure, the app domain is restored to permissive before the playbook exits. Production soak uses AAP **Soak monitor** (`soak_monitor.yml`, net-new vs installed policy). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
 
 ### App-visible SELinux signals
 

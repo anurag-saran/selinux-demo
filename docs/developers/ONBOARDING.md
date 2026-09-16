@@ -2,7 +2,7 @@
 
 The repo ships **`myapp`** as the primary demo and **`payments`** as a second onboarded module: manifest template, policy under **`selinux/payments/`**, and a published **`.if`** interface for dependent modules.
 
-**Prerequisites:** read [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). **Doc index:** [README.md](../README.md). Deploy: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md).
+**Prerequisites:** read [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). **Doc index:** [README.md](../README.md). Deploy: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) (`ansible/aap/`). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
 
 **Fast path:**
 
@@ -18,7 +18,7 @@ bash scripts/selinux_pac_adopt.sh init payments
 |------|--------|
 | Copy manifest, `validate_app_manifest.sh`, compile | **Controller** (RHEL devel or Podman compile image as backup) |
 | `scaffold_sepolicy_module.sh`, `semodule -i`, `restorecon` | **RHEL dev** box |
-| `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` | **Controller** SSH to **RHEL prod** ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) |
+| `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` (AAP **Release canary** / **Soak monitor**) | **Controller** SSH to **RHEL prod** ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) |
 
 ---
 

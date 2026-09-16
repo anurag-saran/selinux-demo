@@ -1,16 +1,18 @@
-# Ansible operations (AWX / ansible-playbook)
+# Ansible operations (AAP)
 
-Ansible is the **control plane** for SELinux policy on RHEL hosts. Developers PR policy; you **compile and package** RPMs, then playbooks **install, soak, and enforce**. Do not clone this repo onto production targets.
+**Ansible Automation Platform (AAP)** is the production control plane. Developers PR policy; you **compile and package** RPMs; **Automation Controller job templates** install, soak, and enforce. Do not clone this repo onto production targets.
 
-**Where commands run:** `ansible-playbook` on a **controller** (AWX execution node or laptop) with SSH to inventory hosts. `semodule` / `semanage` / soak scripts run on **RHEL targets**.
+The same playbooks run under `ansible-playbook` on a laptop until the project is imported into AAP.
 
-Playbook task order and variables: [`ansible/README.md`](../../ansible/README.md). **Two RHEL boxes:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Admin runbook: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Fork wiring: [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md).
+**Where commands run:** AAP execution nodes (or `ansible-playbook` on a controller laptop) SSH to inventory hosts. `semodule` / `semanage` / soak scripts run on **RHEL targets**.
+
+Playbook task order and variables: [`ansible/README.md`](../../ansible/README.md). **AAP objects:** [`ansible/aap/`](../../ansible/aap/). **Two RHEL boxes:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Admin runbook: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Denied file/port after ship: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). Fork wiring: [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md).
 
 ```text
 CLI / CI     →  RPM repo (.pp + selinux-policy-ops + <app>-selinux)
                       │
                       ▼
-              AWX / ansible-playbook
+              AAP (Automation Controller)
                       │
         ┌─────────────┼─────────────┐
         ▼             ▼             ▼
@@ -31,27 +33,29 @@ CLI / CI     →  RPM repo (.pp + selinux-policy-ops + <app>-selinux)
 | [`ansible/enforce_production.yml`](../../ansible/enforce_production.yml) | Soak gate, remove permissive, enforce smoke |
 | [`ansible/emergency_rollback.yml`](../../ansible/emergency_rollback.yml) | Permissive relief + optional RPM downgrade |
 | [`ansible/reset_host_state.yml`](../../ansible/reset_host_state.yml) | `semodule -B`, clear permissive |
-| [`ansible/generate_emergency_patch.yml`](../../ansible/generate_emergency_patch.yml) | Controller-only OpenAI patch from AVC log |
+| [`ansible/generate_emergency_patch.yml`](../../ansible/generate_emergency_patch.yml) | Controller + git checkout only — writes `policy_out/` for a PR, never host install |
 
 Role: [`ansible/roles/selinux_pac/`](../../ansible/roles/selinux_pac/). The role loads `app_manifest_path` and registers **ports from `selinux_ports`** (stable across environments). Probe IP is `http.host` in the manifest or inventory `http_probe_host` (changes per env).
 
 Lab-only: `selinux_pac_install_demo_units: true` copies demo systemd units. Production inventories leave this **false**.
 
-## AWX job templates (recommended)
+## AAP job templates and workflows
 
-| Template | Playbook | Schedule |
-|----------|----------|----------|
-| SELinux – Canary | `deploy_canary.yml` | On release / manual |
-| SELinux – Soak monitor | `soak_monitor.yml` | Daily on canary hosts |
-| SELinux – Soak status | `soak_status.yml` | Before enforce approval |
-| SELinux – Enforce | `enforce_production.yml` | Manual + approval |
-| SELinux – Rollback | `emergency_rollback.yml` | Break-glass |
+Source of truth: [`ansible/aap/`](../../ansible/aap/) (`job_templates.yml`, `workflows.yml`, `survey_enforce.json`). Click-create in Automation Controller (project playbook path `ansible/`).
 
-**Workflow:** Canary → (wait) → scheduled Soak monitor → Soak status (pass) → Enforce (approval node).
+| Template | Playbook | How it runs |
+|----------|----------|-------------|
+| SELinux – Canary | `deploy_canary.yml` | Workflow **Release canary** (manual after RPM) |
+| SELinux – Soak monitor | `soak_monitor.yml` | **Schedule daily** on `canary` (not a workflow wait node) |
+| SELinux – Soak status | `soak_status.yml` | First node of **Promote to enforce** |
+| SELinux – Enforce | `enforce_production.yml` | After approval on **Promote to enforce** |
+| SELinux – Rollback | `emergency_rollback.yml` | Standalone break-glass — never on the promote graph |
+
+**Workflows:** **Release canary** = Canary. **Promote to enforce** = Soak status → approval → Enforce. Attach an AAP notification template to Soak monitor (job failed) so net-new AVCs page someone without mutating the host. Denial path: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md).
 
 Survey / extra-vars:
 
-Attach [`ansible/awx/survey_enforce.json`](../../ansible/awx/survey_enforce.json) to the **SELinux – Enforce** job template. `change_ticket` is **required**. `force_enforce` defaults to **false**.
+Attach [`ansible/aap/survey_enforce.json`](../../ansible/aap/survey_enforce.json) to the **SELinux – Enforce** job template (Automation Controller survey). `change_ticket` is **required**. `force_enforce` defaults to **false**.
 
 | Var | Typical | Notes |
 |-----|---------|-------|
@@ -63,6 +67,7 @@ Attach [`ansible/awx/survey_enforce.json`](../../ansible/awx/survey_enforce.json
 | `soak_use_net_new` | `true` | Net-new vs installed policy (`sesearch` required) |
 | `force_enforce` | `false` | Break-glass skip soak; **still needs** `change_ticket` |
 | `http_probe_host` | canary IP / VIP | Not a bind port; ports stay in the manifest |
+| `soak_notify_webhook` | *(empty)* | Optional; prefer an AAP notification template on Soak monitor |
 | `rollback_dnf_version` | `1.1.1-1` | Optional downgrade on rollback |
 
 ## Two-host lab (preferred)
@@ -96,7 +101,7 @@ Lab / checkout: [`ansible/inventory.dev.example.yml`](../../ansible/inventory.de
 
 ## Optional: GitHub Actions
 
-GHA [`selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml) runs the **same playbooks** on self-hosted `selinux-staging` / `selinux-production` runners. Treat it as AWX-equivalent, not a different lifecycle. Compile locally with `bash scripts/compile_and_validate.sh` and [`packaging/build_rpms.sh`](../../packaging/build_rpms.sh).
+GHA [`selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml) runs the **same playbooks** on self-hosted `selinux-staging` / `selinux-production` runners. Treat it as an AAP-equivalent, not a different lifecycle. Compile locally with `bash scripts/compile_and_validate.sh` and [`packaging/build_rpms.sh`](../../packaging/build_rpms.sh).
 
 ## First-time admin
 

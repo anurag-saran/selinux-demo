@@ -14,7 +14,7 @@ CI runs all cases via **`bash scripts/run_deterministic_fixtures.sh`** (and `smo
 | Case | Verdict exercised |
 |------|-------------------|
 | `01-mislabeled-var-lib` | **`fc_drift`** — path already covered by `/var/lib/myapp(/.*)?`; fix is `restorecon` |
-| `02-port-bind` | **`private_port`** — `name_bind` on generic port type |
+| `02-port-bind` | **`private_port`** — `name_bind` on generic port type; **`next_action: add_manifest_port`** + suggested `selinux_ports` |
 | `03-shadow-read` | **`forbidden`** — refuses `shadow_t` (exit 1) |
 | `04-boolean-network-connect` | **`boolean`** — policy query path (sesearch mock; empty curated hints) |
 | `11-private-getopt` | **`direct`** — module-private `myapp_port_t` |

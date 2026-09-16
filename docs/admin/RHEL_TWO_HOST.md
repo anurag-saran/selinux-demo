@@ -1,9 +1,9 @@
 # Two RHEL boxes (dev + prod)
 
-Preferred topology: **one RHEL host for development** (staging, AVC discovery, policy PRs) and **one RHEL host for production** (canary → soak → enforce). Run Ansible from a controller (laptop or AWX). Developers work on **dev**; admins ship to **prod**. **Local Podman is a backup** if you do not have RHEL yet.
+Preferred topology: **one RHEL host for development** (staging, AVC discovery, policy PRs) and **one RHEL host for production** (canary → soak → enforce). Run Ansible from a controller (laptop or AAP). Developers work on **dev**; admins ship to **prod**. **Local Podman is a backup** if you do not have RHEL yet.
 
 ```text
-Controller (laptop / AWX)
+Controller (laptop / AAP)
    ansible SSH ──► rhel-dev     setup_staging_env.sh, AVC export, canary (lab soak_min_days=0)
    ansible SSH ──► rhel-prod    RPMs, canary, soak_monitor, enforce (soak_min_days=7)
 ```
@@ -71,12 +71,13 @@ Dev inventory sets **`soak_min_days: 0`** so you can exercise enforce in a lab. 
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_status.yml --limit canary
-ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml
+ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
+  -e change_ticket=CHG123
 ```
 
 The example inventory puts the **same host** in `canary` and `production`. Add more names under `production:` when you have a fleet.
 
-AWX job templates: [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md). Soak/enforce gates: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+AAP objects: [`ansible/aap/`](../../ansible/aap/) and [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) (workflows **Release canary** and **Promote to enforce**). File or port denied after ship: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). Soak/enforce gates: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
 
 ## Backup: local Podman
 

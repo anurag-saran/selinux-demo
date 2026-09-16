@@ -1,0 +1,53 @@
+# Importable spec for Automation Controller. Create these job templates
+# against an AAP project with playbook root ansible/.
+# Not executed by ansible-playbook.
+
+project_playbook_root: ansible/
+
+job_templates:
+  - name: SELinux – Canary
+    playbook: deploy_canary.yml
+    inventory: production
+    limit: canary
+    ask_variables_on_launch: true
+    schedule: null
+    notes: Manual after RPM publish. Workflow SELinux – Release canary launches this.
+
+  - name: SELinux – Soak monitor
+    playbook: soak_monitor.yml
+    inventory: production
+    limit: canary
+    ask_variables_on_launch: false
+    schedule: daily
+    notes: >-
+      Schedule on the canary group. Not a node on Promote to enforce.
+      Attach an AAP notification template (job failed) so net-new AVCs
+      page an admin without mutating the host.
+
+  - name: SELinux – Soak status
+    playbook: soak_status.yml
+    inventory: production
+    limit: canary
+    ask_variables_on_launch: false
+    schedule: null
+    notes: Read-only facts. First node of SELinux – Promote to enforce.
+
+  - name: SELinux – Enforce
+    playbook: enforce_production.yml
+    inventory: production
+    survey: survey_enforce.json
+    ask_variables_on_launch: true
+    schedule: null
+    notes: >-
+      change_ticket required. force_enforce defaults false and still
+      needs the ticket. Last node of SELinux – Promote to enforce
+      (after the approval node).
+
+  - name: SELinux – Rollback
+    playbook: emergency_rollback.yml
+    inventory: production
+    ask_variables_on_launch: true
+    schedule: null
+    notes: >-
+      Break-glass only. Never add this template to the promote workflow.
+      Permissive relief, then a policy PR — not live audit2allow.

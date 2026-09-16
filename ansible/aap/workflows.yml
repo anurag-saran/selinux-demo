@@ -1,0 +1,32 @@
+# Automation Controller workflows. Soak monitor is a schedule, not a wait node.
+
+workflows:
+  - name: SELinux – Release canary
+    description: Install the new module and start domain-permissive soak after an RPM publish.
+    nodes:
+      - id: canary
+        job_template: SELinux – Canary
+        type: job
+
+  - name: SELinux – Promote to enforce
+    description: >-
+      Read-only soak facts, human approval, then enforce.
+      Daily Soak monitor stays a scheduled job template.
+    nodes:
+      - id: soak_status
+        job_template: SELinux – Soak status
+        type: job
+      - id: approval
+        type: approval
+        name: Approve production enforce
+        success_nodes: [enforce]
+      - id: enforce
+        job_template: SELinux – Enforce
+        type: job
+    edges:
+      - from: soak_status
+        to: approval
+        when: success
+      - from: approval
+        to: enforce
+        when: approved

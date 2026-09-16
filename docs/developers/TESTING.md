@@ -241,14 +241,14 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 
 Workflow: [`.github/workflows/selinux-staging-canary.yml`](../../.github/workflows/selinux-staging-canary.yml)
 
-Production control plane is still **Ansible / AWX** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)). If you use the GHA workflow:
+Production control plane is still **Ansible Automation Platform (AAP)** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)). If you use the GHA workflow:
 
 1. **`staging-canary`** — compile + `ansible/deploy_canary.yml` on self-hosted `selinux-staging` runner
 2. **`staging-endpoint-smoke`** — `wait_for_endpoints.sh` + deploy report exists
 
 ### Production (manual — admin)
 
-**Preferred:** AWX job templates — [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Optional: [`.github/workflows/selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml).
+**Preferred:** AAP workflows in [`ansible/aap/`](../../ansible/aap/) — [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Soak fail → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md). Optional: [`.github/workflows/selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml).
 
 | Phase | Playbook | Key tests embedded |
 |-------|----------|-------------------|

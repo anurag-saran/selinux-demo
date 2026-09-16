@@ -62,7 +62,7 @@ This repository is a **demo plus tooling** for “shift-left” SELinux:
 2. While the app domain is **permissive**, the kernel **logs** denials (AVCs) instead of blocking everything.
 3. Scripts **collect** those logs and **generate** updates to `myapp.te` / `myapp.fc` (by rules engine or optional AI).
 4. **CI** checks the change (dangerous patterns, compile, semantics, version numbers).
-5. **Ansible / AWX** deploys a new module to servers in **canary** mode, runs **soak_monitor** (net-new AVCs vs installed policy), then **enforces**.
+5. **Ansible Automation Platform (AAP)** deploys a new module (**Release canary**), runs **Soak monitor** (net-new vs installed policy), then **Promote to enforce**. A denial after ship is a **PR**, not a live host patch ([DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)).
 
 You are not expected to memorize every bash script. Most days you touch **`app/`**, **`selinux/`**, **`config/*.manifest.yml`**, and **`scripts/dev_generate_policy.sh`**.
 
@@ -95,7 +95,7 @@ flowchart TD
 4. **Generate policy** — Default engine is **`cli/deterministic_gen.py`** (offline, rule-based). Optional: **`cli/summarize_pr.py`** polishes `pr_summary.md` only. Legacy all-in-one LLM: **`cli/selinux_gen.py --legacy-full-policy`**.
 5. **Review** — Output lands in **`policy_out/`** (`.te`, `.fc`, `pr_summary.md`, `findings.json`). You compare to **`selinux/`** and open a PR.
 6. **CI** — Workflow **`selinux-policy-ci.yml`** runs compile, forbidden-pattern checks, version consistency, blast-radius fixtures, etc.
-7. **Deploy** — Admins use **Ansible/AWX**: **`ansible/deploy_canary.yml`**, daily **`soak_monitor.yml`**, then **`soak_status.yml`** and **`enforce_production.yml`**. See [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md).
+7. **Deploy** — Admins use **AAP** ([`ansible/aap/`](../../ansible/aap/)): workflow **Release canary**, daily **Soak monitor**, then **Promote to enforce**. Soak fail: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md). See [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md).
 
 **Golden rule:** committed policy lives in **`selinux/`**. **`policy_out/`** is disposable local output.
 
@@ -117,7 +117,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 | [`packaging/`](../../packaging/) | RPM specs (`selinux-policy-ops`, `<app>-selinux`) and compile container. |
 | [`docs/`](../) | Guides (`admin/`, `developers/`, `policy/`, `training/`). |
 | [`policy_out/`](../../policy_out/) | Generated output on your machine (gitignored). |
-| [`.github/workflows/`](../../.github/workflows/) | PR CI; optional GHA deploy (same playbooks as AWX). |
+| [`.github/workflows/`](../../.github/workflows/) | PR CI; optional GHA deploy (same playbooks as AAP). |
 | [`tests/fixtures/`](../../tests/fixtures/) | Small policy snippets used to test the blast-radius classifier in CI. |
 
 ---
@@ -145,7 +145,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 | **`myapp.fc`** | “This path on disk should have type X.” Used by `restorecon`. |
 | **`policy_version.txt`** | Version number (must match the `policy_module(myapp, …)` line in `.te`; CI checks this). |
 | **`stub/`** | Smaller module for early lab setups. |
-| **`payments/`** | Example second application module (see [ONBOARDING_SECOND_APP.md](../developers/ONBOARDING.md)). |
+| **`payments/`** | Example second application module (see [ONBOARDING.md](../developers/ONBOARDING.md)). |
 
 **Review tip:** prefer **interface macros** (shared refpolicy helpers) over one-off allows copied from `audit2allow`. That matches what [`scripts/validate_forbidden_patterns.sh`](../../scripts/validate_forbidden_patterns.sh) enforces in CI.
 
@@ -294,7 +294,7 @@ Playbooks are short; behavior lives in the **`selinux_pac`** role (manifest-driv
 
 **Enforce (simplified):** `collect_soak_facts` (prefer **net-new**) → remove permissive → rebuild policy store → smoke again.
 
-Inventory examples: **`inventory.dev.example.yml`** (RHEL dev), **`inventory.production.example.yml`** (RHEL prod). Generate with **`scripts/setup_rhel_hosts.sh`**. AWX mapping: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Two-host walkthrough: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md).
+Inventory examples: **`inventory.dev.example.yml`** (RHEL dev), **`inventory.production.example.yml`** (RHEL prod). Generate with **`scripts/setup_rhel_hosts.sh`**. AAP objects: [`ansible/aap/`](../../ansible/aap/) and [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Denial after ship: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md). Two-host walkthrough: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md).
 
 ---
 
@@ -313,7 +313,7 @@ Inventory examples: **`inventory.dev.example.yml`** (RHEL dev), **`inventory.pro
 | Workflow | Triggers | What it protects |
 |----------|----------|------------------|
 | **`selinux-policy-ci.yml`** | Pull requests | Smoke tests, compile, forbidden patterns, version drift, blast-radius fixtures, payments generator leak check, policy diff comment, etc. |
-| **`selinux-staging-canary.yml`** | Push to main | Optional staging deploy smoke (same playbooks as AWX). |
+| **`selinux-staging-canary.yml`** | Push to main | Optional staging deploy smoke (same playbooks as AAP). |
 | **`selinux-deploy.yml`** | Manual | Optional GHA wrapper around canary / enforce / rollback. |
 
 PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md).
@@ -335,7 +335,7 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 3. Skim [README.md](../../README.md) architecture diagram.
 4. Open **`config/myapp.manifest.yml`** and **`app/app.py`** — match each HTTP path to a permission story.
 5. Trace one AVC through **`cli/avc_preprocess.py`**, then try **`bash scripts/dev_generate_policy.sh --skip-export`** with a saved **`policy_out/avc.log`**.
-6. When ready for ops flow: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) + [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md).
+6. When ready for ops flow: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) + [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) + [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md).
 
 ---
 
@@ -364,9 +364,10 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Presenting the workshop |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Offline generator and fixtures |
 | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) | Two RHEL boxes; Podman backup |
-| [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AWX / playbooks — production control plane |
+| [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AAP / playbooks — production control plane |
+| [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) | Prod AVC → PR, not live `semodule -i` |
 | [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | Admins rolling out canary → enforce |
 | [ADOPTION_CHECKLIST.md](../admin/ADOPTION_CHECKLIST.md) | Fork/org checklist |
-| [ONBOARDING_SECOND_APP.md](../developers/ONBOARDING.md) | Adding `payments` or your own app name |
+| [ONBOARDING.md](../developers/ONBOARDING.md) | Adding `payments` or your own app name |
 
 If this guide disagrees with the code, **trust the repository** and send a PR to update the doc.

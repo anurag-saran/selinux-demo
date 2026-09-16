@@ -96,7 +96,7 @@ def main() -> int:
             if rendered and rendered.strip() in te_text:
                 handled_keys.add((row["src"], row["tgt"], row["class"]))
 
-    entries, _paths = parse_avc_file(args.avc_log, domains)
+    entries, _paths, _ports = parse_avc_file(args.avc_log, domains)
     merged = merge_avc_entries(entries)
     net_new, _ = subtract_covered(merged, parse_existing_allows(te_text))
 

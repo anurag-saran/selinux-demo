@@ -47,6 +47,7 @@ Options:
   --policy-kern PATH    Kernel policy for sesearch net-new (-1 default)
   --show-lines N        Print last N matching lines (default: 10)
   --format FORMAT       Output format: text (default) or json
+  --fail-dir DIR        On fail, write selinux_soak_last_fail.json + .avc here
   --notify-webhook URL  POST JSON summary to webhook on failure
   --skip-if-unavailable Exit 0 when audit tools unavailable (CI smoke)
   -h, --help            Show help
@@ -56,6 +57,7 @@ EOF
 SKIP_IF_UNAVAILABLE=0
 OUTPUT_FORMAT="text"
 NOTIFY_WEBHOOK=""
+FAIL_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -69,6 +71,7 @@ while [[ $# -gt 0 ]]; do
         --policy-kern) POLICY_KERN="$2"; shift 2 ;;
         --show-lines) SHOW_LINES="$2"; shift 2 ;;
         --format) OUTPUT_FORMAT="$2"; shift 2 ;;
+        --fail-dir) FAIL_DIR="$2"; shift 2 ;;
         --notify-webhook) NOTIFY_WEBHOOK="$2"; shift 2 ;;
         --skip-if-unavailable) SKIP_IF_UNAVAILABLE=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -169,10 +172,64 @@ elif [[ -f "${SCRIPT_DIR}/lib/soak_net_new.py" ]]; then
     fi
 fi
 
+fail=0
+if [[ "${MAX_AVC}" -ge 0 && "${count}" -gt "${MAX_AVC}" ]]; then
+    fail=1
+fi
+if [[ "${MAX_NET_NEW}" -ge 0 && "${net_new_count}" -ge 0 && "${avc_fail_closed}" -eq 0 && "${net_new_count}" -gt "${MAX_NET_NEW}" ]]; then
+    fail=1
+fi
+
+NEXT_STEP=""
+if [[ "${fail}" -eq 1 ]]; then
+    NEXT_STEP="Copy ${FAIL_DIR:-/var/lib/<app>}/selinux_soak_last_fail.json and selinux_soak_last_fail.avc to rhel-dev. Run bash scripts/dev_generate_policy.sh. Open a PR, recanary, reset soak. Do not semodule -i or audit2allow on this host. See docs/admin/DENIAL_RESPONSE.md."
+fi
+
+if [[ "${fail}" -eq 1 && -n "${FAIL_DIR}" ]]; then
+    mkdir -p "${FAIL_DIR}"
+    avc_excerpt="${FAIL_DIR}/selinux_soak_last_fail.avc"
+    if [[ "${count}" -gt 0 ]]; then
+        start=$(( count > SHOW_LINES ? count - SHOW_LINES : 0 ))
+        printf '%s\n' "${matches[@]:${start}}" > "${avc_excerpt}"
+    else
+        : > "${avc_excerpt}"
+    fi
+    MON_DOMAIN="${DOMAIN}" MON_SINCE="${SINCE}" MON_COUNT="${count}" \
+        MON_MAX_AVC="${MAX_AVC}" MON_MAX_NET_NEW="${MAX_NET_NEW}" \
+        MON_NET_NEW="${net_new_count}" MON_FAIL_CLOSED="${avc_fail_closed}" \
+        MON_NEXT_STEP="${NEXT_STEP}" MON_FAIL_DIR="${FAIL_DIR}" \
+        python3 - "${net_new_json}" "${FAIL_DIR}/selinux_soak_last_fail.json" "${avc_excerpt}" <<'PY'
+import json, os, sys
+
+net_path, out_path, avc_path = sys.argv[1], sys.argv[2], sys.argv[3]
+extra = {}
+if os.path.isfile(net_path) and os.path.getsize(net_path) > 0:
+    extra = json.load(open(net_path, encoding="utf-8"))
+payload = {
+    "domain": os.environ["MON_DOMAIN"],
+    "since": os.environ["MON_SINCE"],
+    "count": int(os.environ["MON_COUNT"]),
+    "max_avc": int(os.environ["MON_MAX_AVC"]),
+    "max_net_new": int(os.environ["MON_MAX_NET_NEW"]),
+    "net_new_count": int(os.environ.get("MON_NET_NEW", "-1")),
+    "avc_fail_closed": os.environ.get("MON_FAIL_CLOSED", "0") == "1",
+    "exceptions": extra.get("exceptions", [])[:20],
+    "status": "fail",
+    "next_step": os.environ.get("MON_NEXT_STEP", ""),
+    "avc_excerpt": avc_path,
+}
+with open(out_path, "w", encoding="utf-8") as fh:
+    json.dump(payload, fh, indent=2)
+    fh.write("\n")
+PY
+fi
+
 if [[ "${OUTPUT_FORMAT}" == "json" ]]; then
     MON_DOMAIN="${DOMAIN}" MON_SINCE="${SINCE}" MON_COUNT="${count}" \
         MON_MAX_AVC="${MAX_AVC}" MON_MAX_NET_NEW="${MAX_NET_NEW}" \
         MON_NET_NEW="${net_new_count}" MON_FAIL_CLOSED="${avc_fail_closed}" \
+        MON_STATUS="$([[ "${fail}" -eq 1 ]] && echo fail || echo pass)" \
+        MON_NEXT_STEP="${NEXT_STEP}" \
         python3 - "${net_new_json}" <<'PY'
 import json, sys, os
 
@@ -190,17 +247,11 @@ out = {
     "net_new_count": int(os.environ.get("MON_NET_NEW", "-1")),
     "avc_fail_closed": os.environ.get("MON_FAIL_CLOSED", "0") == "1",
     "exceptions": extra.get("exceptions", [])[:20],
-    "status": "pass",
+    "status": os.environ.get("MON_STATUS", "pass"),
 }
-if out["max_avc"] >= 0 and out["count"] > out["max_avc"]:
-    out["status"] = "fail"
-if (
-    out["max_net_new"] >= 0
-    and out["net_new_count"] >= 0
-    and not out["avc_fail_closed"]
-    and out["net_new_count"] > out["max_net_new"]
-):
-    out["status"] = "fail"
+next_step = os.environ.get("MON_NEXT_STEP", "")
+if next_step:
+    out["next_step"] = next_step
 print(json.dumps(out, indent=2))
 PY
 else
@@ -217,16 +268,16 @@ if [[ "${OUTPUT_FORMAT}" != "json" && "${SHOW_LINES}" -gt 0 && "${count}" -gt 0 
     done
 fi
 
-fail=0
-if [[ "${MAX_AVC}" -ge 0 && "${count}" -gt "${MAX_AVC}" ]]; then
-    log_error "Event count ${count} exceeds threshold ${MAX_AVC}"
-    fail=1
-fi
-if [[ "${MAX_NET_NEW}" -ge 0 && "${net_new_count}" -ge 0 && "${avc_fail_closed}" -eq 0 && "${net_new_count}" -gt "${MAX_NET_NEW}" ]]; then
-    log_error "Net-new access needs ${net_new_count} exceed threshold ${MAX_NET_NEW}"
-    fail=1
-fi
 if [[ "${fail}" -eq 1 ]]; then
+    if [[ "${MAX_AVC}" -ge 0 && "${count}" -gt "${MAX_AVC}" ]]; then
+        log_error "Event count ${count} exceeds threshold ${MAX_AVC}"
+    fi
+    if [[ "${MAX_NET_NEW}" -ge 0 && "${net_new_count}" -ge 0 && "${avc_fail_closed}" -eq 0 && "${net_new_count}" -gt "${MAX_NET_NEW}" ]]; then
+        log_error "Net-new access needs ${net_new_count} exceed threshold ${MAX_NET_NEW}"
+    fi
+    if [[ -n "${NEXT_STEP}" ]]; then
+        log_error "${NEXT_STEP}"
+    fi
     if [[ -n "${NOTIFY_WEBHOOK}" ]]; then
         curl -sf -X POST -H "Content-Type: application/json" \
             -d "{\"text\":\"SELinux AVC alert: domain=${DOMAIN} count=${count} net_new=${net_new_count}\"}" \

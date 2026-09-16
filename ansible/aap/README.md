@@ -1,0 +1,19 @@
+# AAP job templates and workflows
+
+**Ansible Automation Platform (AAP)** / Automation Controller is the production control plane. These files are the click-create spec. They are **not** playbooks. Do not add `ansible.controller` to host `requirements.yml`.
+
+When a file or port is denied after ship: [DENIAL_RESPONSE.md](../../docs/admin/DENIAL_RESPONSE.md). Soak-monitor failure is investigate-without-mutate — attach a Controller **notification template** to **SELinux – Soak monitor** (job failed). Do not auto-install policy.
+
+## Create in Automation Controller
+
+1. **Project** → this git repo. Playbook path: `ansible/`.
+2. **Inventory** → production hosts (`canary` + `production` groups).
+3. **Job templates** from [`job_templates.yml`](job_templates.yml). Playbooks are next to this directory (`deploy_canary.yml`, …).
+4. Attach [`survey_enforce.json`](survey_enforce.json) to **SELinux – Enforce**.
+5. **Schedule** **SELinux – Soak monitor** daily on `canary`.
+6. **Workflows** from [`workflows.yml`](workflows.yml):
+   - **SELinux – Release canary** — Canary only, after RPM publish.
+   - **SELinux – Promote to enforce** — Soak status → approval → Enforce.
+7. **SELinux – Rollback** stays a standalone template. Never add it to the promote graph.
+
+Laptop equivalent (same YAML): `ansible-playbook -i ansible/inventory.production.yml ansible/<playbook>.yml`. Extra-vars: [ANSIBLE_OPERATIONS.md](../../docs/admin/ANSIBLE_OPERATIONS.md).

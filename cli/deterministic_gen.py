@@ -40,6 +40,7 @@ from policy_rules import (  # noqa: E402
     VERDICT_PORT,
     VERDICT_BOOLEAN,
     VERDICT_TOOLCHAIN,
+    NEXT_ACTION,
 )
 from selinux_gen import (  # noqa: E402
     domain_for_app,
@@ -56,6 +57,7 @@ from fc_labeling import (  # noqa: E402
 )
 
 PATH_FIELD_RE = re.compile(r'path="([^"]+)"')
+BIND_SRC_RE = re.compile(r"\bsrc=(\d+)\b")
 POLICY_MODULE_RE = re.compile(r"policy_module\(\s*(\w+)\s*,\s*([\d.]+)\s*\)")
 
 SEPOLGEN_UNAVAILABLE = object()
@@ -166,6 +168,13 @@ class Finding:
     paths: tuple[str, ...] = ()
     engine: str = "house_rules"
     boolean: str = ""
+    bind_port: int | None = None
+    bind_proto: str = ""
+    port_type: str = ""
+
+    @property
+    def next_action(self) -> str:
+        return NEXT_ACTION.get(self.verdict, "")
 
 
 def load_manifest(path: Path) -> dict:
@@ -224,11 +233,14 @@ def collapse_to_pattern(perms: frozenset[str]) -> str | None:
     return None
 
 
-def parse_avc_file(avc_path: Path, domains: set[str]) -> tuple[list, dict[tuple[str, str, str], set[str]]]:
+def parse_avc_file(
+    avc_path: Path, domains: set[str]
+) -> tuple[list, dict[tuple[str, str, str], set[str]], dict[tuple[str, str, str], set[int]]]:
     from selinux_gen import AvcEntry
 
     entries: list[AvcEntry] = []
     paths: dict[tuple[str, str, str], set[str]] = {}
+    ports: dict[tuple[str, str, str], set[int]] = {}
     for line in avc_path.read_text(encoding="utf-8", errors="replace").splitlines():
         if "type=AVC" not in line:
             continue
@@ -238,11 +250,17 @@ def parse_avc_file(avc_path: Path, domains: set[str]) -> tuple[list, dict[tuple[
         if src not in domains:
             continue
         entries.append(entry)
+        if not tgt or not entry.tclass:
+            continue
+        key = (src, tgt, entry.tclass)
         pm = PATH_FIELD_RE.search(line)
-        if pm and tgt and entry.tclass:
-            key = (src, tgt, entry.tclass)
+        if pm:
             paths.setdefault(key, set()).add(pm.group(1))
-    return entries, paths
+        if "name_bind" in (entry.perm or ""):
+            sm = BIND_SRC_RE.search(line)
+            if sm:
+                ports.setdefault(key, set()).add(int(sm.group(1)))
+    return entries, paths, ports
 
 
 def try_sepolgen_interface(
@@ -292,6 +310,7 @@ def classify(
     allow_degraded: bool,
     policy_kern: Path | None,
     boolean_hints: list[dict],
+    bind_ports: tuple[int, ...] = (),
 ) -> Finding:
     src, tgt, tclass = need.src_type, need.tgt_type, need.tclass
     perms = need.perms
@@ -342,12 +361,23 @@ def classify(
     if tgt in GENERIC_PORT_TYPES and "name_bind" in perms:
         app = manifest["app_name"]
         ptype = f"{app}_port_t"
+        port = bind_ports[0] if bind_ports else None
+        proto = "udp" if tclass == "udp_socket" else "tcp"
+        note = f"Use private port type {ptype} and semanage port — not {tgt}."
+        if port is not None:
+            note += (
+                f" Add to the app manifest selinux_ports "
+                f"(port {port}/{proto}, type {ptype}); canary seport registers it."
+            )
         return Finding(
             need,
             VERDICT_PORT,
             f"allow {src} {ptype}:{tclass} name_bind;",
-            f"Use private port type {ptype} and semanage port — not {tgt}.",
+            note,
             paths,
+            bind_port=port,
+            bind_proto=proto if port is not None else "",
+            port_type=ptype,
         )
 
     existing = parse_existing_allows(existing_te)
@@ -519,15 +549,28 @@ def write_pr_summary(findings: list[Finding], app_name: str, meta: dict | None =
 
     lines = [
         "### Network Bindings",
-        "- See generated port / interface rules below",
-        "",
-        "### File System Access",
     ]
+    port_rows = [f for f in findings if f.verdict == VERDICT_PORT]
+    if port_rows:
+        for f in port_rows:
+            port = f.bind_port if f.bind_port is not None else "?"
+            lines.append(
+                f"- `{f.next_action}`: {f.need.src_type} bind {port}/{f.bind_proto or 'tcp'} "
+                f"({f.verdict}); add to manifest `selinux_ports`, do not `semanage port -a` on prod"
+            )
+    else:
+        lines.append("- See generated port / interface rules below")
+
+    lines.extend(
+        [
+            "",
+            "### File System Access",
+        ]
+    )
     for f in module_rows:
         if f.verdict == VERDICT_PORT:
-            lines.append(f"- {f.need.src_type} → {f.need.tgt_type}:{f.need.tclass} ({f.verdict})")
-        else:
-            lines.append(f"- {f.need.src_type} → {f.need.tgt_type}:{f.need.tclass} ({f.verdict})")
+            continue
+        lines.append(f"- {f.need.src_type} → {f.need.tgt_type}:{f.need.tclass} ({f.verdict})")
 
     lines.extend(
         [
@@ -543,6 +586,29 @@ def write_pr_summary(findings: list[Finding], app_name: str, meta: dict | None =
             lines.append(f"- `{f.rendered}` — {f.note[:200]}")
     else:
         lines.append("- None")
+
+    lines.extend(["", "### Next action"])
+    action_rows = [f for f in findings if f.next_action]
+    if not action_rows:
+        lines.append("- None")
+    else:
+        for f in action_rows:
+            if f.verdict == VERDICT_PORT and f.bind_port is not None:
+                lines.append(
+                    f"- `{f.next_action}` — add to `config/{app_name}.manifest.yml` `selinux_ports` "
+                    "(canary seport registers it):"
+                )
+                lines.append("  ```yaml")
+                lines.append(f"  - port: {f.bind_port}")
+                lines.append(f"    proto: {f.bind_proto or 'tcp'}")
+                lines.append(f"    type: {f.port_type}")
+                lines.append("  ```")
+            elif f.verdict in (VERDICT_FC, VERDICT_FC_DRIFT):
+                lines.append(f"- `{f.next_action}` — {f.note}")
+            elif f.verdict == VERDICT_BOOLEAN:
+                lines.append(f"- `{f.next_action}` — `{f.rendered}` (not shipped in the RPM)")
+            else:
+                lines.append(f"- `{f.next_action}` — {f.note[:160]}")
 
     lines.extend(
         [
@@ -623,6 +689,21 @@ def write_findings_artifact(
                         "note": f.note,
                         "engine": f.engine,
                         **({"boolean": f.boolean} if f.boolean else {}),
+                        **({"next_action": f.next_action} if f.next_action else {}),
+                        **({"port": f.bind_port} if f.bind_port is not None else {}),
+                        **({"proto": f.bind_proto} if f.bind_proto else {}),
+                        **({"port_type": f.port_type} if f.port_type else {}),
+                        **(
+                            {
+                                "selinux_ports_snippet": {
+                                    "port": f.bind_port,
+                                    "proto": f.bind_proto or "tcp",
+                                    "type": f.port_type,
+                                }
+                            }
+                            if f.verdict == VERDICT_PORT and f.bind_port is not None and f.port_type
+                            else {}
+                        ),
                     }
                     for f in findings
                 ],
@@ -686,13 +767,14 @@ def run(args: argparse.Namespace) -> int:
     hints = load_boolean_hints(args.boolean_hints)
     policy_id = query_policy_identity(args.policy_kern)
 
-    entries, path_map = parse_avc_file(args.avc_log, domains)
+    entries, path_map, port_map = parse_avc_file(args.avc_log, domains)
     merged = merge_avc_entries(entries)
     net_new, _covered = subtract_covered(merged, parse_existing_allows(existing_te))
 
     findings: list[Finding] = []
     for need in net_new:
         paths = tuple(sorted(path_map.get(need.key, set())))
+        bind_ports = tuple(sorted(port_map.get(need.key, set())))
         findings.append(
             classify(
                 need,
@@ -703,6 +785,7 @@ def run(args: argparse.Namespace) -> int:
                 args.allow_degraded,
                 args.policy_kern,
                 hints,
+                bind_ports,
             )
         )
 

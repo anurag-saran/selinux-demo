@@ -116,4 +116,4 @@ Fixtures: [`docs/examples/fixtures/deterministic/`](../examples/fixtures/determi
 
 ## After merge (not this CLI)
 
-Deterministic generation stops at a reviewed PR. Production install is **Ansible / AWX** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)): canary → `soak_monitor.yml` (net-new vs installed policy) → enforce. Compile/RPM from CLI: `bash scripts/compile_and_validate.sh` and [`packaging/build_rpms.sh`](../../packaging/build_rpms.sh).
+Deterministic generation stops at a reviewed PR. Production install is **Ansible Automation Platform (AAP)** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md), objects in [`ansible/aap/`](../../ansible/aap/)): canary → `soak_monitor.yml` (net-new vs installed policy) → enforce. A denial after ship is a **new PR**, not a live host patch ([DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)). Compile/RPM from CLI: `bash scripts/compile_and_validate.sh` and [`packaging/build_rpms.sh`](../../packaging/build_rpms.sh).

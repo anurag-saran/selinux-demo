@@ -1,6 +1,8 @@
 [
   {
     "verdict": "private_port",
-    "tgt": "unreserved_port_t"
+    "tgt": "unreserved_port_t",
+    "next_action": "add_manifest_port",
+    "port": 8888
   }
 ]

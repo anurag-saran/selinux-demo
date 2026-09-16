@@ -91,3 +91,16 @@ VERDICT_INTERFACE = "interface"
 VERDICT_DIRECT = "direct"
 VERDICT_TOOLCHAIN = "toolchain_required"
 VERDICT_BOOLEAN = "boolean"
+
+# What the author should do next (not a live host patch).
+NEXT_ACTION = {
+    VERDICT_FC: "update_fc_and_restorecon",
+    VERDICT_FC_DRIFT: "update_fc_and_restorecon",
+    VERDICT_PORT: "add_manifest_port",
+    VERDICT_BOOLEAN: "setsebool_host",
+    VERDICT_DIRECT: "update_te_allow",
+    VERDICT_INTERFACE: "update_te_allow",
+    VERDICT_FORBIDDEN: "refuse",
+    VERDICT_TOOLCHAIN: "install_sepolgen",
+    VERDICT_BASELINE: "",
+}

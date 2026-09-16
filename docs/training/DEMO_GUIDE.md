@@ -11,7 +11,7 @@ This guide helps **newcomers**, **presenters**, and **observers** understand and
 | **Presenting the workshop** | Whole guide + rehearse with `--auto --demo-mode` | Presenter checklist (section 13) |
 | **Running the app team workflow after the demo** | [README.md](../../README.md) developer section | `dev_generate_policy.sh` |
 
-**Learning path:** [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) (concepts) → **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (hands-on on **RHEL dev**) → **this guide** (workshop) → [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (two boxes) → [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) (AWX) → [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) (admin rollout). **All docs:** [README.md](../README.md).
+**Learning path:** [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) (concepts) → **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (hands-on on **RHEL dev**) → **this guide** (workshop) → [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (two boxes) → [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) (AAP) → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) (prod AVC) → [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) (admin rollout). **All docs:** [README.md](../README.md).
 
 Prefer presenting on the **RHEL two-host lab**. `--use-vm` is a **backup** when those boxes are not available.
 
@@ -466,8 +466,9 @@ Soak marker written: `/var/lib/myapp/selinux_canary_deployed_at` (soak clock sta
 |------|----------------|
 | Day 0 | Canary deploy writes `/var/lib/myapp/selinux_canary_deployed_at` |
 | Days 1–14 | `myapp_t` still permissive; `getenforce` still Enforcing |
-| Daily | AWX **Soak monitor** (`soak_monitor.yml`) — net-new vs `sesearch` |
-| Before enforce | `soak_status.yml` — marker age ≥ 7 days, `net_new_count=0`, passing deploy report |
+| Daily | AAP **SELinux – Soak monitor** (`soak_monitor.yml`) — net-new vs `sesearch` |
+| Soak fail | [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) — PR + recanary, not live `semodule -i` |
+| Before enforce | AAP **Promote to enforce**: Soak status → approval → Enforce |
 
 **What runs:** `check_soak_ready.sh` in the demo (passes in `--demo-mode` after marker is pre-seeded). Production uses the same facts via Ansible.
 
@@ -589,9 +590,10 @@ Details: [PRODUCTION_READINESS.md §12](../admin/PRODUCTION_READINESS.md).
 | `policy_out/avc_summary.txt` | Merged net-new access needs (LLM input) |
 | `policy_out/pr_summary.md` | Plain-English summary for admins (live); sample: [`docs/examples/pr_summary.example.md`](../examples/pr_summary.example.md) |
 | `policy_out/pr_body.md` | Assembled GitHub PR body (live); sample: [`docs/examples/pr_body.example.md`](../examples/pr_body.example.md) |
-| `ansible/deploy_canary.yml` | Permissive canary deploy — see [ansible/README.md](../../ansible/README.md) |
-| `ansible/enforce_production.yml` | Remove permissive + enforce — see [ansible/README.md](../../ansible/README.md) |
-| `ansible/emergency_rollback.yml` | Outage response — see [ansible/README.md](../../ansible/README.md) |
+| `ansible/aap/` | AAP job templates + workflows — [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) |
+| `ansible/deploy_canary.yml` | **Release canary** playbook — see [ansible/README.md](../../ansible/README.md) |
+| `ansible/enforce_production.yml` | **Promote to enforce** last node — see [ansible/README.md](../../ansible/README.md) |
+| `ansible/emergency_rollback.yml` | Outage response — [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) |
 | `scripts/lib/integration_probes.sh` | Act 1 / Lab 7 / VM `trigger` — all HTTP probes in one pass |
 | `scripts/wait_for_endpoints.sh` | Unified systemd + six HTTP endpoint readiness (canary/enforce gates) |
 | `docs/developers/TESTING.md` | Full test matrix (endpoints, smoke_test.py, CI, gates) |

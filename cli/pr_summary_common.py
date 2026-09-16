@@ -11,10 +11,11 @@ PR_SUMMARY_REQUIRED_HEADINGS = (
     "### Explicit Denials Maintained",
 )
 
-# Deterministic tail: host actions, policy context, classification table — never LLM-generated.
+# Deterministic tail: host actions, next action, policy context, classification table — never LLM-generated.
 PR_SUMMARY_TAIL_MARKERS = (
     "### Host administrative actions (not shipped in RPM)",
     "### Host administrative actions",
+    "### Next action",
     "### Classification audit (engine)",
 )
 

@@ -1,5 +1,6 @@
 ---
-# Run on the Ansible controller after emergency_rollback exports /tmp/emergency_avc.log
+# Controller + git checkout only. Writes policy_out/ for a PR. Never install
+# on a host (no semodule -i). Copy AVCs here after rollback or soak-fail.
 - name: Generate emergency policy patch from AVC log (controller)
   hosts: localhost
   connection: local
@@ -9,6 +10,20 @@
     emergency_log: "{{ emergency_avc_log | default('/tmp/emergency_avc.log') }}"
     manifest: "{{ policy_artifact_dir }}/config/{{ app_name | default('myapp') }}.manifest.yml"
   tasks:
+    - name: Require git policy sources on this checkout
+      ansible.builtin.stat:
+        path: "{{ policy_artifact_dir }}/selinux/{{ app_name | default('myapp') }}.te"
+      register: emergency_te_stat
+
+    - name: Fail when this is not a policy git checkout
+      ansible.builtin.fail:
+        msg: >-
+          generate_emergency_patch.yml is controller-only. It writes policy_out/
+          for a PR. Do not run it on production hosts and do not semodule -i
+          the result. Copy /tmp/emergency_avc.log or selinux_soak_last_fail.avc
+          onto this checkout (see docs/admin/DENIAL_RESPONSE.md).
+      when: not emergency_te_stat.stat.exists
+
     - name: Require emergency AVC log
       ansible.builtin.stat:
         path: "{{ emergency_log }}"
@@ -50,9 +65,10 @@
         OPENAI_BASE_URL: "{{ lookup('env', 'OPENAI_BASE_URL') | default('', true) }}"
         OPENAI_API_MODEL: "{{ lookup('env', 'OPENAI_API_MODEL') | default('gpt-4o-mini', true) }}"
 
-    - name: Note when OPENAI_API_KEY absent
+    - name: Next step is a PR not a host install
       ansible.builtin.debug:
         msg: >-
-          policy_out/ updated via deterministic_gen; pr_summary.md is template-only
-          (set OPENAI_API_KEY on controller for optional prose polish).
-      when: lookup('env', 'OPENAI_API_KEY') | default('', true) | length == 0
+          policy_out/ updated via deterministic_gen. Review, run
+          bash scripts/assemble_pr_body.sh, open a PR, then AAP Release canary.
+          Do not semodule -i this output on prod.
+          {{ 'pr_summary.md template-only (set OPENAI_API_KEY for optional prose).' if (lookup('env', 'OPENAI_API_KEY') | default('', true) | length) == 0 else 'Optional LLM polished pr_summary.md only.' }}

@@ -230,7 +230,8 @@ Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_re
 - [ ] Enforce plan: `collect_soak_facts.sh` / `soak_status.yml` (net-new), `semodule -B`, block/rescue tested or briefed
 - [ ] Developers can run `dev_generate_policy.sh --enforce-check` before opening PR
 - [ ] Rollback owner knows `emergency_rollback.yml`, optional `rollback_dnf_version`, and `reset_host_state.yml` for interrupted canary
-- [ ] AWX job templates mapped ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md))
+- [ ] AAP workflows mapped from [`ansible/aap/`](../../ansible/aap/) ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md))
+- [ ] Prod denial path is a PR ([DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)), not live `semodule -i`
 
 ---
 
@@ -239,7 +240,8 @@ Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_re
 | Guide | Role |
 |-------|------|
 | [TESTING.md](../developers/TESTING.md) | Endpoint probes, smoke_test.py, CI and deploy gates |
-| [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AWX job templates and soak monitor |
+| [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AAP workflows (`ansible/aap/`) and soak monitor |
+| [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) | File/port AVC after ship → PR |
 | [../ansible/README.md](../../ansible/README.md) | Ansible playbook task order and variables |
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | Concepts and beginner mistakes |
 | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Workshop acts 1–10 |

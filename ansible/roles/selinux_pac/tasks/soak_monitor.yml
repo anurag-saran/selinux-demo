@@ -8,9 +8,12 @@
       --max-avc {{ soak_max_avc | default(0) }} \
       --max-net-new {{ soak_max_net_new | default(0) }} \
       --show-lines {{ soak_show_lines | default(5) }} \
-      --format json
+      --fail-dir {{ var_dir }} \
+      --format json \
+      {{ ('--notify-webhook ' ~ (soak_notify_webhook | quote)) if (soak_notify_webhook | default('') | length) > 0 else '' }}
   register: soak_monitor_json
   changed_when: false
+  failed_when: soak_monitor_json.rc not in [0, 1]
 
 - name: Parse soak monitor result
   ansible.builtin.set_fact:
@@ -21,6 +24,7 @@
     msg: >-
       Soak monitor failed: raw={{ soak_monitor.count }} net_new={{ soak_monitor.net_new_count }}
       (max_avc={{ soak_max_avc | default(0) }} max_net_new={{ soak_max_net_new | default(0) }}).
+      {{ soak_monitor.next_step | default('Copy ' ~ var_dir ~ '/selinux_soak_last_fail.json to rhel-dev, run dev_generate_policy.sh, open a PR. Do not semodule -i.') }}
   when: soak_monitor.status == 'fail'
 
 - name: Fail when sesearch was unavailable (raw AVC fallback is not allowed)

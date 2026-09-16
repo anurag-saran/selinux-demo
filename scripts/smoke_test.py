@@ -1061,10 +1061,22 @@ def test_deterministic_fixture_classify() -> None:
                 assert any(row.get("boolean") == want["boolean"] for row in matched), (
                     f"{case}: boolean name mismatch for {want}"
                 )
+            if want.get("next_action"):
+                assert any(row.get("next_action") == want["next_action"] for row in matched), (
+                    f"{case}: next_action mismatch for {want} in {matched}"
+                )
+            if "port" in want:
+                assert any(row.get("port") == want["port"] for row in matched), (
+                    f"{case}: port mismatch for {want} in {matched}"
+                )
         if want_exit != 0:
             assert payload.get("generation_blocked") is True, f"{case}: expected generation_blocked"
             continue
 
+        if case == "02-port-bind":
+            summary = (case_dir / "_out" / "pr_summary.md").read_text(encoding="utf-8")
+            assert "add_manifest_port" in summary, f"{case}: pr_summary missing next_action"
+            assert "port: 8888" in summary, f"{case}: pr_summary missing selinux_ports snippet"
         if case == "01-mislabeled-var-lib":
             out_fc = (case_dir / "_out" / "myapp.fc").read_text(encoding="utf-8")
             assert out_fc == fc.read_text(encoding="utf-8"), (

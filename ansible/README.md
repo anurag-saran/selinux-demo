@@ -2,13 +2,13 @@
 
 Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real RHEL/FCOS hosts. It does **not** install the application for the first time — use [`scripts/setup_staging_env.sh`](../scripts/setup_staging_env.sh) for that.
 
-**AWX job templates and soak workflow:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md).
+**AAP job templates and soak workflow:** [`ansible/aap/`](aap/README.md) and [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md). Denied file/port after ship: [`docs/admin/DENIAL_RESPONSE.md`](../docs/admin/DENIAL_RESPONSE.md).
 
 **Where commands run:**
 
 | What | Where |
 |------|--------|
-| `ansible-playbook …` | **Controller** (your laptop or CI runner) with SSH to inventory hosts |
+| `ansible-playbook …` | **Controller** (AAP execution node, laptop, or CI runner) with SSH to inventory hosts |
 | `semanage`, `semodule`, soak scripts on hosts | **Target RHEL/Stream machines** in inventory |
 | `compile_and_validate.sh` before deploy | **Repo root** on controller (RHEL devel, or compile image as **backup** — [COMPILE_IMAGE.md](../docs/admin/COMPILE_IMAGE.md)) |
 
@@ -22,11 +22,11 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 | [`enforce_production.yml`](enforce_production.yml) | Soak gate, remove permissive, enforce smoke |
 | [`emergency_rollback.yml`](emergency_rollback.yml) | Permissive first; optional `dnf downgrade` |
 | [`reset_host_state.yml`](reset_host_state.yml) | `semodule -B` + clear permissive (no module change) |
-| [`generate_emergency_patch.yml`](generate_emergency_patch.yml) | Controller-only OpenAI patch from AVC log |
+| [`generate_emergency_patch.yml`](generate_emergency_patch.yml) | Controller + git checkout only — `policy_out/` for a PR, not host install |
 
 Playbooks delegate to role [`roles/selinux_pac/`](roles/selinux_pac/). Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Demo/lab sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the checkout `scripts/` tree.
 
-**Ansible / AWX hub:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md). Two-host lab: [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md). Testing matrix: [`docs/developers/TESTING.md`](../docs/developers/TESTING.md). Admin runbook: [`docs/admin/PRODUCTION_READINESS.md`](../docs/admin/PRODUCTION_READINESS.md). Laptop compile **backup:** [`docs/admin/COMPILE_IMAGE.md`](../docs/admin/COMPILE_IMAGE.md) (`asaran/selinux-demo-selinux-build:stream9`).
+**Ansible Automation Platform (AAP) hub:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md). Two-host lab: [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md). Testing matrix: [`docs/developers/TESTING.md`](../docs/developers/TESTING.md). Admin runbook: [`docs/admin/PRODUCTION_READINESS.md`](../docs/admin/PRODUCTION_READINESS.md). Laptop compile **backup:** [`docs/admin/COMPILE_IMAGE.md`](../docs/admin/COMPILE_IMAGE.md) (`asaran/selinux-demo-selinux-build:stream9`).
 
 ---
 
@@ -105,10 +105,11 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/selinux
 | `soak_max_avc` | `0` | Max raw AVCs since marker (used when net-new fail-closed) |
 | `soak_max_net_new` | `0` | Max **net-new** access needs vs installed policy |
 | `soak_use_net_new` | `true` | Prefer net-new gate in `enforce.yml` |
+| `soak_notify_webhook` | *(empty)* | Optional POST URL when soak monitor fails (AAP notification templates are preferred) |
 | `canary_max_avc` | `0` | Max recent AVCs right after canary deploy |
 | `selinux_pac_install_demo_units` | `false` | Lab only: copy `app/*.service` |
 | `force_enforce` | `false` | Skip soak gate (break-glass); **requires** `change_ticket` |
-| `change_ticket` | `CHG123` | **Required** on enforce (AWX survey) |
+| `change_ticket` | `CHG123` | **Required** on enforce (AAP survey) |
 | `rollback_dnf_version` | *(unset)* | e.g. `1.1.1-1` → `dnf downgrade myapp-selinux-…` on emergency rollback |
 
 **Deprecated (do not use on production targets):** `project_root`, `policy_pp_path`, `policy-history/`, `rollback_target_version`.
@@ -168,7 +169,7 @@ ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
 
 ### GitHub Actions (optional)
 
-Same playbooks as AWX:
+Same playbooks as AAP:
 
 - Merge to `main`: [`.github/workflows/selinux-staging-canary.yml`](../.github/workflows/selinux-staging-canary.yml)
 - Manual: **SELinux Policy Deploy** → `canary`
@@ -215,10 +216,10 @@ ansible-playbook ... enforce_production.yml -e "force_enforce=true" -e change_ti
 
 | Playbook | Effect |
 |----------|--------|
-| `soak_monitor.yml` | Runs `monitor_avc.sh --format json` with `--max-avc` and `--max-net-new`; **fails** if `status=fail` |
+| `soak_monitor.yml` | Runs `monitor_avc.sh --format json` with `--max-avc`, `--max-net-new`, and `--fail-dir`; **fails** if `status=fail` with a PR-shaped `next_step` |
 | `soak_status.yml` | Read-only `collect_soak_facts.sh` summary (no state change) |
 
-Schedule **Soak monitor** in AWX on the canary group. See [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md).
+Schedule **Soak monitor** in AAP on the canary group. See [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md).
 
 ---
 
@@ -228,7 +229,7 @@ Schedule **Soak monitor** in AWX on the canary group. See [ANSIBLE_OPERATIONS.md
 
 Role phase **`rollback`**. **Permissive first** (stock modules / `semanage`); optional **`dnf downgrade`**; then `semodule -B`, restorecon, restarts, AVC export. Optional ops scripts if RPM installed.
 
-**No OpenAI on target** — run [`generate_emergency_patch.yml`](generate_emergency_patch.yml) on the **controller** after fetching `/tmp/emergency_avc.log`.
+**No OpenAI on target** — run [`generate_emergency_patch.yml`](generate_emergency_patch.yml) on the **controller git checkout** after fetching `/tmp/emergency_avc.log` or `selinux_soak_last_fail.avc`. Output is `policy_out/` for a PR — never `semodule -i` on prod. See [DENIAL_RESPONSE.md](../docs/admin/DENIAL_RESPONSE.md).
 
 ### Example
 
@@ -248,7 +249,7 @@ After an **interrupted canary** (host left on `semodule -DB` or permissive): `se
 
 ## GitHub Actions integration (optional)
 
-Same playbooks as AWX — [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md) is the preferred admin UI.
+Same playbooks as AAP — [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md) is the preferred admin UI.
 
 Workflow: [`.github/workflows/selinux-deploy.yml`](../.github/workflows/selinux-deploy.yml)
 

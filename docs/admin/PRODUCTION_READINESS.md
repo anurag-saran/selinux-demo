@@ -1,17 +1,17 @@
 # Production Readiness Runbook (RHEL Admin)
 
-Day-to-day runbook for **shipping SELinux policy** with application teams. Ansible / AWX is the control plane. Developers PR policy from a **dev** host; you compile, package, canary, soak, and enforce on **prod**.
+Day-to-day runbook for **shipping SELinux policy** with application teams. Ansible Automation Platform (AAP) is the control plane. Developers PR policy from a **dev** host; you compile, package, canary, soak, and enforce on **prod**.
 
 **How to read this guide:**
 
 | You are… | Read first | Then |
 |----------|------------|------|
 | **New to SELinux** | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
-| **Running day-to-day deploys** | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) then §5 | Phases 1–6 as your checklist |
+| **Running day-to-day deploys** | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) then [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | Phases 1–6 as your checklist |
 | **Reviewing policy PRs** | [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) §8 | PR template + CI mapping §15 |
 | **Optional training** | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) acts 6–10 | This guide from section 4 onward |
 
-**Learning path:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) → **this guide**. Concepts: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
+**Learning path:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) → **this guide**. Concepts: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
 
 **Where this guide applies:** two RHEL boxes (dev + prod) from a controller — [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **those servers**. Local Podman is a **backup** if the boxes are not ready.
 
@@ -59,16 +59,17 @@ flowchart LR
   StagingSoak --> ProdCanary[Prod canary host]
   ProdCanary --> ProdSoak[Prod canary soak]
   ProdSoak --> Enforce[Fleet enforce]
-  Enforce -->|outage| Rollback["semanage permissive -a"]
+  Enforce -->|outage| Rollback[AAP Rollback]
 ```
 
 **Recommended sequence** ([RHEL_TWO_HOST.md](RHEL_TWO_HOST.md)):
 
 ```text
 PR merge → compile / RPM (CLI: compile_and_validate.sh, build_rpms.sh)
-         → canary on rhel-prod (deploy_canary.yml, --limit canary)
-         → scheduled soak_monitor.yml (net-new vs installed policy)
-         → soak_status.yml (read-only) then enforce_production.yml
+         → AAP **Release canary** (`deploy_canary.yml --limit canary`)
+         → scheduled **Soak monitor** (`soak_monitor.yml`, net-new vs installed policy)
+         → AAP **Promote to enforce** (Soak status → approval → Enforce)
+         → on denial: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) (PR, not live patch)
 ```
 
 ---
@@ -97,10 +98,10 @@ Enforce   semanage permissive -d myapp_t
 
 | Week | Admin action | Pass looks like |
 |------|--------------|-----------------|
-| **Week 0** | AWX **SELinux – Canary** (or `deploy_canary.yml`) | App healthy; `myapp_t` in `semanage permissive -l`; marker file exists |
-| **Week 1** | Daily `soak_monitor.yml` | `net_new_count=0`, playbook `failed=0` |
-| **Week 2** | `soak_status.yml` then `enforce_production.yml` | `semanage permissive -l` empty; app still responds |
-| **Enforce day** | `enforce_production.yml` | Domain enforcing; HTTP probes from the manifest still succeed |
+| **Week 0** | AAP **SELinux – Release canary** (or `deploy_canary.yml`) | App healthy; `myapp_t` in `semanage permissive -l`; marker file exists |
+| **Week 1** | Daily AAP **SELinux – Soak monitor** | `net_new_count=0`, playbook `failed=0` |
+| **Week 2** | AAP **SELinux – Promote to enforce** (Soak status → approval → Enforce) | `semanage permissive -l` empty; app still responds |
+| **Enforce day** | Enforce node of **Promote to enforce** (`change_ticket` required) | Domain enforcing; HTTP probes from the manifest still succeed |
 
 **Two-layer reminder:** `getenforce` = **Enforcing** throughout soak. Only **`myapp_t`** is on the permissive list until enforce.
 
@@ -112,19 +113,19 @@ Full timeline for beginners: [SELINUX_BASICS.md §7.5](../policy/SELINUX_BASICS.
 
 ## 4. Three deploy paths
 
-**Ansible / AWX is the production path.** Compile with CLI scripts (`compile_and_validate.sh`, `packaging/build_rpms.sh`). Optional GitHub Actions can call the same playbooks. See [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md).
+**Ansible Automation Platform (AAP) is the production path.** Click-create objects from [`ansible/aap/`](../../ansible/aap/). Compile with CLI scripts (`compile_and_validate.sh`, `packaging/build_rpms.sh`). Optional GitHub Actions can call the same playbooks. See [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md).
 
 | When | Who | How |
 |------|-----|-----|
 | **PR open** | CI (automatic) | `smoke-tests`, `forbidden-patterns`, `compile-policy` |
 | **Merge / release** | Admin / optional CI | `compile_and_validate.sh` + `packaging/build_rpms.sh`; optional [`.github/workflows/selinux-staging-canary.yml`](../../.github/workflows/selinux-staging-canary.yml) |
-| **Production cutover** | Admin (manual) | AWX **SELinux – Enforce** or `ansible-playbook ansible/enforce_production.yml` after soak |
+| **Production cutover** | Admin (manual) | AAP workflow **SELinux – Promote to enforce** (`enforce_production.yml`, `change_ticket` required) |
 
-Manual Ansible (AWX/Tower compatible) uses the playbooks in [`ansible/`](../../ansible/) — see phases below.
+Manual Ansible (`ansible-playbook` or AAP) uses the playbooks in [`ansible/`](../../ansible/) — see phases below.
 
 **Merge pipeline (optional GHA):** after `staging-canary` installs policy on a self-hosted staging runner, **`staging-endpoint-smoke`** runs `wait_for_endpoints.sh` and verifies the deploy report. This catches regressions before an admin starts prod canary.
 
-**Staging soak is scheduled Ansible, not a GitHub timer:** enable AWX job **SELinux – Soak monitor** daily. There is **no automatic enforce**. Wait 7–14 days, then run **Soak status** and **Enforce**.
+**Staging soak is scheduled Ansible, not a GitHub timer:** enable AAP job **SELinux – Soak monitor** daily. There is **no automatic enforce**. Wait 7–14 days, then run workflow **SELinux – Promote to enforce**. If soak fails: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md).
 
 ---
 
@@ -250,7 +251,7 @@ That HTTP path does **not** replace real `logrotate` cron. Production soak must 
 
 During soak, run **Ansible** — do not clone the git repo onto production hosts. Ops scripts live in the **`selinux-policy-ops`** RPM at `/usr/libexec/selinux-policy-ops`.
 
-**AWX (recommended):** schedule job template **SELinux – Soak monitor** (`soak_monitor.yml`) daily on the canary group.
+**AAP (recommended):** schedule job template **SELinux – Soak monitor** (`soak_monitor.yml`) daily on the canary group.
 
 **Manual playbook:**
 
@@ -302,7 +303,7 @@ The `canary` group is **one node** for the first production deploy. The `product
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
   --limit canary
 
-# 2. Daily monitoring on canary during soak (AWX schedule or)
+# 2. Daily monitoring on canary during soak (AAP schedule or ansible-playbook)
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml \
   --limit canary
 
@@ -310,9 +311,10 @@ ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml \
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
   --limit production
 
-# 4. Read-only facts, then enforce (gate uses collect_soak_facts / net-new)
+# 4. AAP Promote to enforce (Soak status → approval → Enforce; change_ticket required)
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_status.yml --limit canary
-ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml
+ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
+  -e change_ticket=CHG123
 
 # Break-glass only:
 ansible-playbook ... enforce_production.yml -e change_ticket=CHG123 -e "force_enforce=true"
@@ -326,9 +328,9 @@ Production inventory uses **RPMs** (`policy_pp_src: ""`). Lab inventories pass `
 
 ## 11. Phase 6 — Emergency rollback
 
-If enforce causes an outage, run **`ansible-playbook ... ansible/emergency_rollback.yml`** (AWX **SELinux – Rollback**, or optional GitHub **SELinux Policy Deploy** → `rollback`). The playbook **sets the domain permissive first** (stock `semanage` / Ansible modules), then optional **`dnf downgrade myapp-selinux-<version>`** when `rollback_dnf_version` is set, then `semodule -B`, `restorecon`, and service restarts. It exports AVCs to **`/tmp/emergency_avc.log`**.
+If enforce causes an outage, run **`ansible-playbook ... ansible/emergency_rollback.yml`** (AAP **SELinux – Rollback**, or optional GitHub **SELinux Policy Deploy** → `rollback`). The playbook **sets the domain permissive first** (stock `semanage` / Ansible modules), then optional **`dnf downgrade myapp-selinux-<version>`** when `rollback_dnf_version` is set, then `semodule -B`, `restorecon`, and service restarts. It exports AVCs to **`/tmp/emergency_avc.log`**.
 
-**Policy generation is controller-only:** run **`ansible/generate_emergency_patch.yml`** on a workstation with `OPENAI_API_KEY` — not on production hosts.
+**Policy generation is controller-only:** run **`ansible/generate_emergency_patch.yml`** against a **git checkout on localhost**. It writes `policy_out/` for a PR. Do **not** run it on production hosts or `semodule -i` the output. Optional `OPENAI_API_KEY` polishes `pr_summary.md` only. See [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md).
 
 **Interrupted canary** (host left on `semodule -DB`): run **`ansible/reset_host_state.yml`** to restore dontaudit and clear permissive without changing the installed module.
 
@@ -452,11 +454,13 @@ cat /var/lib/myapp/selinux_deploy_report.json
 
 ### Expected recovery loop
 
+Follow [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). Do not live-patch the host.
+
 ```text
-Outage → semanage permissive -a myapp_t (admin) → export AVCs → policy PR → canary redeploy → soak → enforce
+Outage → AAP Rollback (domain permissive) → export AVCs → policy PR → AAP Release canary → soak → Promote to enforce
 ```
 
-Deploy feedback artifact: **`/var/lib/myapp/selinux_deploy_report.json`** (written by canary, enforce, and rollback playbooks).
+Deploy feedback artifact: **`/var/lib/myapp/selinux_deploy_report.json`** (written by canary, enforce, and rollback playbooks). Soak-fail artifact: **`/var/lib/myapp/selinux_soak_last_fail.json`**.
 
 ---
 
@@ -483,7 +487,7 @@ Before you enforce on production, confirm:
 |---------|-------------------|------------|
 | **Enforce fails soak gate** | `Soak period not met` or `Too many AVC denials` | Wait remaining days; fix policy from AVCs; redeploy canary — do **not** use `force_enforce` without approval |
 | **Mislabeled files after deploy** | `verify_file_contexts.sh` fails | Run `restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp`; re-verify; see [Basics §6](../policy/SELINUX_BASICS.md) |
-| **AVCs spike during soak** | `soak_monitor.yml` fails (`net_new_count` > 0) | Export AVCs, extend `.te`, PR + CI, redeploy canary, **reset soak clock** |
+| **AVCs spike during soak** | `soak_monitor.yml` fails (`net_new_count` > 0) | [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) — copy `selinux_soak_last_fail.*`, PR, recanary; **reset soak clock**. Do **not** `semodule -i` on the host |
 | **Ansible inventory missing** | `Could not match supplied host pattern` | Copy `inventory.production.example.yml` → `inventory.production.yml`; set real hostnames |
 | **Canary marker missing** | `Canary marker not found` | Run `deploy_canary.yml` first — marker is written on canary deploy |
 | **Audit tools unavailable** | `Could not determine AVC count` | Install `audit` package; ensure `auditd` is running |
@@ -491,7 +495,7 @@ Before you enforce on production, confirm:
 | **`/notify-socket` fails post-enforce** | HTTP 500; stale socket on disk | Remove `/run/myapp/notify.sock` and restart backend; playbooks do this automatically |
 | **`/probe-backend` fails post-enforce** | `Permission denied` on TCP connect | Check backend on `:8889`; look for `tcp_socket getopt` or `cert_t` AVCs on `myapp_t` |
 | **`/run-script` fails post-enforce** | `Permission denied` on `/usr/bin/*` | Do not add `bin_t:file execute` — fix `backup.sh` to use bash builtins |
-| **Wrong cron path** | cron job fails silently | Use AWX **Soak monitor** or `/usr/libexec/selinux-policy-ops/monitor_avc.sh` — do **not** clone this repo onto prod |
+| **Wrong cron path** | cron job fails silently | Use AAP **Soak monitor** or `/usr/libexec/selinux-policy-ops/monitor_avc.sh` — do **not** clone this repo onto prod |
 
 ---
 
@@ -505,7 +509,7 @@ Before you enforce on production, confirm:
 | Version SSOT | `version-consistency` |
 | Policy access delta (review aid) | `policy-diff-comment` + `assemble_pr_body.sh` locally |
 | Soak tier logic (do not change without fixtures) | `blast-radius` |
-| Canary readiness | AWX Canary / `deploy_canary.yml` (optional GHA `staging-canary` on merge) |
+| Canary readiness | AAP **Release canary** / `deploy_canary.yml` (optional GHA `staging-canary` on merge) |
 | Post-canary endpoint smoke | `wait_for_endpoints.sh` + deploy report (`staging-endpoint-smoke` if using GHA) |
 | Canary AVC gate at deploy | `deploy_canary.yml` (`canary_max_avc`, default 0) |
 | Soak net-new | `soak_monitor.yml` / `collect_soak_facts.sh` (`soak_max_net_new`) |
@@ -532,7 +536,8 @@ Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE
 | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Acts 1–2 discovery; Acts 6–10 admin soak/enforce | Workshop observers |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
 | [DOCKER_HUB_COMPILE_IMAGE.md](COMPILE_IMAGE.md) | Published `stream9` compile image — pull-first | Demo laptops / CI |
-| [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) | AWX job templates, soak monitor, extra-vars | RHEL admins |
+| [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) | AAP workflows in `ansible/aap/`, soak monitor, extra-vars | RHEL admins |
+| [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | File/port AVC after ship → PR, not live patch | RHEL admins |
 | [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md) | CODEOWNERS, inventories, RPM repo | Platform team |
 | **This file** | §3.5 soak; §5–14 phases and checklist | RHEL admins |
 | [README.md](../../README.md) | Developer commands + admin pointer | Day-to-day |

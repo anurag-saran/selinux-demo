@@ -8,6 +8,9 @@
 - Runtime socket path **`/run/myapp/notify.sock`** on `myapp_var_run_t` (`/notify-socket` probe)
 - Path traversal allows on log directory parents (read/search on `var_log_t`, `usr_t`, `root_t` as needed)
 
+### Next action
+- None for this sample (ports already in `selinux_ports`; no net-new bind). After soak fail, generator fills this with `add_manifest_port` / `update_fc_and_restorecon` / `setsebool_host`. See [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
+
 ### Process Execution
 - `init_daemon_domain(myapp_t, myapp_exec_t)` — systemd entrypoint transition
 - `myapp_script_exec_t` for **`/opt/myapp/bin/backup.sh`** (`execute_no_trans`; script uses bash builtins only)

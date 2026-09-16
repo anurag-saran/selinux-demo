@@ -180,7 +180,7 @@ cd ~/selinux-demo
 sudo bash scripts/setup_staging_env.sh
 sudo bash scripts/selinux_pac_adopt.sh doctor
 
-From the controller (laptop or AWX), compile then canary against DEV:
+From the controller (laptop or AAP), compile then canary against DEV:
   bash scripts/compile_and_validate.sh selinux
   ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 

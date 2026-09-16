@@ -43,7 +43,7 @@ labels:
 - [ ] `selinux/myapp.fc` (File Contexts)
 - [ ] `selinux/policy_version.txt` (SemVer bump — must match `policy_module(myapp, …)` in `.te`; CI `version-consistency`)
 - [ ] `selinux/myapp.if` — N/A (standalone demo module)
-- [ ] `selinux/payments/payments.if` — updated if this PR touches cross-module interfaces (see [ONBOARDING_SECOND_APP.md](../../docs/developers/ONBOARDING.md))
+- [ ] `selinux/payments/payments.if` — updated if this PR touches cross-module interfaces (see [ONBOARDING.md](../../docs/developers/ONBOARDING.md))
 
 ---
 
@@ -88,7 +88,7 @@ labels:
 | **Compilation Test** | ⬜ Pass / ⬜ Reject | CI `compile-policy` artifact + refpolicy Makefile build |
 | **Path Labeling (restorecon -n)** | ⬜ Pass / ⬜ Reject | `scripts/verify_file_contexts.sh` passes after canary deploy (includes `/var/log/myapp`) |
 | **Domain Context Verified** | ⬜ Pass / ⬜ Reject | Deploy report shows `myapp.service` → `myapp_t`, backend → `myapp_backend_t` |
-| **Soak Period (7–14 days)** | ⬜ Pass / ⬜ Reject | AWX **Soak monitor** (`soak_monitor.yml`) daily — net-new vs installed policy; **Soak status** (`soak_status.yml`) before enforce |
+| **Soak Period (7–14 days)** | ⬜ Pass / ⬜ Reject | AAP **Soak monitor** (`soak_monitor.yml`) daily — net-new vs installed policy; **Soak status** (`soak_status.yml`) before enforce |
 | **Systemd-Only Restart** | ⬜ Pass / ⬜ Reject | Service started via `systemctl restart`, not manual `python app.py` |
 | **Prod Canary Host** | ⬜ Pass / ⬜ Reject | `deploy_canary.yml --limit canary` before fleet enforce |
 | **Canary Readiness** | ⬜ Pass / ⬜ Reject | Plan to run `deploy_canary.yml` before production enforce |
@@ -97,17 +97,18 @@ labels:
 
 ### 7. Admin Action
 
-**After merge:** Compile with CLI (`bash scripts/compile_and_validate.sh`, optional `packaging/build_rpms.sh`), then AWX **SELinux – Canary** (`ansible/deploy_canary.yml`). Optional GitHub Actions staging-canary if you have a `selinux-staging` runner.
+**After merge:** Compile with CLI (`bash scripts/compile_and_validate.sh`, optional `packaging/build_rpms.sh`), then AAP **SELinux – Release canary** (`ansible/deploy_canary.yml`). Optional GitHub Actions staging-canary if you have a `selinux-staging` runner.
 
-**Soak:** Daily AWX **SELinux – Soak monitor** (`ansible/soak_monitor.yml`) — zero **net-new** access needs vs installed policy. Before enforce: **Soak status** (`ansible/soak_status.yml`).
+**Soak:** Daily AAP **SELinux – Soak monitor** (`ansible/soak_monitor.yml`) — zero **net-new** access needs vs installed policy. Before enforce: **Soak status** (`ansible/soak_status.yml`). If soak fails: [`docs/admin/DENIAL_RESPONSE.md`](../../docs/admin/DENIAL_RESPONSE.md) (PR + recanary, not live patch).
 
-**Production enforce (manual):** AWX **SELinux – Enforce** (`ansible/enforce_production.yml`) after soak. See [`docs/admin/ANSIBLE_OPERATIONS.md`](../../docs/admin/ANSIBLE_OPERATIONS.md) and [`docs/admin/PRODUCTION_READINESS.md`](../../docs/admin/PRODUCTION_READINESS.md).
+**Production enforce (manual):** AAP workflow **SELinux – Promote to enforce** (`ansible/enforce_production.yml`) after soak. See [`ansible/aap/`](../../ansible/aap/), [`docs/admin/ANSIBLE_OPERATIONS.md`](../../docs/admin/ANSIBLE_OPERATIONS.md) and [`docs/admin/PRODUCTION_READINESS.md`](../../docs/admin/PRODUCTION_READINESS.md).
 
 ```bash
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_status.yml --limit canary
-ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml
+ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \
+  -e change_ticket=CHG123
 ```
 
 **Rollback:** `ansible-playbook ansible/emergency_rollback.yml`

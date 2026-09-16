@@ -40,8 +40,9 @@ soak_min_days: 7
 soak_max_avc: 0
 soak_use_net_new: true
 soak_max_net_new: 0
+soak_notify_webhook: ""
 http_probe_host: "127.0.0.1"
 
-# Enforce / AWX survey. force_enforce never skips the change_ticket check.
+# Enforce / AAP survey. force_enforce never skips the change_ticket check.
 force_enforce: false
 change_ticket: ""
