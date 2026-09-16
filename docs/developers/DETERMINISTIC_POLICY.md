@@ -10,7 +10,7 @@ Offline AVC → `.te` / `.fc` updates using **house rules** and optional **sepol
 
 Before refpolicy interfaces or raw allows on base types, the generator applies **`config/boolean_hints.yml`** overrides (optional `src_type` / `{domain}` templates), then queries the loaded targeted policy with `sesearch --allow --bool …` (`cli/boolean_hints.py`). All matching booleans are listed (sorted); none is auto-selected when several apply. Policy RPM/version is recorded in the `.te` header and `pr_summary.md`. If neither override nor policy query can run, generation refuses a silent direct allow.
 
-Optional live check (Stream 9 container): **`bash scripts/run_boolean_query_integration.sh`** (skips when Podman/policy unavailable).
+Optional live check: **`bash scripts/run_boolean_query_integration.sh`** (skips when `sesearch` / targeted policy is unavailable).
 
 ## Quick start
 
@@ -48,32 +48,19 @@ Without ifgen, the generator prints a **stderr banner** on every run (`SEPOLGEN 
 
 Do not confuse missing ifgen with “no interface matched” — the latter is logged when ifgen data exists but no macro fits the denial.
 
-## Fast compiles (Stream 9 tool container)
+## Compile on RHEL
 
 | | |
 |--|--|
-| **Where** | **Repo root** (needs `podman` or `docker` on PATH, or compile natively on RHEL) |
-| **Why** | Compiles run inside the Stream 9 tool container — see [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) |
-
-**Demo default:** pull pre-built **CentOS Stream 9** image from Docker Hub (seconds):
+| **Where** | **rhel-dev** (or any host with `selinux-policy-devel`) |
+| **Why** | `checkmodule` / refpolicy Makefile need the devel package — not macOS |
 
 ```bash
-bash scripts/lib/selinux_build_image.sh pull
-# or: bash scripts/lib/selinux_build_image.sh ensure   # pull → local build if needed
-export SELINUX_BUILD_IMAGE=docker.io/asaran/selinux-demo-selinux-build:stream9   # optional override
+sudo dnf install -y selinux-policy-devel setools-console
+bash scripts/compile_and_validate.sh selinux
 ```
 
-Details: [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) — image **`asaran/selinux-demo-selinux-build:stream9`** is on Docker Hub; pull-first is the default. Maintainers republish with `scripts/publish_selinux_compile_image.sh` (Hub token via env only).
-
-**Automatic:** `dev_generate_policy.sh`, `compile_and_validate.sh`, and `compile_module.sh` call **`ensure_selinux_build_image`** (`SELINUX_BUILD_IMAGE_PULL=1` by default).
-
-After the image exists, these use **make-only** container runs (no per-invocation `dnf`):
-
-- `compile_policy_module` / `compile_and_validate.sh`
-- `validate_policy_semantics.sh`
-- `policy_module_diff.sh` (PR access delta)
-- `classify_policy_blast_radius.sh`
-- `cli/selinux_gen.py` container compile (via `compile_module.sh`)
+`dev_generate_policy.sh`, `compile_and_validate.sh`, `validate_policy_semantics.sh`, and blast-radius classification use the same native Makefile path.
 
 ## House rules (see `cli/policy_rules.py`)
 

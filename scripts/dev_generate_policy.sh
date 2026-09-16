@@ -67,9 +67,6 @@ Environment:
   POLICY_ENGINE    Default: deterministic
   POLICY_SUMMARY_LLM  Set to 1 to run cli/summarize_pr.py after generation
   POLICY_ALLOW_DEGRADED  Pass --allow-degraded to deterministic_gen when sepolgen missing
-  SELINUX_BUILD_IMAGE  Prebuilt compile image (default: docker.io/asaran/…:stream9; override for internal registry)
-  SELINUX_BUILD_IMAGE_PULL  Pull from registry before local build (default: 1; set 0 for air-gapped local build only)
-  SELINUX_BUILD_IMAGE_AUTO  Build image locally when pull fails (default: 1)
   OPENAI_BASE_URL  Optional LiteLLM endpoint
   OPENAI_API_MODEL Optional model override
 
@@ -277,7 +274,7 @@ assemble_pr_body() {
         return
     fi
     if ! bash "${ASSEMBLE}" "${common_args[@]}"; then
-        log_warn "Policy access diff failed (sesearch/Podman) — PR body without delta section"
+        log_warn "Policy access diff failed (sesearch) — PR body without delta section"
         bash "${ASSEMBLE}" "${common_args[@]}" --skip-policy-diff
     fi
 }
@@ -380,9 +377,6 @@ main() {
 
     # shellcheck source=lib/compile_policy.sh
     source "${SCRIPT_DIR}/lib/compile_policy.sh"
-    if ! has_selinux_devel && command -v podman >/dev/null 2>&1; then
-        ensure_selinux_build_image || log_warn "Policy compile may be slow until: bash scripts/build_selinux_compile_image.sh"
-    fi
 
     if [[ "${SKIP_EXPORT}" -eq 0 ]]; then
         export_avcs

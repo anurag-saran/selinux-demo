@@ -135,7 +135,7 @@ See also: [`TESTING.md`](../developers/TESTING.md) (full endpoint → policy map
 
 | Phase | Goal | Command / playbook | **Pass looks like** |
 | --- | --- | --- | --- |
-| **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/lib/selinux_build_image.sh ensure` + `bash scripts/compile_and_validate.sh selinux` (CentOS Stream 9 Podman image or native RHEL devel) | `myapp.pp` built, no errors |
+| **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` on a host with `selinux-policy-devel` | `myapp.pp` built, no errors |
 | **Semantic assertions** | Required allows present in compiled module | `bash scripts/validate_policy_semantics.sh selinux` (CI `policy-semantics` job) | `sesearch` checks pass |
 | **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` | `Forbidden-pattern checks passed` |
 | **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp` | `File context verification passed` |
@@ -535,7 +535,6 @@ Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE
 | [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
 | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-window typewriter demo (`demo_e2e_*.sh`) | Presenters |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
-| [COMPILE_IMAGE.md](COMPILE_IMAGE.md) | Published `stream9` compile image — pull-first | Demo laptops / CI |
 | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) | AAP workflows in `ansible/aap/`, soak monitor, extra-vars | RHEL admins |
 | [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | File/port AVC after ship → PR, not live patch | RHEL admins |
 | [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md) | CODEOWNERS, inventories, RPM repo | Platform team |

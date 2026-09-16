@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# collect_soak_facts.sh — Emit JSON soak gate inputs (target-side; no Podman/classifier).
+# collect_soak_facts.sh — Emit JSON soak gate inputs (target-side; no classifier).
 #
 set -euo pipefail
 

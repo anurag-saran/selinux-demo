@@ -101,14 +101,14 @@ tlab_pause
 tlab_print_section "Part 6 — Build RPMs on the Mac, copy to prod"
 tlab_explain "Production must not git clone this repo. We ship installer files (RPMs), like a .pkg on a Mac."
 e2e_run "bash packaging/build_rpms.sh"
-e2e_run "ls dist/*.rpm 2>/dev/null || echo '(no dist/*.rpm yet — compile image / rpmbuild needed; skip scp or copy from an earlier build)'"
+e2e_run "ls dist/*.rpm 2>/dev/null || echo '(no dist/*.rpm yet — rpmbuild on rhel-dev; skip scp or copy from an earlier build)'"
 tlab_pause
 
 if [[ "${E2E_DRY}" -eq 1 ]] || compgen -G "${PROJECT_ROOT}/dist/*.rpm" >/dev/null; then
     tlab_explain "scp copies the two RPMs into the prod user’s home directory."
     e2e_run "scp dist/selinux-policy-ops-*.rpm dist/myapp-selinux-*.rpm ansible@${PROD_HOST}:~/"
 else
-    tlab_why "No RPMs in dist/. In a customer shop CI publishes them. For this demo, skip scp or build with the compile image (docs/admin/COMPILE_IMAGE.md)."
+    tlab_why "No RPMs in dist/. In a customer shop CI publishes them. For this demo, skip scp or build RPMs on rhel-dev with rpm-build."
 fi
 
 e2e_handoff "On the PROD VM window run:

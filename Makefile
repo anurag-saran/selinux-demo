@@ -7,7 +7,7 @@ export SMOKE_SKIP_FLASK ?= 1
 
 .PHONY: help deps test check lint fixtures test-smoke test-static test-manifest \
 	test-rpm test-forbidden test-version test-fixtures test-blast-radius \
-	lint-shell lint-yaml lint-ansible image integration-compile integration-semantics \
+	lint-shell lint-yaml lint-ansible integration-compile integration-semantics \
 	training-lab
 
 help: ## List targets (default)
@@ -21,7 +21,7 @@ help: ## List targets (default)
 deps: ## Install Python deps for offline tests (no network after first run)
 	$(PIP) install -q -r cli/requirements.txt
 
-test: deps test-fixtures test-static test-smoke ## Offline health check (no SELinux, no podman)
+test: deps test-fixtures test-static test-smoke ## Offline health check (no SELinux host required)
 	@echo "make test OK"
 
 check: test lint ## Full repo health: offline tests + linters when installed
@@ -51,7 +51,7 @@ test-manifest: deps ## App manifest YAML validation
 test-smoke: deps ## Python smoke_test.py (skips live Flask by default)
 	$(PYTHON) scripts/smoke_test.py --no-require-backend
 
-test-blast-radius: ## Blast-radius fixtures only (skips Podman integration locally)
+test-blast-radius: ## Blast-radius fixtures only (skips live sesearch locally)
 	bash scripts/run_blast_radius_fixtures.sh
 
 lint: lint-shell lint-yaml lint-ansible ## Run linters (SKIP if tool not installed)
@@ -73,27 +73,23 @@ lint-ansible-syntax: ## ansible-playbook --syntax-check (needs ansible)
 	@command -v ansible-playbook >/dev/null 2>&1 || { echo "SKIP lint-ansible-syntax: ansible not installed"; exit 0; }; \
 	bash scripts/ci/ansible_syntax_check.sh
 
-image: ## Ensure prebuilt SELinux compile container image (needs podman)
-	@command -v podman >/dev/null 2>&1 || { echo "SKIP make image: podman not installed"; exit 0; }
-	bash scripts/lib/selinux_build_image.sh ensure
-
-integration-compile: ## Compile selinux/ modules (needs podman or selinux-policy-devel)
-	@command -v podman >/dev/null 2>&1 || { \
-		if [ ! -f /usr/share/selinux/devel/Makefile ]; then \
-			echo "SKIP integration-compile: install podman or selinux-policy-devel"; exit 0; \
-		fi; \
-	}
-	bash scripts/ci/ensure_selinux_build_image.sh 2>/dev/null || true
+integration-compile: ## Compile selinux/ modules (needs selinux-policy-devel)
+	@if [ ! -f /usr/share/selinux/devel/Makefile ]; then \
+		echo "SKIP integration-compile: install selinux-policy-devel (run on rhel-dev)"; exit 0; \
+	fi
 	bash scripts/compile_and_validate.sh selinux
 	POLICY_MODULE=payments SELINUX_DOMAIN=payments_t bash scripts/compile_and_validate.sh selinux/payments
 
-integration-semantics: integration-compile ## sesearch semantic assertions (needs podman)
-	@command -v podman >/dev/null 2>&1 || { echo "SKIP integration-semantics: podman not installed"; exit 0; }
+integration-semantics: ## sesearch semantic assertions (needs selinux-policy-devel)
+	@if [ ! -f /usr/share/selinux/devel/Makefile ]; then \
+		echo "SKIP integration-semantics: install selinux-policy-devel (run on rhel-dev)"; exit 0; \
+	fi
 	bash scripts/validate_policy_semantics.sh selinux
 
-integration-blast-radius: ## Blast-radius with Podman integration (CI blast-radius job)
-	@command -v podman >/dev/null 2>&1 || { echo "SKIP integration-blast-radius: podman not installed"; exit 0; }
-	bash scripts/ci/ensure_selinux_build_image.sh
+integration-blast-radius: ## Blast-radius with live sesearch (CI / rhel-dev)
+	@if [ ! -f /usr/share/selinux/devel/Makefile ]; then \
+		echo "SKIP integration-blast-radius: install selinux-policy-devel (run on rhel-dev)"; exit 0; \
+	fi
 	BLAST_RADIUS_REQUIRE_INTEGRATION=1 bash scripts/run_blast_radius_fixtures.sh
 
 training-lab: ## Guided lab walkthrough (run on rhel-dev)

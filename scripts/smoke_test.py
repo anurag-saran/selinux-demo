@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local smoke tests (no SELinux/Podman required for most)."""
+"""Local smoke tests (no SELinux host required for most)."""
 
 from __future__ import annotations
 
@@ -343,7 +343,7 @@ def test_flask_endpoints(require_backend: bool = True) -> None:
 
 
 def test_assemble_pr_body_policy_diff_section() -> None:
-    """assemble_pr_body embeds precomputed sesearch delta (full diff needs Podman + git merge-base)."""
+    """assemble_pr_body embeds precomputed sesearch delta (full diff needs sesearch + git merge-base)."""
     fixture = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "policy_diff" / "sample_delta.md"
     assert fixture.is_file(), f"missing {fixture}"
     with tempfile.TemporaryDirectory() as tmp:
@@ -1131,38 +1131,6 @@ def test_payments_onboarding_module() -> None:
     assert norm["policy"]["module_dir"] == "selinux/payments"
 
 
-def test_selinux_build_image_internal_registry() -> None:
-    """Compile image URL is fully overridable (not hard-coded at runtime)."""
-    lib = PROJECT_ROOT / "scripts" / "lib" / "build_image.sh"
-    internal = "registry.example.com/security/selinux-demo-selinux-build:stream9"
-    result = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f"source '{lib}' && printf '%s' \"$SELINUX_BUILD_IMAGE\"",
-        ],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "SELINUX_BUILD_IMAGE": internal},
-    )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout == internal
-
-
-def test_single_ensure_selinux_build_image_definition() -> None:
-    """ensure_selinux_build_image() must exist in exactly one library (no silent override)."""
-    lib_dir = PROJECT_ROOT / "scripts" / "lib"
-    count = 0
-    owner = ""
-    for path in sorted(lib_dir.glob("*.sh")):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("ensure_selinux_build_image()"):
-                count += 1
-                owner = str(path.relative_to(PROJECT_ROOT))
-    assert count == 1, f"expected one ensure_selinux_build_image(), found {count} in {owner or '?'}"
-
-
 def test_export_app_avcs_requires_paths() -> None:
     avc_lib = PROJECT_ROOT / "scripts" / "lib" / "avc_query.sh"
     result = subprocess.run(
@@ -1344,8 +1312,6 @@ def main() -> int:
         ("deterministic_verdict_fixture_coverage", test_deterministic_verdict_fixture_coverage),
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
         ("payments_onboarding_module", test_payments_onboarding_module),
-        ("selinux_build_image_internal_registry", test_selinux_build_image_internal_registry),
-        ("single_ensure_selinux_build_image", test_single_ensure_selinux_build_image_definition),
         ("export_app_avcs_requires_paths", test_export_app_avcs_requires_paths),
         ("boolean_policy_render", test_boolean_policy_render),
         ("boolean_triage_two_matches", test_boolean_triage_two_matches),

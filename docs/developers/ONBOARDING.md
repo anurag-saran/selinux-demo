@@ -16,7 +16,7 @@ bash scripts/selinux_pac_adopt.sh init payments
 
 | Step | Where |
 |------|--------|
-| Copy manifest, `validate_app_manifest.sh`, compile | **Controller** (RHEL devel or Stream 9 compile image) |
+| Copy manifest, `validate_app_manifest.sh`, compile | **rhel-dev** (`selinux-policy-devel`) |
 | `scaffold_sepolicy_module.sh`, `semodule -i`, `restorecon` | **RHEL dev** box |
 | `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` (AAP **Release canary** / **Soak monitor**) | **Controller** SSH to **RHEL prod** ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) |
 
@@ -73,15 +73,14 @@ Consumers (e.g. another module’s `.te`) call these inside `optional_policy` or
 
 ## Compile
 
-Uses the same compile image as `myapp` (override registry with **`SELINUX_BUILD_IMAGE`** — see [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md)):
+Compile like `myapp` on a host with `selinux-policy-devel`:
 
 | | |
 |--|--|
-| **Where** | **Repo root** |
+| **Where** | **rhel-dev** repo root |
 | **Why** | Produces `payments.pp` for install and CI compile gate |
 
 ```bash
-bash scripts/lib/selinux_build_image.sh ensure   # or internal mirror
 POLICY_MODULE=payments SELINUX_DOMAIN=payments_t \
   bash scripts/compile_and_validate.sh selinux/payments
 ```

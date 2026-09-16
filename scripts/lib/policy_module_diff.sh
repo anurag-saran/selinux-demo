@@ -152,26 +152,6 @@ compile_policy_module "${run_dir}/cand" "${APP_NAME}" "${run_dir}/cand/${APP_NAM
     exit 1
 }
 
-collect_side_container() {
-    local label="$1"
-    local pp_path="$2"
-    local out_name="${label}_rules.txt"
-    local log="${run_dir}/${label}.log"
-    if ! run_selinux_container "${run_dir}" \
-        -e "DIFF_DOMAINS=${DOMAINS}" \
-        -e "DIFF_APP=${APP_NAME}" \
-        bash -lc "bash /work/policy_module_diff_side.sh ${pp_path} /work/${out_name} \"\${DIFF_DOMAINS}\" \"\${DIFF_APP}\"" \
-        >"${log}" 2>&1; then
-        echo "policy_module_diff: ${label} sesearch collect failed" >&2
-        tail -30 "${log}" >&2
-        return 1
-    fi
-    [[ -f "${run_dir}/${out_name}" ]] || {
-        echo "policy_module_diff: missing ${run_dir}/${out_name}" >&2
-        return 1
-    }
-}
-
 collect_side_native() {
     local label="$1"
     local pp="$2"
@@ -183,11 +163,8 @@ collect_side_native() {
 if has_selinux_devel && command -v sesearch >/dev/null 2>&1; then
     collect_side_native base "${run_dir}/base/${APP_NAME}.pp"
     collect_side_native cand "${run_dir}/cand/${APP_NAME}.pp"
-elif command -v podman >/dev/null 2>&1; then
-    collect_side_container base "/work/base/${APP_NAME}.pp"
-    collect_side_container cand "/work/cand/${APP_NAME}.pp"
 else
-    echo "policy_module_diff: need podman or host selinux-policy-targeted + setools" >&2
+    echo "policy_module_diff: need selinux-policy-devel + setools-console (run on rhel-dev or CI Stream 9)" >&2
     exit 1
 fi
 

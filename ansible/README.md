@@ -10,7 +10,7 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 |------|--------|
 | `ansible-playbook …` | **Controller** (AAP execution node, laptop, or CI runner) with SSH to inventory hosts |
 | `semanage`, `semodule`, soak scripts on hosts | **Target RHEL/Stream machines** in inventory |
-| `compile_and_validate.sh` before deploy | **Repo root** on controller (RHEL devel, or compile image as **backup** — [COMPILE_IMAGE.md](../docs/admin/COMPILE_IMAGE.md)) |
+| `compile_and_validate.sh` before deploy | **RHEL** with `selinux-policy-devel` (typically rhel-dev) |
 
 **Doc index:** [docs/README.md](../docs/README.md).
 
@@ -26,7 +26,7 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 
 Playbooks delegate to role [`roles/selinux_pac/`](roles/selinux_pac/). The old `myapp_selinux` role is gone — do not restore it. Target scripts live in RPM **`selinux-policy-ops`** at **`/usr/libexec/selinux-policy-ops`** (inventory: `selinux_ops_dir`). Checkout (no ops RPM) sets `selinux_ops_from_package: false` and points `selinux_ops_dir` at the **target** checkout `scripts/` tree (not `playbook_dir` on a laptop).
 
-**Ansible Automation Platform (AAP) hub:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md). Two-host lab: [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md). Testing matrix: [`docs/developers/TESTING.md`](../docs/developers/TESTING.md). Admin runbook: [`docs/admin/PRODUCTION_READINESS.md`](../docs/admin/PRODUCTION_READINESS.md). Laptop compile **backup:** [`docs/admin/COMPILE_IMAGE.md`](../docs/admin/COMPILE_IMAGE.md) (`asaran/selinux-demo-selinux-build:stream9`).
+**Ansible Automation Platform (AAP) hub:** [`docs/admin/ANSIBLE_OPERATIONS.md`](../docs/admin/ANSIBLE_OPERATIONS.md). Two-host lab: [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md). Testing matrix: [`docs/developers/TESTING.md`](../docs/developers/TESTING.md). Admin runbook: [`docs/admin/PRODUCTION_READINESS.md`](../docs/admin/PRODUCTION_READINESS.md). Compile on **RHEL** with `selinux-policy-devel`.
 
 ---
 

@@ -58,10 +58,5 @@ On RHEL targets, install a .repo (adjust baseurl) and import the GPG key:
   gpgcheck=1
   gpgkey=https://yum.example.internal/selinux-pac/RPM-GPG-KEY
 
-Compile image (controller / CI) — never Docker Hub in production:
-
-  export SELINUX_BUILD_IMAGE=${SELINUX_BUILD_IMAGE:-registry.example.internal/security/selinux-build:stream9}
-  export SELINUX_BUILD_IMAGE_PULL=1
-
-Docs: docs/admin/COMPILE_IMAGE.md
+Compile policy on RHEL with selinux-policy-devel (dnf install selinux-policy-devel).
 EOF

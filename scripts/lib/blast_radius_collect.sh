@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # blast_radius_collect.sh — Diff sesearch rule lines between two installed modules.
-# Invoked inside a CentOS Stream container (not on host).
+# Invoked on a host with selinux-policy-targeted (isolated store; not live kernel).
 #
 # sediff(1) does not accept standalone .pp module packages on EL9 (same as
 # policy_module_diff_side.sh). Each side installs into an isolated copy of the

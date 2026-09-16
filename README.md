@@ -137,7 +137,7 @@ ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.
 
 Rollback: `ansible-playbook -i ansible/inventory.production.yml ansible/emergency_rollback.yml --limit canary`
 
-Install `selinux-policy-ops` + `<app>-selinux` from a **signed internal repo**. Compile image: set `SELINUX_BUILD_IMAGE` to an internal mirror ([docs/admin/COMPILE_IMAGE.md](docs/admin/COMPILE_IMAGE.md)). Playbooks: [ansible/README.md](ansible/README.md).
+Install `selinux-policy-ops` + `<app>-selinux` from a **signed internal repo**. Compile policy on RHEL with `selinux-policy-devel`. Playbooks: [ansible/README.md](ansible/README.md).
 
 ---
 

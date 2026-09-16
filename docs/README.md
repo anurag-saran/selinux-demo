@@ -49,7 +49,6 @@
 | [CODE_WALKTHROUGH.md](training/CODE_WALKTHROUGH.md) | Repo layout and which script to run when |
 | [TESTING.md](developers/TESTING.md) | CI, `make check`, integration endpoints (staged + batch) |
 | [DETERMINISTIC_POLICY.md](developers/DETERMINISTIC_POLICY.md) | Offline AVC → policy engine (default) |
-| [COMPILE_IMAGE.md](admin/COMPILE_IMAGE.md) | Internal compile image + signed RPM repo |
 | [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
 | [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional paced walkthrough (`demo_e2e_*.sh`) |
 | [examples/README.md](examples/README.md) | Curated PR samples for offline demos |

@@ -111,23 +111,12 @@ jobs:
   blast-radius:
     name: blast-radius
     runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Podman
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y podman
-
-      - name: Cache SELinux build image
-        uses: actions/cache@v4
-        id: selinux-build-image
-        with:
-          path: /tmp/selinux-build-image.tar
-          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
-
-      - name: Load or build SELinux compile image
-        run: bash scripts/ci/ensure_selinux_build_image.sh
+      - name: Install SELinux policy tools
+        run: bash scripts/ci/install_rhel_policy_tools.sh
 
       - name: Run blast-radius fixture suite
         env:
@@ -150,6 +139,7 @@ jobs:
     name: policy-diff-comment
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream9
     permissions:
       pull-requests: write
       contents: read
@@ -161,19 +151,15 @@ jobs:
       - name: Fetch base branch for merge-base diff
         run: git fetch origin main:refs/remotes/origin/main || git fetch origin master:refs/remotes/origin/master
 
-      - name: Install Podman
+      - name: Install SELinux policy tools
+        run: bash scripts/ci/install_rhel_policy_tools.sh
+
+      - name: Install GitHub CLI
         run: |
-          sudo apt-get update
-          sudo apt-get install -y podman
-
-      - name: Cache SELinux build image
-        uses: actions/cache@v4
-        with:
-          path: /tmp/selinux-build-image.tar
-          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
-
-      - name: Load or build SELinux compile image
-        run: bash scripts/ci/ensure_selinux_build_image.sh
+          dnf -y install curl tar gzip
+          ver=2.62.0
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${ver}/gh_${ver}_linux_amd64.tar.gz" | tar -xz -C /tmp
+          install "/tmp/gh_${ver}_linux_amd64/bin/gh" /usr/local/bin/gh
 
       - name: Post policy access delta comment
         env:
@@ -184,6 +170,7 @@ jobs:
     name: policy-access-delta
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v4
         with:
@@ -192,19 +179,8 @@ jobs:
       - name: Fetch base branch for merge-base diff
         run: git fetch origin main:refs/remotes/origin/main || git fetch origin master:refs/remotes/origin/master
 
-      - name: Install Podman
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y podman
-
-      - name: Cache SELinux build image
-        uses: actions/cache@v4
-        with:
-          path: /tmp/selinux-build-image.tar
-          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
-
-      - name: Load or build SELinux compile image
-        run: bash scripts/ci/ensure_selinux_build_image.sh
+      - name: Install SELinux policy tools
+        run: bash scripts/ci/install_rhel_policy_tools.sh
 
       - name: Verify merge-base policy access delta renders
         run: |
@@ -232,35 +208,22 @@ jobs:
   compile:
     name: compile-policy
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        image:
-          - quay.io/centos/centos:stream9
+    container: quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Podman
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y podman
-
-      - name: Cache SELinux build image
-        uses: actions/cache@v4
-        id: selinux-build-image
-        with:
-          path: /tmp/selinux-build-image.tar
-          key: selinux-build-${{ hashFiles('packaging/Containerfile.selinux-build') }}
-
-      - name: Load or build SELinux compile image
-        run: bash scripts/ci/ensure_selinux_build_image.sh
+      - name: Install SELinux policy tools
+        run: bash scripts/ci/install_rhel_policy_tools.sh
 
       - name: Compile selinux/ module
-        run: make integration-compile
+        run: |
+          bash scripts/compile_and_validate.sh selinux
+          POLICY_MODULE=payments SELINUX_DOMAIN=payments_t bash scripts/compile_and_validate.sh selinux/payments
 
       - name: Upload compiled policy package
         uses: actions/upload-artifact@v4
         with:
-          name: selinux-myapp-pp-${{ matrix.image }}
+          name: selinux-myapp-pp
           path: selinux/myapp.pp
           if-no-files-found: error
 
@@ -281,17 +244,13 @@ jobs:
 
   policy-semantics:
     name: policy-semantics
-    needs: compile
     runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Podman
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y podman
+      - name: Install SELinux policy tools
+        run: bash scripts/ci/install_rhel_policy_tools.sh
 
       - name: Run sesearch semantic assertions
-        env:
-          SELINUX_COMPILE_IMAGE: quay.io/centos/centos:stream9
-        run: make integration-semantics
+        run: bash scripts/validate_policy_semantics.sh selinux

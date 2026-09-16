@@ -241,23 +241,20 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`post_deploy_report.sh`** | Writes deploy report JSON after endpoints are exercised. |
 | **`verify_file_contexts.sh`** | Compare on-disk labels to `.fc` before restart. |
 
-### Compile toolchain (RHEL devel, or Stream 9 tool container)
+### Compile toolchain
 
 | Script / lib | Role |
 |--------------|------|
-| **`lib/selinux_build_image.sh`** | **Single** `ensure_selinux_build_image()` — optional Hub pull, then local build. |
-| **`lib/build_image.sh`** | Image constants and local container-build helper only (no duplicate ensure). |
-| **`lib/compile_policy.sh`** | Compile module natively or inside the Stream 9 tool container. |
-| **`build_selinux_compile_image.sh`** | Force rebuild the compile image. |
-
-See [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md).
+| **`lib/compile_policy.sh`** | Compile module with `selinux-policy-devel` (`make -f /usr/share/selinux/devel/Makefile`). |
+| **`compile_and_validate.sh`** | Forbidden-pattern check + compile. |
+| **`ci/install_rhel_policy_tools.sh`** | `dnf install` devel + setools for CI Stream 9 jobs. |
 
 ### CI-heavy scripts (you may read, rarely run locally)
 
 | Script | Why it exists |
 |--------|----------------|
 | **`validate_forbidden_patterns.sh`** | Block wildcards and risky allows in `.te`. |
-| **`validate_policy_semantics.sh`** | After compile, probe policy in the tool container (e.g. no shadow read). |
+| **`validate_policy_semantics.sh`** | After compile, probe policy in an isolated store (e.g. no shadow read). |
 | **`validate_version_consistency.sh`** | Version file matches `.te` and packaging. |
 | **`classify_policy_blast_radius.sh`** | Suggest soak length from how risky new allows are. |
 | **`lib/policy_module_diff.sh`** | Markdown diff of allow rules between two module versions (for PR comments). |
@@ -302,7 +299,6 @@ Inventory examples: **`inventory.dev.example.yml`** (RHEL dev), **`inventory.pro
 |----------|---------|
 | **`myapp-selinux.spec`** | RPM that ships the compiled module + `/etc/myapp/selinux-manifest.yml`. |
 | **`selinux-policy-ops.spec`** | RPM of operational scripts (`monitor_avc.sh`, `soak_net_new.py`, `collect_soak_facts.sh`, …) at `/usr/libexec/selinux-policy-ops`. |
-| **`Containerfile.selinux-build`** | CentOS Stream 9 image with `selinux-policy-devel` for fast compiles. |
 
 ---
 

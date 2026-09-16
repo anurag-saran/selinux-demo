@@ -219,16 +219,16 @@ exit
 
 ### 3a. Build the SELinux rules file
 
-**Type this on: your Mac**
+**Type this on: rhel-dev** (SSH session, repo checkout)
 
 ```bash
-cd /Users/asaran/projects/selinux-pac
+cd /home/ansible/selinux-pac
 bash scripts/compile_and_validate.sh selinux
 ```
 
-**What it does:** Turns the human-readable rules (`.te` / `.fc`) into a file the VM can load (`selinux/myapp.pp`). A Mac cannot compile SELinux itself, so the script uses a small Linux container. That is expected. Details: [COMPILE_IMAGE.md](COMPILE_IMAGE.md).
+**What it does:** Turns the human-readable rules (`.te` / `.fc`) into a file the VM can load (`selinux/myapp.pp`). Needs `selinux-policy-devel` on this Linux host (a Mac cannot compile SELinux).
 
-**You should see:** the file `selinux/myapp.pp` on the Mac (`ls selinux/myapp.pp`).
+**You should see:** `Built selinux/myapp.pp` and `ls selinux/myapp.pp` on rhel-dev.
 
 ### 3b. Canary (install rules in safe mode)
 
@@ -314,7 +314,7 @@ ls dist/*.rpm
 
 **What it does:** Builds two RPMs: tools (`selinux-policy-ops`) and the app’s SELinux rules (`myapp-selinux`). A real shop would put these in an internal package server. This lab copies them with `scp`.
 
-**You should see:** `Built RPMs in …/dist/` and two `.rpm` files. If `rpmbuild` is missing on the Mac, use [COMPILE_IMAGE.md](COMPILE_IMAGE.md).
+**You should see:** `Built RPMs in …/dist/` and two `.rpm` files. If `rpmbuild` is missing on the Mac, build the RPMs on **rhel-dev** (`sudo dnf install -y rpm-build`).
 
 ### 6b. Copy them to the prod VM
 

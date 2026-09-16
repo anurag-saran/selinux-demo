@@ -120,7 +120,7 @@ else
         --staging-host "${STAGING_HOST}" \
         --test-suite "${TEST_SUITE}" \
         --candidate-dir "${PROJECT_ROOT}/selinux"; then
-        log_warn "assemble_pr_body failed (Podman/sesearch?) — retry with --reuse-pr-body"
+        log_warn "assemble_pr_body failed (sesearch?) — retry with --reuse-pr-body"
         exit 1
     fi
 fi

@@ -31,10 +31,6 @@ fi
 
 bash "${SCRIPT_DIR}/validate_forbidden_patterns.sh" "${POLICY_DIR}"
 
-if ! has_selinux_devel && command -v podman >/dev/null 2>&1; then
-    ensure_selinux_build_image || true
-fi
-
 log_info "Static checks on ${te}"
 log_info "Compiling ${MODULE_NAME} in ${POLICY_DIR} via refpolicy Makefile"
 compile_policy_module "${POLICY_DIR}" "${MODULE_NAME}" "${pp}"

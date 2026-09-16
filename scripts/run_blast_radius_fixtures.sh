@@ -73,7 +73,7 @@ if got.get("fail_closed"):
     toolchain_miss = (
         "compile" in reason
         or "policy rule diff failed" in reason
-        or "podman" in excerpt
+        or "selinux-policy" in excerpt
         or "semodule" in excerpt
     )
     if toolchain_miss and os.environ.get("BLAST_RADIUS_REQUIRE_INTEGRATION", "0") != "1":
@@ -125,7 +125,7 @@ if ! compile_toolchain_available; then
         echo "blast-radius: integration required but compile toolchain unavailable" >&2
         exit 1
     fi
-    echo "SKIP blast-radius integration fixtures: install podman or selinux-policy-devel"
+    echo "SKIP blast-radius integration fixtures: install selinux-policy-devel (run on rhel-dev)"
     integration_ok=0
 fi
 

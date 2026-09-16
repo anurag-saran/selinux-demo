@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
 # validate_policy_semantics.sh — sesearch assertions on compiled policy module.
+# Uses an isolated targeted store (does not load the module into the live kernel).
 #
 set -euo pipefail
 
@@ -12,6 +13,8 @@ DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 
 # shellcheck source=lib/compile_policy.sh
 source "${SCRIPT_DIR}/lib/compile_policy.sh"
+# shellcheck source=lib/policy_isolated_store.sh
+source "${SCRIPT_DIR}/lib/policy_isolated_store.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -20,31 +23,47 @@ NC='\033[0m'
 log_info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
-pp="${POLICY_DIR}/${MODULE_NAME}.pp"
-work_dir="$(mktemp -d)"
-trap 'rm -rf "${work_dir}"' EXIT
-
-compile_policy_module "${POLICY_DIR}" "${MODULE_NAME}" "${pp}"
-cp "${pp}" "${work_dir}/${MODULE_NAME}.pp"
-
-if ! command -v podman >/dev/null 2>&1; then
-    log_error "podman required — semantic checks must not load policy on the host runner"
+if [[ "${EUID}" -ne 0 ]]; then
+    log_error "validate_policy_semantics.sh needs root (isolated policy store copy)"
+    exit 1
+fi
+if ! has_selinux_devel || ! command -v sesearch >/dev/null 2>&1 || [[ ! -d /var/lib/selinux/targeted ]]; then
+    log_error "Need selinux-policy-devel, setools-console, and selinux-policy-targeted (run on rhel-dev or CI Stream 9)"
     exit 1
 fi
 
-run_selinux_container "${work_dir}" bash -lc "
-    set -euo pipefail
-    semodule -i /work/${MODULE_NAME}.pp
-    fail=0
-    if sesearch --direct -A -s ${DOMAIN} -t shadow_t -p read 2>/dev/null | grep -q .; then fail=1; fi
-    if sesearch --direct -A -s ${DOMAIN} -t unlabeled_t 2>/dev/null | grep -q .; then fail=1; fi
-    if sesearch --direct -A -s ${DOMAIN} -c file -p entrypoint 2>/dev/null \
-        | awk '{print \$3}' | cut -d: -f1 | grep -qv '^${MODULE_NAME}_'; then fail=1; fi
-    semodule -r ${MODULE_NAME} 2>/dev/null || true
-    if [[ \"\${fail}\" -ne 0 ]]; then
-        echo 'Semantic policy check failed' >&2
-        exit 1
-    fi
-"
+pp="${POLICY_DIR}/${MODULE_NAME}.pp"
+compile_policy_module "${POLICY_DIR}" "${MODULE_NAME}" "${pp}"
+
+store_prefix="$(isolated_store_create)"
+trap 'isolated_store_destroy "${store_prefix}"' EXIT
+kern="$(isolated_store_kern "${store_prefix}")"
+
+semodule -r "${MODULE_NAME}" -s targeted -p "${store_prefix}" 2>/dev/null || true
+semodule -s targeted -p "${store_prefix}" -i "${pp}"
+[[ -f "${kern}" ]] || {
+    log_error "missing ${kern} after semodule -i"
+    exit 1
+}
+
+fail=0
+if sesearch --direct --allow -s "${DOMAIN}" -t shadow_t -p read "${kern}" 2>/dev/null | grep -q .; then
+    log_error "unexpected allow ${DOMAIN} -> shadow_t:read"
+    fail=1
+fi
+if sesearch --direct --allow -s "${DOMAIN}" -t unlabeled_t "${kern}" 2>/dev/null | grep -q .; then
+    log_error "unexpected allow ${DOMAIN} -> unlabeled_t"
+    fail=1
+fi
+if sesearch --direct --allow -s "${DOMAIN}" -c file -p entrypoint "${kern}" 2>/dev/null \
+    | awk '{print $3}' | cut -d: -f1 | grep -qv "^${MODULE_NAME}_"; then
+    log_error "entrypoint allow on a type outside ${MODULE_NAME}_*"
+    fail=1
+fi
+
+if [[ "${fail}" -ne 0 ]]; then
+    log_error "Semantic policy check failed"
+    exit 1
+fi
 
 log_info "Semantic policy checks passed for ${DOMAIN}"

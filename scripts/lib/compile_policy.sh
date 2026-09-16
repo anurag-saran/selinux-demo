@@ -1,94 +1,18 @@
 #!/usr/bin/env bash
 #
-# compile_policy.sh — Shared refpolicy Makefile compile (native or Podman).
+# compile_policy.sh — Shared refpolicy Makefile compile (native selinux-policy-devel).
 #
 # Source from other scripts:
 #   source "${SCRIPT_DIR}/lib/compile_policy.sh"
 #
 set -euo pipefail
 
-LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=selinux_build_image.sh
-source "${LIB_DIR}/selinux_build_image.sh"
-
 has_selinux_devel() {
     [[ -f /usr/share/selinux/devel/Makefile ]]
 }
 
-selinux_container_image() {
-    if selinux_build_image_ready; then
-        echo "${SELINUX_BUILD_IMAGE}"
-    else
-        echo "${SELINUX_COMPILE_IMAGE}"
-    fi
-}
-
-# Prepend inline dnf to a bash -lc script (slow-path fallback).
-_selinux_wrap_bash_lc_with_dnf() {
-    local inner="$1"
-    printf 'set -euo pipefail; dnf install -y -q %s; %s' "${SELINUX_CONTAINER_DNF_PKGS}" "${inner}"
-}
-
-# Run a command in the prebuilt image, or fall back to inline dnf on bare Stream.
-# Usage: run_selinux_container MOUNT_DIR [podman flags...] cmd args...
-run_selinux_container() {
-    local mount_src="$1"
-    shift
-    local podman_extra=()
-    while [[ $# -gt 0 && "$1" == -* ]]; do
-        case "$1" in
-            -e | --env)
-                podman_extra+=("$1" "$2")
-                shift 2
-                ;;
-            -v | --volume)
-                podman_extra+=("$1" "$2")
-                shift 2
-                ;;
-            *)
-                podman_extra+=("$1")
-                shift
-                ;;
-        esac
-    done
-    ensure_selinux_build_image || true
-    if selinux_build_image_ready; then
-        podman run --rm -v "${mount_src}:/work:Z" "${podman_extra[@]}" "${SELINUX_BUILD_IMAGE}" "$@"
-        return $?
-    fi
-    echo "[WARN] Prebuilt image ${SELINUX_BUILD_IMAGE} unavailable — inline dnf install (slow, needs network). Fix: bash scripts/lib/build_image.sh" >&2
-    if [[ "$1" == "bash" && "$2" == "-lc" && -n "${3:-}" ]]; then
-        local wrapped
-        wrapped="$(_selinux_wrap_bash_lc_with_dnf "$3")"
-        podman run --rm -v "${mount_src}:/work:Z" "${podman_extra[@]}" "${SELINUX_COMPILE_IMAGE}" bash -lc "${wrapped}"
-    else
-        podman run --rm -v "${mount_src}:/work:Z" "${podman_extra[@]}" "${SELINUX_COMPILE_IMAGE}" \
-            bash -lc "$(_selinux_wrap_bash_lc_with_dnf "$*")"
-    fi
-}
-
-# Like run_selinux_container but mount at /build (refpolicy Makefile compile).
-_run_selinux_build_mount() {
-    local mount_src="$1"
-    shift
-    ensure_selinux_build_image || true
-    if selinux_build_image_ready; then
-        podman run --rm -v "${mount_src}:/build:Z" "${SELINUX_BUILD_IMAGE}" "$@"
-        return $?
-    fi
-    echo "[WARN] Prebuilt image ${SELINUX_BUILD_IMAGE} unavailable — inline dnf install (slow, needs network). Fix: bash scripts/lib/build_image.sh" >&2
-    if [[ "$1" == "make" ]]; then
-        podman run --rm -v "${mount_src}:/build:Z" "${SELINUX_COMPILE_IMAGE}" \
-            bash -lc "$(_selinux_wrap_bash_lc_with_dnf "$*")"
-    else
-        podman run --rm -v "${mount_src}:/build:Z" "${SELINUX_COMPILE_IMAGE}" \
-            bash -lc "$(_selinux_wrap_bash_lc_with_dnf "$*")"
-    fi
-}
-
 compile_toolchain_available() {
-    has_selinux_devel && return 0
-    command -v podman >/dev/null 2>&1
+    has_selinux_devel
 }
 
 infer_policy_module_name() {
@@ -134,33 +58,20 @@ compile_policy_module() {
 
     rm -f "${output_pp}" "${policy_dir}/${module_name}.mod"
 
-    _copy_module_sources() {
-        local dest="$1"
-        cp "${te}" "${fc}" "${dest}/"
-        if [[ -f "${if_file}" ]]; then
-            cp "${if_file}" "${dest}/"
-        fi
-    }
-
-    if has_selinux_devel; then
-        local work_dir
-        work_dir="$(mktemp -d)"
-        _copy_module_sources "${work_dir}"
-        make -C "${work_dir}" -f /usr/share/selinux/devel/Makefile "${module_name}.pp"
-        cp "${work_dir}/${module_name}.pp" "${output_pp}"
-        rm -rf "${work_dir}"
-    elif command -v podman >/dev/null 2>&1; then
-        local work_dir
-        work_dir="$(mktemp -d)"
-        _copy_module_sources "${work_dir}"
-        _run_selinux_build_mount "${work_dir}" \
-            make -C /build -f /usr/share/selinux/devel/Makefile "${module_name}.pp"
-        cp "${work_dir}/${module_name}.pp" "${output_pp}"
-        rm -rf "${work_dir}"
-    else
-        echo "[ERROR] Install selinux-policy-devel or podman for policy compile" >&2
+    if ! has_selinux_devel; then
+        echo "[ERROR] Install selinux-policy-devel (dnf install selinux-policy-devel). Compile on rhel-dev, not macOS." >&2
         return 1
     fi
+
+    local work_dir
+    work_dir="$(mktemp -d)"
+    cp "${te}" "${fc}" "${work_dir}/"
+    if [[ -f "${if_file}" ]]; then
+        cp "${if_file}" "${work_dir}/"
+    fi
+    make -C "${work_dir}" -f /usr/share/selinux/devel/Makefile "${module_name}.pp"
+    cp "${work_dir}/${module_name}.pp" "${output_pp}"
+    rm -rf "${work_dir}"
 }
 
 verify_pp_matches_sources() {

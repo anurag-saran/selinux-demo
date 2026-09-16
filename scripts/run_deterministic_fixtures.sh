@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run_deterministic_fixtures.sh — Assert golden AVC → verdict fixtures (no Podman).
+# run_deterministic_fixtures.sh — Assert golden AVC → verdict fixtures (offline).
 #
 # Eleven cases under docs/examples/fixtures/deterministic/ (every classification verdict
 # has at least one golden row). Same checks as smoke_test deterministic tests.

@@ -46,12 +46,11 @@ Current module version: read **`selinux/policy_version.txt`** (SemVer). Keep the
 **Compile rule:** build with the refpolicy devel **Makefile**, not raw `checkmodule` on macro `.te` files:
 
 ```bash
-bash scripts/lib/selinux_build_image.sh ensure   # pull-first CentOS Stream 9 compile image
 bash scripts/compile_and_validate.sh selinux
 # Uses scripts/lib/compile_policy.sh → make -f /usr/share/selinux/devel/Makefile
 ```
 
-Build target OS: **CentOS Stream 9** (RHEL 9 upstream). Published compile image: `docker.io/asaran/selinux-demo-selinux-build:stream9` — [`COMPILE_IMAGE.md`](../admin/COMPILE_IMAGE.md).
+Build on **RHEL 9** (or the CI CentOS Stream 9 job) with `selinux-policy-devel`.
 
 ---
 

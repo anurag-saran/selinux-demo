@@ -19,7 +19,7 @@ Two-host layout: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md).
 
 - [ ] Confirm [`.github/CODEOWNERS`](../../.github/CODEOWNERS) (`@anurag-saran` or your platform team)
 - [ ] Enable branch protection: `smoke-tests`, `compile-policy`, `forbidden-patterns`, `app-manifest`, `version-consistency`
-- [ ] Set **`SELINUX_BUILD_IMAGE`** to an internal registry ([COMPILE_IMAGE.md](COMPILE_IMAGE.md))
+- [ ] Compile policy on RHEL with `selinux-policy-devel` (`dnf install selinux-policy-devel`)
 
 ## Per application
 

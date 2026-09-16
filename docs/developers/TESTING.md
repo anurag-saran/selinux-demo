@@ -95,9 +95,9 @@ python3 scripts/lib/app_manifest.py shell-export config/myapp.manifest.yml
 | | |
 |--|--|
 | **Where** | **Repo root** on your laptop or CI — macOS is fine |
-| **Why** | Same golden fixtures and static validators CI uses, without SELinux or Podman |
+| **Why** | Same golden fixtures and static validators CI uses, without a SELinux host |
 
-From the repo root (Python 3.9+; no SELinux or Podman):
+From the repo root (Python 3.9+; no SELinux host required):
 
 ```bash
 make check    # offline tests + linters (linters SKIP if not installed)
@@ -152,33 +152,17 @@ python3 scripts/smoke_test.py --no-require-backend
 |------|---------|---------------------|
 | CLI + flask smoke | `python3 scripts/smoke_test.py` | No |
 | Forbidden patterns | `bash scripts/validate_forbidden_patterns.sh selinux` | No |
-| Compile | `bash scripts/compile_and_validate.sh selinux` | RHEL devel, or Stream 9 compile image (see [§3.1](#31-compile-image-timing)) |
-| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | RHEL / Stream 9 compile image |
+| Compile | `bash scripts/compile_and_validate.sh selinux` | Yes — `selinux-policy-devel` on **rhel-dev** |
+| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Yes — rhel-dev / CI Stream 9 |
 | Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes (RHEL **dev**) |
 | AI / deterministic generate | `bash scripts/dev_generate_policy.sh --apply` (default engine: deterministic) | Yes (RHEL **dev**) |
 | **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root on RHEL **dev**) |
 
 **`--enforce-check`** compiles the candidate `.pp`, removes permissive on `myapp_t`, runs `wait_for_endpoints.sh` (including domain-context verification), and prints recent AVCs on failure.
 
-### 3.1 Compile image timing
+### 3.1 Compile on RHEL
 
-One-time image build (`packaging/Containerfile.selinux-build`) removes per-invocation `dnf install` from compile, semantic checks, and blast-radius collection.
-
-| Phase | Command | Measured (Stream 9 compile image, 2026-09-14) |
-|-------|---------|--------------------------------------------------|
-| **Cold** | `podman rmi localhost/selinux-build:stream9 2>/dev/null; bash scripts/lib/build_image.sh && bash scripts/compile_and_validate.sh selinux` | **~104 s** (image build + first compile) |
-| **Warm** | `bash scripts/compile_and_validate.sh selinux` (image already present) | **~3 s** |
-| **Offline** | After warm image exists: `podman run --rm --network=none … localhost/selinux-build:stream9 make …` | Succeeds with no registry access |
-
-Ensure the compile image:
-
-```bash
-bash scripts/lib/selinux_build_image.sh ensure
-```
-
-Optional Docker Hub pull (demo laptops): `SELINUX_BUILD_IMAGE_PULL=1 bash scripts/lib/selinux_build_image.sh ensure`.
-
----
+Policy compile needs `selinux-policy-devel` (`/usr/share/selinux/devel/Makefile`). Run `bash scripts/compile_and_validate.sh selinux` on **rhel-dev**. GitHub Actions uses a CentOS Stream 9 job container with the same packages (`scripts/ci/install_rhel_policy_tools.sh`).
 
 ## 4. CI on pull requests
 
@@ -193,13 +177,13 @@ Workflow: [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/se
 | `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, shadow_t, bin_t execute, etc. |
 | `version-consistency` | `scripts/validate_version_consistency.sh` | Every `selinux/**/policy_version.txt` matches its module's `policy_module()` line; RPM spec `Version: %{modver}` when a spec exists |
 | `shellcheck` | `shellcheck scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh` | No shellcheck errors |
-| `blast-radius` | Cached/build `scripts/ci/ensure_selinux_build_image.sh` + `scripts/run_blast_radius_fixtures.sh` | All blast-radius fixtures; corrupt input fail-closed |
-| `policy-diff-comment` | Cached build image + `post_pr_policy_diff_comment.sh` | PR comment with merge-base sesearch access delta (updates existing comment) |
+| `blast-radius` | Stream 9 job + `scripts/run_blast_radius_fixtures.sh` | All blast-radius fixtures; corrupt input fail-closed |
+| `policy-diff-comment` | Stream 9 job + `post_pr_policy_diff_comment.sh` | PR comment with merge-base sesearch access delta (updates existing comment) |
 | `policy-access-delta` | `policy_module_diff.sh --from-merge-base` | PR gate: delta markdown must render (fail on error) |
 | `yamllint` | `yamllint ansible/ .github/workflows/` | YAML style clean |
-| `compile-policy` | Cached/build `scripts/ci/ensure_selinux_build_image.sh` + `compile_and_validate.sh` | `.pp` builds in prebuilt image; artifact uploaded |
+| `compile-policy` | Stream 9 job + `compile_and_validate.sh` | `.pp` builds; artifact uploaded |
 | `ansible-lint` | `ansible-lint ansible/*.yml` | Playbooks lint clean |
-| `policy-semantics` | `scripts/validate_policy_semantics.sh selinux` | No shadow/unlabeled/foreign entrypoint (container `--direct` sesearch) |
+| `policy-semantics` | `scripts/validate_policy_semantics.sh selinux` | No shadow/unlabeled/foreign entrypoint (isolated-store sesearch) |
 
 Compiled `selinux/myapp.pp` is a **CI artifact only** — not committed to Git.
 
@@ -258,7 +242,7 @@ Admin runbook with pass/fail examples: [`PRODUCTION_READINESS.md`](../admin/PROD
 
 ```text
 Layer 1  smoke_test.py + forbidden-patterns     PR / laptop (no SELinux)
-Layer 2  compile + policy-semantics + version-consistency + blast-radius + ansible-lint   PR (Podman)
+Layer 2  compile + policy-semantics + version-consistency + blast-radius + ansible-lint   PR (Stream 9 job / rhel-dev)
 Layer 3  integration probes + policy_out/avc.log   staging discovery (permissive)
 Layer 4  deploy_canary + wait_for_endpoints   staging/prod canary host
 Layer 5  soak_monitor + soak_status + collect_soak_facts   soak period (net-new)
@@ -285,5 +269,5 @@ Layer 7  emergency_rollback                   outage response
 |-------|---------|
 | House-rule golden fixtures | `make test-fixtures` or `make test` |
 | Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
-| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md), [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) |
+| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
 | Coverage gate | `bash scripts/verify_avc_coverage.sh` after generation |

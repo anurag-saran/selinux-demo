@@ -148,10 +148,8 @@ def require_commands(
         for cmd, pkg in commands.items():
             if cmd == "ausearch":
                 continue
-            if shutil.which(cmd) is None and not (
-                cmd in ("checkmodule", "semodule_package") and shutil.which("podman")
-            ):
-                missing.append(f"  {cmd} (dnf install {pkg}) or podman for container compile")
+            if shutil.which(cmd) is None:
+                missing.append(f"  {cmd} (dnf install {pkg})")
 
     if missing:
         eprint("Missing required commands:")
@@ -504,25 +502,6 @@ def has_selinux_devel() -> bool:
     return Path("/usr/share/selinux/devel/Makefile").is_file()
 
 
-def compile_policy_in_container(te_path: Path, fc_path: Path, output_dir: Path, module_name: str) -> Path:
-    if not shutil.which("podman"):
-        raise RuntimeError("podman required for container compile.")
-
-    pp_path = output_dir / f"{module_name}.pp"
-    work_dir = output_dir / "container_build"
-    work_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(te_path, work_dir / te_path.name)
-    shutil.copy2(fc_path, work_dir / fc_path.name)
-
-    compile_script = PROJECT_ROOT / "scripts" / "compile_module.sh"
-    run_command(
-        ["bash", str(compile_script), str(work_dir), module_name, str(pp_path)],
-    )
-    if not pp_path.is_file():
-        raise RuntimeError(f"Container compile did not produce {pp_path}")
-    return pp_path
-
-
 def compile_policy(te_path: Path, fc_path: Path, output_dir: Path, module_name: str) -> Path:
     pp_path = output_dir / f"{module_name}.pp"
     mod_path = output_dir / f"{module_name}.mod"
@@ -544,7 +523,7 @@ def compile_policy(te_path: Path, fc_path: Path, output_dir: Path, module_name: 
         )
         shutil.copy2(work_dir / f"{module_name}.pp", pp_path)
         return pp_path
-    return compile_policy_in_container(te_path, fc_path, output_dir, module_name)
+    raise RuntimeError("Install selinux-policy-devel (dnf install selinux-policy-devel). Compile on rhel-dev, not macOS.")
 
 
 def try_compile(te_path: Path, fc_path: Path, output_dir: Path, module_name: str) -> None:
@@ -643,7 +622,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-key", help="OpenAI/LiteLLM API key (or set OPENAI_API_KEY)")
     parser.add_argument("--since", default="recent", help="ausearch window when reading live logs")
     parser.add_argument("--generate-only", action="store_true", help="Write .te/.fc/pr_summary only")
-    parser.add_argument("--validate-compile", action="store_true", help="Compile-check output (needs checkmodule or podman)")
+    parser.add_argument("--validate-compile", action="store_true", help="Compile-check output (needs selinux-policy-devel)")
     parser.add_argument("--dry-run", action="store_true", help="Compile but do not install")
     parser.add_argument("--apply", action="store_true", help="Compile and semodule -i (requires root)")
     parser.add_argument("--max-retries", type=int, default=3, help="LLM compile-retry attempts")
@@ -731,7 +710,7 @@ def main() -> int:
 
     validate_compile = args.validate_compile or apply_mode or args.dry_run
     if args.generate_only and not args.validate_compile:
-        validate_compile = bool(shutil.which("checkmodule") or shutil.which("podman"))
+        validate_compile = Path("/usr/share/selinux/devel/Makefile").is_file()
 
     print(f"Calling model '{args.api_model}' (target version {target_version})...")
     policy_data = generate_with_compile_retry(

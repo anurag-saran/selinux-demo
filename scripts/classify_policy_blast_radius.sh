@@ -89,10 +89,6 @@ fi
 
 work_dir="$(mktemp -d)"
 trap 'rm -rf "${work_dir}"' EXIT
-cp "${COLLECT_SH}" "${work_dir}/blast_radius_collect.sh"
-cp "${SCRIPT_DIR}/lib/policy_module_sesearch.sh" "${work_dir}/policy_module_sesearch.sh"
-cp "${SCRIPT_DIR}/lib/policy_isolated_store.sh" "${work_dir}/policy_isolated_store.sh"
-
 resolve_pp() {
     local input="$1"
     local out_pp="$2"
@@ -122,13 +118,8 @@ if ! resolve_pp "${CANDIDATE_INPUT}" "${work_dir}/candidate.pp" >>"${compile_log
     exit 0
 fi
 
-if [[ "${CLASSIFY_SKIP_PODMAN:-0}" == "1" ]]; then
-    fail_closed_json "Classification skipped (CLASSIFY_SKIP_PODMAN) — conservative soak"
-    exit 0
-fi
-
-if ! command -v podman >/dev/null 2>&1; then
-    fail_closed_json "podman required for blast-radius classification"
+if [[ "${CLASSIFY_SKIP_SELINUX:-${CLASSIFY_SKIP_PODMAN:-0}}" == "1" ]]; then
+    fail_closed_json "Classification skipped — conservative soak"
     exit 0
 fi
 
@@ -139,11 +130,16 @@ BLAST_RADIUS_DOMAINS="$(resolve_blast_radius_domains "${MODULE_NAME}")" || {
     exit 0
 }
 
+if ! command -v semodule >/dev/null 2>&1 || ! command -v sesearch >/dev/null 2>&1 || [[ ! -d /var/lib/selinux/targeted ]]; then
+    fail_closed_json "selinux-policy-targeted + setools-console required for blast-radius classification"
+    exit 0
+fi
+
+mkdir -p "${work_dir}/out"
 collect_log="${work_dir}/collect.log"
-if ! run_selinux_container "${work_dir}" \
-    -e "BLAST_RADIUS_MODULE=${MODULE_NAME}" \
-    -e "BLAST_RADIUS_DOMAINS=${BLAST_RADIUS_DOMAINS}" \
-    bash -lc 'set -euo pipefail; bash /work/blast_radius_collect.sh /work/base.pp /work/candidate.pp /work/out' \
+export BLAST_RADIUS_MODULE="${MODULE_NAME}"
+export BLAST_RADIUS_DOMAINS
+if ! bash "${COLLECT_SH}" "${work_dir}/base.pp" "${work_dir}/candidate.pp" "${work_dir}/out" \
     >"${collect_log}" 2>&1; then
     excerpt="$(tail -40 "${collect_log}")"
     fail_closed_json "Policy rule diff failed — conservative soak" "${excerpt}"
