@@ -1,4 +1,4 @@
-# Pre-baked image for all Podman policy workflows (compile, sesearch, blast-radius).
+# Pre-baked image for container policy compile, sesearch, and blast-radius.
 #
 # Default base: CentOS Stream 9 (RHEL 9 upstream).
 # Optional: SELINUX_BUILD_BASE_IMAGE=registry.redhat.io/rhel9/rhel:9.4

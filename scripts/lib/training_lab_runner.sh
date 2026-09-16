@@ -13,8 +13,7 @@ TLAB_NC='\033[0m'
 TLAB_TYPE_DELAY="${TLAB_TYPE_DELAY:-0.02}"
 TLAB_NO_TYPE=0
 TLAB_AUTO=0
-TLAB_USE_VM=0
-TLAB_VM_PROJECT="${VM_PROJECT:-/home/core/selinux-pac}"
+TLAB_VM_PROJECT="${TLAB_VM_PROJECT:-${PROJECT_ROOT:-.}}"
 
 tlab_print_section() {
     echo
@@ -78,11 +77,7 @@ tlab_type_line() {
 
 tlab_run_shell() {
     local script="$1"
-    if [[ "${TLAB_USE_VM}" -eq 1 ]]; then
-        podman machine ssh -- "bash -lc $(printf '%q' "${script}")"
-    else
-        bash -lc "${script}"
-    fi
+    bash -lc "${script}"
 }
 
 tlab_run_cmd() {
@@ -94,17 +89,10 @@ tlab_run_cmd() {
 tlab_run_cmd_sudo() {
     local cmd="$1"
     tlab_type_line "sudo ${cmd#sudo }"
-    if [[ "${TLAB_USE_VM}" -eq 1 ]]; then
-        podman machine ssh -- "sudo bash -lc $(printf '%q' "${cmd}")"
-    else
-        sudo bash -lc "${cmd}"
-    fi
+    sudo bash -lc "${cmd}"
 }
 
 tlab_detect_vm() {
-    if [[ "${TLAB_USE_VM}" -eq 1 ]]; then
-        return 0
-    fi
     if ! command -v getenforce >/dev/null 2>&1; then
         return 1
     fi
@@ -116,8 +104,7 @@ tlab_detect_vm() {
 tlab_ensure_staging_hint() {
     if ! tlab_run_shell "systemctl is-active myapp.service >/dev/null 2>&1"; then
         echo -e "${TLAB_RED}myapp.service is not active.${TLAB_NC}"
-        echo "On macOS (repo root): bash scripts/run_on_podman_vm.sh setup"
-        echo "On Linux (repo root): sudo bash scripts/setup_staging_env.sh"
+        echo "On the SELinux host (repo root): sudo bash scripts/setup_staging_env.sh"
         exit 1
     fi
 }

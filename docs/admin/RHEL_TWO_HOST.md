@@ -394,7 +394,3 @@ Enforcing          SELinux is on for the whole VM (good)
 ```
 
 ---
-
-## No RHEL VMs? (backup only)
-
-Use this only if the two VMs do not exist. All of these run on the **Mac**: [training lab — macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos). When the two RHEL VMs exist, come back to this file and stop using `--use-vm`.

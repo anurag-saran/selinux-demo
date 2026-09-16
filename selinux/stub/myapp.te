@@ -44,7 +44,7 @@ allow myapp_t myapp_var_lib_t:sock_file { create write unlink setattr getattr op
 allow myapp_t self:tcp_socket { create bind listen accept connect getattr setopt read write shutdown };
 allow myapp_t self:unix_stream_socket { create bind listen accept connect getattr setopt read write shutdown };
 
-# Podman FCOS staging: systemd often leaves user units in init_t (no transition to myapp_t).
+# Stub staging: systemd may leave units in init_t (no transition to myapp_t).
 allow init_t myapp_exec_t:file { execute execute_no_trans read open getattr map ioctl };
 allow init_t myapp_script_exec_t:file { execute execute_no_trans read open getattr map ioctl };
 allow init_t myapp_var_lib_t:dir { add_name remove_name write search getattr open read create };

@@ -26,10 +26,9 @@ You do **not** need to know every script on day one. Read this in order, pause w
 | **Repo root on any OS** | Offline tests, Python CLI, reading git | `make check`, `python3 cli/deterministic_gen.py --explain …` |
 | **RHEL two-host lab** | Default: dev + prod boxes | `bash scripts/setup_rhel_hosts.sh write …` — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) |
 | **Native Linux with SELinux** (RHEL **dev**) | Staging, demo, soak, `semanage` | `sudo bash scripts/setup_staging_env.sh`, `curl 127.0.0.1:8888/…` |
-| **Mac + Podman VM** | **Backup** if you have no RHEL | `bash scripts/fix_podman.sh`, `run_on_podman_vm.sh …` |
 | **RHEL prod** | Ansible deploy lifecycle | Playbooks with `-i ansible/inventory.production.yml` |
 
-macOS Podman backup (host vs VM): [SELINUX_TRAINING_LAB.md — Running on macOS](SELINUX_TRAINING_LAB.md#running-on-macos).
+macOS has no SELinux — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) then SSH to **rhel-dev**.
 
 **Repo root** = directory containing `scripts/` and `docs/` (after `git clone`).
 
@@ -111,7 +110,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 | [`selinux/`](../../selinux/) | **`myapp.te`**, **`myapp.fc`**, version file — what reviewers approve. Second app example: **`selinux/payments/`**. |
 | [`config/`](../../config/) | **`myapp.manifest.yml`** — app name, paths, ports, curl paths, soak file locations. |
 | [`cli/`](../../cli/) | Python tools: read AVC logs, classify denials, write policy snippets, soak net-new. |
-| [`scripts/`](../../scripts/) | Bash entry points: two-host setup, compile, demo, soak checks. Podman helpers are **backup**. |
+| [`scripts/`](../../scripts/) | Bash entry points: two-host setup, compile, demo, soak checks. |
 | [`scripts/lib/`](../../scripts/lib/) | Shared code **sourced** by other scripts (not usually run alone). |
 | [`ansible/`](../../ansible/) | Playbooks that install `.pp`, soak monitor, enforce, rollback (role **`selinux_pac`**). |
 | [`packaging/`](../../packaging/) | RPM specs (`selinux-policy-ops`, `<app>-selinux`) and compile container. |
@@ -214,7 +213,7 @@ Same AVC preprocessing, then sends a structured prompt (`prompt_templates.py`) t
 
 ## Shell scripts (`scripts/`) — what to run when
 
-Most scripts expect your shell’s **current directory** to be the **repo root** unless the doc says otherwise. Staging and demo scripts need **RHEL + SELinux** (dev box). Podman VM is **backup**. Compile natively with `selinux-policy-devel` on RHEL, or the Stream 9 tool image on a laptop.
+Most scripts expect your shell’s **current directory** to be the **repo root** unless the doc says otherwise. Staging and demo scripts need **RHEL + SELinux** (dev box). Compile natively with `selinux-policy-devel` on RHEL, or the Stream 9 tool image on a laptop.
 
 ### Day-to-day developer commands
 
@@ -232,8 +231,6 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 
 - **`POLICY_ENGINE=deterministic`** (default) or **`llm`**
 - **`APP_MANIFEST`** / **`POLICY_APP`** — pick which manifest drives paths and names
-- **`--use-vm`** — **backup** only: export AVCs from a Podman VM (no RHEL box)
-
 ### Safety gates (soak and production)
 
 | Script | Plain English |
@@ -244,37 +241,37 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`post_deploy_report.sh`** | Writes deploy report JSON after endpoints are exercised. |
 | **`verify_file_contexts.sh`** | Compare on-disk labels to `.fc` before restart. |
 
-### Compile toolchain (RHEL devel, or Podman image as backup)
+### Compile toolchain (RHEL devel, or Stream 9 tool container)
 
 | Script / lib | Role |
 |--------------|------|
 | **`lib/selinux_build_image.sh`** | **Single** `ensure_selinux_build_image()` — optional Hub pull, then local build. |
-| **`lib/build_image.sh`** | Image constants and local `podman build` helper only (no duplicate ensure). |
+| **`lib/build_image.sh`** | Image constants and local container-build helper only (no duplicate ensure). |
 | **`lib/compile_policy.sh`** | Compile module natively or inside the Stream 9 tool container. |
 | **`build_selinux_compile_image.sh`** | Force rebuild the compile image. |
 
-See [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) for Mac Podman notes.
+See [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md).
 
 ### CI-heavy scripts (you may read, rarely run locally)
 
 | Script | Why it exists |
 |--------|----------------|
 | **`validate_forbidden_patterns.sh`** | Block wildcards and risky allows in `.te`. |
-| **`validate_policy_semantics.sh`** | After compile, probe policy in Podman (e.g. no shadow read). |
+| **`validate_policy_semantics.sh`** | After compile, probe policy in the tool container (e.g. no shadow read). |
 | **`validate_version_consistency.sh`** | Version file matches `.te` and packaging. |
 | **`classify_policy_blast_radius.sh`** | Suggest soak length from how risky new allows are. |
 | **`lib/policy_module_diff.sh`** | Markdown diff of allow rules between two module versions (for PR comments). |
 | **`smoke_test.py`** | Fast regression suite on Ubuntu CI. |
 | **`run_e2e_tests.sh`** | Broader integration driver. |
 
-### Demo and VM helpers
+### Demo helpers
 
 | Script | Role |
 |--------|------|
-| **`run_training_lab.sh`**, **`run_demo_prep.sh`** | Guided lab / demo prep talk track (Lab 7 uses staged probes). |
-| **`demo_present.sh`**, **`run_demo.sh`** | Optional paced walkthrough (Act 1 staged integration). |
+| **`run_training_lab.sh`** | Guided lab talk track on **rhel-dev** (Lab 7 uses staged probes). |
+| **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_dev.sh`**, **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
+| **`run_demo.sh`** | Optional native-host walkthrough. |
 | **`lib/integration_probes.sh`** | All reference-app curls in one pass; optional AVC preview. |
-| **`run_on_podman_vm.sh`** | Sync project to Podman Machine (Mac **backup** when you have no RHEL VMs), **`trigger`** (staged probes), export AVCs with manifest filters. |
 
 ---
 
@@ -364,7 +361,7 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 | [TESTING.md](../developers/TESTING.md) | CI jobs and local test commands |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Optional paced walkthrough |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Offline generator and fixtures |
-| [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) | Two RHEL boxes; Podman backup |
+| [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) | Two RHEL boxes |
 | [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AAP / playbooks — production control plane |
 | [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) | Prod AVC → PR, not live `semodule -i` |
 | [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | Admins rolling out canary → enforce |

@@ -164,17 +164,6 @@ Those IPs are this Mac’s UTM shared network (`rhel-dev` = `192.168.64.6`, `rhe
 
 Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod.
 
-**Backup — no RHEL boxes yet (one Podman VM):**
-
-```bash
-bash scripts/fix_podman.sh
-source "${HOME}/.local/share/selinux-demo/podman/env.sh"
-bash scripts/run_on_podman_vm.sh setup
-bash scripts/dev_generate_policy.sh --use-vm --apply
-```
-
-Step-by-step: [docs/training/SELINUX_TRAINING_LAB.md](docs/training/SELINUX_TRAINING_LAB.md#running-on-macos). Stop using `--use-vm` once the two RHEL boxes exist.
-
 ---
 
 ## Developers
@@ -205,10 +194,10 @@ config/       App manifests (bind ports, probes, domains)
 selinux/      Policy source of truth (.te/.fc, policy_version.txt)
 ansible/      selinux_pac role + aap/ Controller workflows
 packaging/    selinux-policy-ops + <app>-selinux; publish_internal.sh
-scripts/      setup_rhel_hosts.sh (admins), demo_e2e_*.sh (three-window lab talk track), fix_podman.sh + run_on_podman_vm.sh (Mac backup)
+scripts/      setup_rhel_hosts.sh (admins), demo_e2e_*.sh (three-window lab talk track)
 docs/admin/   Adoption, two-host, AAP, soak/enforce runbooks
 docs/developers/  Onboarding, generator, tests
-docs/training/    Optional labs; macOS Podman path
+docs/training/    Optional labs (run on rhel-dev)
 ```
 
 ---
@@ -219,4 +208,3 @@ docs/training/    Optional labs; macOS Podman path
 - If a file or port is denied after ship: [docs/admin/DENIAL_RESPONSE.md](docs/admin/DENIAL_RESPONSE.md) — PR + recanary, not live `semodule -i`.
 - Optional LLM polishes `pr_summary.md` only. Legacy `--legacy-full-policy` is emergency/controller-only.
 - Host CLI `apply_policy.sh` is **not** the control plane (skips AAP, RPMs, `serial: 1`).
-- Podman / `--use-vm` is a laptop **backup** only — [Try it on a Mac](#try-it-on-a-mac).

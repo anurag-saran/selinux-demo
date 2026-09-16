@@ -14,7 +14,7 @@ cd "${PROJECT_ROOT}"
 BASE_COMMIT="${DEMO_POLICY_BASE_COMMIT:-b97d255}"
 BASE_BRANCH="${DEMO_POLICY_BASE_BRANCH:-demo/policy-base-1.1.1}"
 HEAD_BRANCH="${DEMO_POLICY_HEAD_BRANCH:-policy/myapp-update}"
-STAGING_HOST="${STAGING_HOST:-Podman FCOS VM (selinux-demo)}"
+STAGING_HOST="${STAGING_HOST:-rhel-dev}"
 TEST_SUITE="${TEST_SUITE:-Integration tests — six HTTP probes on :8888/:8889}"
 
 # Files that represent the myapp module submission (Act 4 checklist).

@@ -4,7 +4,7 @@ Offline AVC → `.te` / `.fc` updates using **house rules** and optional **sepol
 
 **Who this is for:** policy authors who want **no API key** and reproducible verdicts (CI uses the same engine).
 
-**Where commands run:** `--explain` and fixture tests work at **repo root** on any OS. Full `dev_generate_policy.sh` with AVC export runs on the **RHEL dev** box ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). **`--use-vm`** is a Podman **backup**. `sepolgen-ifgen` needs RHEL/Stream with policy devel packages.
+**Where commands run:** `--explain` and fixture tests work at **repo root** on any OS. Full `dev_generate_policy.sh` with AVC export runs on the **RHEL dev** box ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). `sepolgen-ifgen` needs RHEL/Stream with policy devel packages.
 
 **Doc index:** [README.md](../README.md).
 
@@ -48,11 +48,11 @@ Without ifgen, the generator prints a **stderr banner** on every run (`SEPOLGEN 
 
 Do not confuse missing ifgen with “no interface matched” — the latter is logged when ifgen data exists but no macro fits the denial.
 
-## Fast compiles (Podman / Red Hat demo)
+## Fast compiles (Stream 9 tool container)
 
 | | |
 |--|--|
-| **Where** | **Repo root**; on Mac, `source …/podman/env.sh` first |
+| **Where** | **Repo root** (needs `podman` or `docker` on PATH, or compile natively on RHEL) |
 | **Why** | Compiles run inside the Stream 9 tool container — see [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md) |
 
 **Demo default:** pull pre-built **CentOS Stream 9** image from Docker Hub (seconds):

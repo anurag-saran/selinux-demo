@@ -10,7 +10,7 @@ This document is the **single reference** for how this repository tests SELinux 
 
 Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](../policy/SELINUX_BASICS.md) §9; optional labs in [`SELINUX_TRAINING_LAB.md`](../training/SELINUX_TRAINING_LAB.md); paced walkthrough in [`DEMO_GUIDE.md`](../training/DEMO_GUIDE.md); **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](../training/CODE_WALKTHROUGH.md). **Doc index:** [`README.md`](../README.md).
 
-**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Integration curls and `setup_staging_env.sh` run on the **RHEL dev** box ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). Podman VM is a **backup**.
+**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Integration curls and `setup_staging_env.sh` run on the **RHEL dev** box ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)).
 
 ---
 
@@ -18,7 +18,7 @@ Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](../policy/SELINUX_BA
 
 The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is a deliberate probe of one SELinux permission surface. They are exercised by:
 
-- Developers during staging ([`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh) — all paths in one pass; Act 1 then shows **`policy_out/avc.log`**)
+- Developers during staging ([`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh) — all paths in one pass; then inspect **`policy_out/avc.log`**)
 - [`scripts/wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) (canary, enforce, rollback — batch readiness, no AVC narration)
 - [`scripts/smoke_test.py`](../../scripts/smoke_test.py) (`test_flask_endpoints`)
 - [`scripts/run_demo.sh`](../../scripts/run_demo.sh)
@@ -44,7 +44,7 @@ The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is 
 
 | | |
 |--|--|
-| **Where** | On the **same Linux machine** where Flask listens on **8888** — **RHEL dev** after `setup_staging_env.sh` (Podman VM backup) |
+| **Where** | On the **same Linux machine** where Flask listens on **8888** — **RHEL dev** after `setup_staging_env.sh` |
 | **Why** | Each URL is a deliberate SELinux probe; failures show up as HTTP errors or AVC lines |
 
 **Probe order (Lab 7 — one batch, then AVC file):**
@@ -57,16 +57,8 @@ for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; d
 done
 curl -sf http://127.0.0.1:8889/health; echo
 
-# Presenter demo (backup Mac VM): export + preview on the Mac
-bash scripts/run_on_podman_vm.sh export-avcs
-wc -l policy_out/avc.log
-head -1 policy_out/avc.log
-```
-
-Or on the VM only:
-
-```bash
-bash scripts/run_on_podman_vm.sh trigger
+# On rhel-dev: the generator exports AVCs from audit.log
+# sudo bash scripts/dev_generate_policy.sh --apply
 ```
 
 **Batch loop (gates only — same paths):**
@@ -147,7 +139,6 @@ python3 scripts/smoke_test.py --no-require-backend
 | `verify_file_contexts_skip` | `--skip-if-unavailable` exits 0 without SELinux tools |
 | `check_soak_ready_gate` | Soak script fails on missing/recent marker, passes on 8-day-old marker |
 | `monitor_avc_skip` | `monitor_avc.sh --skip-if-unavailable` exits 0 |
-| `demo_present_help` | Demo presenter script `--help` works |
 | `app_manifest` | Validates demo + example manifests; `shell-export` emits expected keys |
 | `rpm_ops_parity` | Ops RPM file list matches repo scripts |
 | `skip_ai_fixture_sync` | Offline demo `skip_ai/generated/` matches committed `selinux/` |
@@ -161,28 +152,28 @@ python3 scripts/smoke_test.py --no-require-backend
 |------|---------|---------------------|
 | CLI + flask smoke | `python3 scripts/smoke_test.py` | No |
 | Forbidden patterns | `bash scripts/validate_forbidden_patterns.sh selinux` | No |
-| Compile | `bash scripts/compile_and_validate.sh selinux` | RHEL devel, or Podman compile image as backup (see [§3.1](#31-podman-compile-image-timing)) |
-| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | RHEL / Podman compile image |
+| Compile | `bash scripts/compile_and_validate.sh selinux` | RHEL devel, or Stream 9 compile image (see [§3.1](#31-compile-image-timing)) |
+| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | RHEL / Stream 9 compile image |
 | Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes (RHEL **dev**) |
-| AI / deterministic generate | `bash scripts/dev_generate_policy.sh --apply` (default engine: deterministic) | Yes (RHEL **dev**; `--use-vm` backup) |
-| **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root on RHEL **dev**; `--use-vm` backup) |
+| AI / deterministic generate | `bash scripts/dev_generate_policy.sh --apply` (default engine: deterministic) | Yes (RHEL **dev**) |
+| **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root on RHEL **dev**) |
 
 **`--enforce-check`** compiles the candidate `.pp`, removes permissive on `myapp_t`, runs `wait_for_endpoints.sh` (including domain-context verification), and prints recent AVCs on failure.
 
-### 3.1 Podman compile image timing
+### 3.1 Compile image timing
 
 One-time image build (`packaging/Containerfile.selinux-build`) removes per-invocation `dnf install` from compile, semantic checks, and blast-radius collection.
 
-| Phase | Command | Measured (macOS Podman VM, Stream 9, 2026-09-14) |
+| Phase | Command | Measured (Stream 9 compile image, 2026-09-14) |
 |-------|---------|--------------------------------------------------|
 | **Cold** | `podman rmi localhost/selinux-build:stream9 2>/dev/null; bash scripts/lib/build_image.sh && bash scripts/compile_and_validate.sh selinux` | **~104 s** (image build + first compile) |
 | **Warm** | `bash scripts/compile_and_validate.sh selinux` (image already present) | **~3 s** |
 | **Offline** | After warm image exists: `podman run --rm --network=none … localhost/selinux-build:stream9 make …` | Succeeds with no registry access |
 
-Presenter prep (build image + optional Stream base pull):
+Ensure the compile image:
 
 ```bash
-bash scripts/demo_present.sh --prefetch
+bash scripts/lib/selinux_build_image.sh ensure
 ```
 
 Optional Docker Hub pull (demo laptops): `SELINUX_BUILD_IMAGE_PULL=1 bash scripts/lib/selinux_build_image.sh ensure`.

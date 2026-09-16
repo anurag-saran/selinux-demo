@@ -5,9 +5,8 @@
 # Runs labs 1 → 6 verify → 2–5 → 7–9 from docs/training/SELINUX_TRAINING_LAB.md
 # with Why/What text and simulated typing. Commands execute for real.
 #
-# Usage (from repo root):
-#   bash scripts/run_training_lab.sh              # auto-detect Mac → Podman VM
-#   bash scripts/run_training_lab.sh --use-vm     # force Podman VM (macOS)
+# Usage (from repo root on a SELinux Linux host, typically rhel-dev):
+#   bash scripts/run_training_lab.sh
 #   bash scripts/run_training_lab.sh --auto       # no pauses between steps
 #   bash scripts/run_training_lab.sh --no-type    # skip typewriter effect
 #   bash scripts/run_training_lab.sh --short      # labs 1, 6, 7 only
@@ -22,12 +21,11 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/lib/training_lab_runner.sh"
 # shellcheck source=lib/integration_probes.sh
 source "${SCRIPT_DIR}/lib/integration_probes.sh"
-# shellcheck source=lib/vm_ready.sh
-source "${SCRIPT_DIR}/lib/vm_ready.sh"
 
 TLAB_SHORT=0
 TLAB_LAB4_DEMO=0
 TLAB_LAB10=0
+TLAB_VM_PROJECT="${PROJECT_ROOT}"
 
 usage() {
     cat <<EOF
@@ -36,9 +34,10 @@ Usage: $(basename "$0") [options]
 Runs the hands-on training lab with explanations and typed commands.
 See docs/training/SELINUX_TRAINING_LAB.md for the full course.
 
+Must run on a SELinux Linux host (rhel-dev). macOS has no SELinux —
+see docs/admin/RHEL_TWO_HOST.md.
+
 Options:
-  --use-vm          Run every command inside Podman Machine (macOS)
-  --native          Run on this Linux host (do not use Podman)
   --auto            No pauses (demo / recording)
   --no-type         Print commands instantly (no typewriter)
   --short           Labs 1, 6 verify, 7 only
@@ -46,15 +45,12 @@ Options:
   --include-lab10   Run optional Lab 10 (manifest export)
   -h, --help        Show help
 
-Mac: source ~/.local/share/selinux-demo/podman/env.sh first if podman fails.
-Staging must be installed (run_on_podman_vm.sh setup or setup_staging_env.sh).
+Staging must be installed first: sudo bash scripts/setup_staging_env.sh
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --use-vm) TLAB_USE_VM=1; shift ;;
-        --native) TLAB_USE_VM=0; shift ;;
         --auto) TLAB_AUTO=1; shift ;;
         --no-type) TLAB_NO_TYPE=1; shift ;;
         --short) TLAB_SHORT=1; shift ;;
@@ -65,34 +61,20 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "$(uname -s)" == Darwin ]] && [[ "${TLAB_USE_VM}" -eq 0 ]]; then
-    TLAB_USE_VM=1
+if [[ "$(uname -s)" == Darwin ]]; then
+    echo "This lab needs a SELinux Linux host. On a Mac, follow docs/admin/RHEL_TWO_HOST.md, then SSH to rhel-dev and run this script there." >&2
+    exit 1
 fi
 
-if [[ "${TLAB_USE_VM}" -eq 1 ]]; then
-    source_podman_env
-    if ! command -v podman >/dev/null 2>&1; then
-        echo "Podman not found. Run: bash scripts/fix_podman.sh" >&2
-        exit 1
-    fi
-    ensure_vm_ready || exit 1
-    TLAB_VM_PROJECT="${VM_PROJECT}"
-else
-    if ! tlab_detect_vm; then
-        echo "SELinux not available on this host. Use --use-vm on macOS or a Linux VM." >&2
-        exit 1
-    fi
-    TLAB_VM_PROJECT="${PROJECT_ROOT}"
+if ! tlab_detect_vm; then
+    echo "SELinux is not available on this host. Run on rhel-dev (see docs/admin/RHEL_TWO_HOST.md)." >&2
+    exit 1
 fi
 
 tlab_ensure_staging_hint
 
 echo -e "${TLAB_BOLD}SELinux PaC lab runner${TLAB_NC}"
-if [[ "${TLAB_USE_VM}" -eq 1 ]]; then
-    echo -e "${TLAB_DIM}Commands run inside Podman VM (${TLAB_VM_PROJECT})${TLAB_NC}"
-else
-    echo -e "${TLAB_DIM}Commands run on this Linux host${TLAB_NC}"
-fi
+echo -e "${TLAB_DIM}Commands run on this Linux host${TLAB_NC}"
 tlab_pause
 
 lab_1() {
@@ -117,7 +99,7 @@ lab_6_verify() {
     tlab_pause
     tlab_explain "Health check on port 8888 inside this Linux environment (not your Mac)."
     tlab_run_cmd "curl -s http://127.0.0.1:8888/ | head -c 200; echo"
-    echo -e "${TLAB_DIM}Note:${TLAB_NC} On Podman FCOS, JSON may show process_context init_t while selinux.domain stays myapp_t until full policy transition; null bytes are stripped in app output."
+    echo -e "${TLAB_DIM}Note:${TLAB_NC} JSON may show process_context init_t while selinux.domain stays myapp_t until full policy transition; null bytes are stripped in app output."
     tlab_pause
     tlab_explain "Host should stay Enforcing; myapp_t should be permissive when semanage is available."
     tlab_run_cmd "getenforce"
@@ -147,7 +129,7 @@ lab_3() {
     tlab_print_section "Lab 3 — Read process labels"
     tlab_why "Running processes have a domain (type). Rules allow myapp_t to touch files — not the myapp user account."
     tlab_question "What domain is the Flask (and backend) process running in?"
-    tlab_explain "On Podman FCOS you may see init_t instead of myapp_t — stub policy still allows the demo."
+    tlab_explain "On stub staging you may see init_t instead of myapp_t — stub policy still allows the demo."
     tlab_lab3_show_process_labels
     tlab_checkpoint "Process domain is not the same as file types on disk."
     tlab_pause_lab
@@ -232,7 +214,7 @@ if [[ "${TLAB_SHORT}" -eq 1 ]]; then
     lab_7
     echo -e "${TLAB_GREEN}${TLAB_BOLD}Short path complete (Labs 1, 6, 7).${TLAB_NC}"
     echo "Next: docs/training/DEMO_GUIDE.md or re-run without --short for Labs 2–5, 8–9."
-    echo "Presenter demo: bash scripts/demo_present.sh --use-vm --demo-mode --skip-ai --auto"
+    echo "Presenter demo: bash scripts/demo_e2e_rhel_dev.sh"
     exit 0
 fi
 
@@ -251,6 +233,6 @@ fi
 echo
 echo -e "${TLAB_GREEN}${TLAB_BOLD}Full training lab run complete.${TLAB_NC}"
 echo "Finish checklist: docs/training/SELINUX_TRAINING_LAB.md"
-echo "Next (optional paced walkthrough): bash scripts/demo_present.sh --use-vm --demo-mode --skip-ai --auto"
+echo "Next (optional paced walkthrough): bash scripts/demo_e2e_rhel_dev.sh"
 echo "Policy PR for Act 4: bash scripts/open_demo_policy_pr.sh --reuse-pr-body  (needs gh auth login)"
 echo

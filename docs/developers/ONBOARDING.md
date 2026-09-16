@@ -16,7 +16,7 @@ bash scripts/selinux_pac_adopt.sh init payments
 
 | Step | Where |
 |------|--------|
-| Copy manifest, `validate_app_manifest.sh`, compile | **Controller** (RHEL devel or Podman compile image as backup) |
+| Copy manifest, `validate_app_manifest.sh`, compile | **Controller** (RHEL devel or Stream 9 compile image) |
 | `scaffold_sepolicy_module.sh`, `semodule -i`, `restorecon` | **RHEL dev** box |
 | `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` (AAP **Release canary** / **Soak monitor**) | **Controller** SSH to **RHEL prod** ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) |
 

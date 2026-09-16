@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
 # integration_probes.sh — Run demo HTTP integration probes (source only)
 #
-# INTEGRATION_UI=training | demo | vm
+# INTEGRATION_UI=training | demo
 #   training — tlab_* helpers (run_training_lab.sh)
-#   demo     — log_info (demo_present.sh); set USE_VM, VM_PROJECT, AUTO
-#   vm       — non-interactive [INFO] lines (runs on guest via run_on_podman_vm.sh trigger)
+#   demo     — log_info (native host)
 set -euo pipefail
 
-INTEGRATION_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INTEGRATION_UI="${INTEGRATION_UI:-training}"
 INTEGRATION_HOST="${INTEGRATION_HOST:-127.0.0.1}"
 INTEGRATION_PORT="${INTEGRATION_PORT:-8888}"
 INTEGRATION_AUTO="${INTEGRATION_AUTO:-0}"
-INTEGRATION_VM_PROJECT="${INTEGRATION_VM_PROJECT:-${VM_PROJECT:-/home/core/selinux-pac}}"
 
 _integration_all_probes_body() {
     cat <<EOS
@@ -39,21 +36,6 @@ sudo ausearch -m avc -ts recent 2>/dev/null | grep -E 'myapp|init_t' | tail -5 \
 EOS
 }
 
-_integration_demo_vm_ready() {
-    [[ "${USE_VM:-0}" -eq 1 ]] || return 0
-    [[ "${INTEGRATION_DEMO_VM_READY:-0}" -eq 1 ]] && return 0
-    # shellcheck source=lib/vm_ready.sh
-    source "${INTEGRATION_LIB_DIR}/vm_ready.sh"
-    ensure_vm_ready || return 1
-    INTEGRATION_DEMO_VM_READY=1
-}
-
-_integration_demo_vm_run() {
-    local cmd="$1"
-    _integration_demo_vm_ready || return 1
-    podman machine ssh -- "cd ${INTEGRATION_VM_PROJECT} && bash -lc $(printf '%q' "${cmd}")"
-}
-
 _integration_run_probes_on_host() {
     local body oneliner
     body="$(_integration_all_probes_body)"
@@ -66,16 +48,12 @@ _integration_run_probes_on_host() {
             tlab_run_cmd "${oneliner}"
             ;;
         demo)
-            log_info "Integration tests — all HTTP paths in order (one VM session on Mac)."
+            log_info "Integration tests — all HTTP paths in order."
             log_tool 'for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do curl -sf "http://127.0.0.1:8888${path}"; done; curl -sf http://127.0.0.1:8889/health'
             echo -e "\033[0;32m\$\033[0m for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do curl -sf http://${INTEGRATION_HOST}:${INTEGRATION_PORT}\${path}; done"
-            if [[ "${USE_VM:-0}" -eq 1 ]]; then
-                _integration_demo_vm_run "${body}" || log_warn "integration probes failed"
-            else
-                bash -lc "${body}" || log_warn "integration probes failed"
-            fi
+            bash -lc "${body}" || log_warn "integration probes failed"
             ;;
-        vm)
+        *)
             echo "[INFO] Integration probes (all paths)"
             bash -lc "${body}" || true
             ;;
@@ -91,7 +69,7 @@ _integration_show_audit_tail() {
             tlab_run_cmd_sudo "bash -lc $(printf '%q' "${body}")"
             tlab_checkpoint "All six paths and backend health succeeded; you can read recent AVC lines above."
             ;;
-        demo|vm)
+        demo)
             ;;
     esac
 }

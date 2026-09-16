@@ -13,20 +13,20 @@ Day-to-day runbook for **shipping SELinux policy** with application teams. Ansib
 
 **Learning path:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) → **this guide**. Concepts: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
 
-**Where this guide applies:** two RHEL boxes (dev + prod) from a controller — [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **those servers**. Local Podman is a **backup** if the boxes are not ready.
+**Where this guide applies:** two RHEL boxes (dev + prod) from a controller — [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **those servers**.
 
 ---
 
-## 1. Why production is different from training (`--demo-mode`)
+## 1. Why production is different from the lab
 
 High-blast-radius SELinux changes need **per-domain permissive soak**, **path labeling verification**, and **phased rollout** before you remove the permissive flag.
 
-| Topic | Training (`--demo-mode`) | Production |
-|-------|--------------------------|------------|
-| Soak wait | Skipped (pre-seeded 8-day marker) | **7–14 real calendar days** |
-| Enforce | `force_enforce=true` (break-glass) | Enforce role **`collect_soak_facts.sh`** gate (or manual `check_soak_ready.sh` on host) |
+| Topic | Lab (`soak_min_days: 0` on **rhel-dev**) | Production |
+|-------|------------------------------------------|------------|
+| Soak wait | Skipped for the lab enforce on **dev** | **7–14 real calendar days** |
+| Enforce | Lab inventory only — never copy onto prod | Enforce role **`collect_soak_facts.sh`** gate (or manual `check_soak_ready.sh` on host) |
 | Goal | Teach the pipeline | **No surprise outages** |
-| Rollback | Commands shown only | Run `emergency_rollback.yml` if needed |
+| Rollback | Commands shown | Run `emergency_rollback.yml` if needed |
 
 **Never** use `force_enforce=true` in production without documented break-glass approval and on-call awareness.
 
@@ -338,7 +338,7 @@ Optional ops scripts (`wait_for_endpoints`, deploy report) run only when **`seli
 
 See [`ansible/emergency_rollback.yml`](../../ansible/emergency_rollback.yml), [`ansible/reset_host_state.yml`](../../ansible/reset_host_state.yml), and [`ansible/generate_emergency_patch.yml`](../../ansible/generate_emergency_patch.yml).
 
-Workshop demo shows these commands in [DEMO_GUIDE.md § Act 10](../training/DEMO_GUIDE.md).
+The two-host talk track shows these commands in [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) and `scripts/demo_e2e_rhel_prod.sh`.
 
 ---
 
@@ -533,7 +533,7 @@ Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE
 |-------|------------------|----------|
 | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | §7 two-layer model; §7.5 soak timeline; §8 avc.log filter | New to SELinux |
 | [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Acts 1–2 discovery; Acts 6–10 admin soak/enforce | Workshop observers |
+| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-window typewriter demo (`demo_e2e_*.sh`) | Presenters |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
 | [COMPILE_IMAGE.md](COMPILE_IMAGE.md) | Published `stream9` compile image — pull-first | Demo laptops / CI |
 | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) | AAP workflows in `ansible/aap/`, soak monitor, extra-vars | RHEL admins |

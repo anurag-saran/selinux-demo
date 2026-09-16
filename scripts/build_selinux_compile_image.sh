@@ -13,17 +13,6 @@ if ! command -v podman >/dev/null 2>&1; then
     exit 1
 fi
 
-PODMAN_ENV="${HOME}/.local/share/selinux-demo/podman/env.sh"
-if [[ -f "${PODMAN_ENV}" ]]; then
-    # shellcheck disable=SC1090
-    source "${PODMAN_ENV}"
-fi
-
-if [[ "$(uname -s)" == "Darwin" ]]; then
-    podman machine start 2>/dev/null || true
-    sleep 5
-fi
-
 start=$(date +%s)
 export SELINUX_BUILD_IMAGE_REFRESH=1
 build_selinux_build_image_local

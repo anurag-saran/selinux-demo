@@ -535,18 +535,6 @@ def test_soak_net_new_empty_manifest() -> None:
     assert data["net_new_count"] == 0
 
 
-def test_demo_present_help() -> None:
-    script = PROJECT_ROOT / "scripts" / "demo_present.sh"
-    result = subprocess.run(
-        ["bash", str(script), "--help"],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "ACT 1" in result.stdout or "Acts:" in result.stdout
-
-
 def test_app_manifest() -> None:
     loader = PROJECT_ROOT / "scripts" / "lib" / "app_manifest.py"
     demo_manifest = PROJECT_ROOT / "config" / "myapp.manifest.yml"
@@ -1342,7 +1330,6 @@ def main() -> int:
         ("check_soak_ready_gate", test_check_soak_ready_gate),
         ("monitor_avc_skip", test_monitor_avc_skip),
         ("soak_net_new_empty_manifest", test_soak_net_new_empty_manifest),
-        ("demo_present_help", test_demo_present_help),
         ("app_manifest", test_app_manifest),
         ("rpm_ops_parity", test_rpm_ops_parity),
         ("version_consistency", test_version_consistency),

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# setup_rhel_hosts.sh — Two-box lab: RHEL dev + RHEL prod (Podman is backup).
+# setup_rhel_hosts.sh — Two-box lab: RHEL dev + RHEL prod.
 #
 set -euo pipefail
 
@@ -20,8 +20,7 @@ usage() {
 Usage: $(basename "$0") <subcommand> [options]
 
 Two RHEL boxes is the default lab: one **dev** (staging / AVC discovery) and
-one **prod** (canary → soak → enforce). Local Podman is a backup if you have
-no RHEL yet — see docs/admin/RHEL_TWO_HOST.md.
+one **prod** (canary → soak → enforce). See docs/admin/RHEL_TWO_HOST.md.
 
 Subcommands:
   write     Write ansible/inventory.dev.yml and inventory.production.yml
@@ -204,7 +203,6 @@ sudo dnf install -y policycoreutils policycoreutils-python-utils setools-console
   ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml
 
 Docs: docs/admin/RHEL_TWO_HOST.md
-Podman backup (no RHEL yet): docs/training/SELINUX_TRAINING_LAB.md#running-on-macos
 EOF
 }
 

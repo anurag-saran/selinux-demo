@@ -21,12 +21,11 @@ ENGINE="${POLICY_ENGINE:-deterministic}"
 LLM_SUMMARY="${POLICY_SUMMARY_LLM:-0}"
 MANIFEST="${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml"
 [[ -f "${MANIFEST}" ]] || MANIFEST="${PROJECT_ROOT}/config/myapp.manifest.yml"
-USE_VM=0
 APPLY=0
 ENFORCE_CHECK=0
 SKIP_EXPORT=0
 OPEN_PR=0
-STAGING_HOST="${STAGING_HOST:-Podman VM / native staging host}"
+STAGING_HOST="${STAGING_HOST:-rhel-dev}"
 TEST_SUITE="${TEST_SUITE:-Integration tests (curl endpoints)}"
 ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
 # shellcheck source=lib/version.sh
@@ -57,7 +56,6 @@ Options:
   --apply          Copy policy_out/{app}.te/.fc into selinux/ after generation
   --enforce-check  Load candidate policy enforcing and run endpoint + domain checks
   --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
-  --use-vm         Export AVCs via scripts/run_on_podman_vm.sh (macOS Podman VM)
   --skip-export    Use existing policy_out/avc.log (must be non-empty)
   --app-name NAME  Module name (default: myapp)
   --staging-host   Staging environment label for PR body
@@ -76,7 +74,7 @@ Environment:
   OPENAI_API_MODEL Optional model override
 
 Example:
-  bash scripts/dev_generate_policy.sh --use-vm --apply
+  sudo bash scripts/dev_generate_policy.sh --apply
   bash scripts/dev_generate_policy.sh --llm-summary --skip-export   # optional admin prose
   git checkout -b policy/update && git add selinux/ && gh pr create --body-file policy_out/pr_body.md
 EOF
@@ -87,7 +85,6 @@ while [[ $# -gt 0 ]]; do
         --apply) APPLY=1; shift ;;
         --enforce-check) ENFORCE_CHECK=1; shift ;;
         --open-pr) OPEN_PR=1; APPLY=1; shift ;;
-        --use-vm) USE_VM=1; shift ;;
         --skip-export) SKIP_EXPORT=1; shift ;;
         --engine) ENGINE="$2"; shift 2 ;;
         --llm-summary) LLM_SUMMARY=1; shift ;;
@@ -161,7 +158,6 @@ require_existing_policy() {
 }
 
 require_local_export_privileges() {
-    [[ "${USE_VM}" -eq 1 ]] && return 0
     [[ "$(id -u)" -eq 0 ]] && return 0
     local need_sudo=0
     if [[ -e "${POLICY_OUT}" && ! -w "${POLICY_OUT}" ]]; then
@@ -194,19 +190,14 @@ export_avcs() {
     sync_identity_from_manifest
     require_local_export_privileges
     mkdir -p "${POLICY_OUT}"
-    if [[ "${USE_VM}" -eq 1 ]]; then
-        log_info "Exporting AVCs from Podman VM..."
-        bash "${SCRIPT_DIR}/run_on_podman_vm.sh" export-avcs "${AVC_LOG}" "${MANIFEST}"
-    else
-        # shellcheck source=lib/avc_query.sh
-        source "${SCRIPT_DIR}/lib/avc_query.sh"
-        if ! command -v ausearch >/dev/null 2>&1 && [[ ! -f /var/log/audit/audit.log ]]; then
-            log_error "No ausearch on host; use --use-vm or run on a SELinux Linux host"
-            exit 1
-        fi
-        log_info "Exporting AVCs from local audit log (avc_query pipeline)..."
-        export_app_avcs_to_file "${AVC_LOG}" boot "${PRIMARY_DOMAIN}" "${BACKEND_DOMAIN:-}" "${PATHS_CSV}"
+    # shellcheck source=lib/avc_query.sh
+    source "${SCRIPT_DIR}/lib/avc_query.sh"
+    if ! command -v ausearch >/dev/null 2>&1 && [[ ! -f /var/log/audit/audit.log ]]; then
+        log_error "No ausearch on host; run this on a SELinux Linux host (rhel-dev)"
+        exit 1
     fi
+    log_info "Exporting AVCs from local audit log (avc_query pipeline)..."
+    export_app_avcs_to_file "${AVC_LOG}" boot "${PRIMARY_DOMAIN}" "${BACKEND_DOMAIN:-}" "${PATHS_CSV}"
     [[ -s "${AVC_LOG}" ]] || {
         log_error "No AVC lines in ${AVC_LOG}. Run staging tests first:"
         echo "  sudo bash scripts/setup_staging_env.sh"
@@ -334,14 +325,8 @@ run_enforce_check() {
     source "${SCRIPT_DIR}/lib/compile_policy.sh"
     compile_policy_module "$(dirname "${te_src}")" "${APP_NAME}" "${pp_path}"
 
-    if [[ "${USE_VM}" -eq 1 ]]; then
-        log_info "Running enforce-check on Podman VM..."
-        bash "${SCRIPT_DIR}/run_on_podman_vm.sh" enforce-check "${pp_path}"
-        return $?
-    fi
-
     if [[ "${EUID}" -ne 0 ]]; then
-        log_error "enforce-check requires root on host (or use --use-vm)"
+        log_error "enforce-check requires root on the SELinux host"
         return 1
     fi
 

@@ -20,7 +20,7 @@ Subcommands:
 
 Two-host RHEL lab (preferred):
   bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …
-  See docs/admin/RHEL_TWO_HOST.md (Podman is backup only).
+  See docs/admin/RHEL_TWO_HOST.md.
 
 Options (init):
   --manifest PATH     Manifest path (default: config/APP.manifest.yml)

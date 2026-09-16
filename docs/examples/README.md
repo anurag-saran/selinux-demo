@@ -2,7 +2,7 @@
 
 Static copies of CLI output for reviews when you cannot run staging or `assemble_pr_body.sh` live.
 
-**Where to regenerate live output:** SELinux **Linux host** or Mac with **`dev_generate_policy.sh --use-vm`** at **repo root**. Offline-only: use [`fixtures/skip_ai/`](fixtures/skip_ai/) — no VM required.
+**Where to regenerate live output:** SELinux **Linux host** (rhel-dev) at **repo root**. Offline-only: use [`fixtures/skip_ai/`](fixtures/skip_ai/).
 
 | File | Live equivalent | Use in demo |
 |------|-----------------|-------------|
@@ -13,12 +13,12 @@ Live policy in `selinux/` is **v1.1.3**. [`pr_body.example.md`](pr_body.example.
 
 | | |
 |--|--|
-| **Where** | **Repo root** on native Linux (`sudo` staging) or Mac with `--use-vm` |
+| **Where** | **Repo root** on rhel-dev (`sudo` staging) |
 | **Why** | Refreshes `policy_out/pr_summary.md` and `pr_body.md` to match current `selinux/` |
 
 ```bash
 # Default engine is deterministic (no OPENAI_API_KEY required for generation)
-bash scripts/dev_generate_policy.sh --use-vm --apply
+sudo bash scripts/dev_generate_policy.sh --apply
 bash scripts/assemble_pr_body.sh
 # → policy_out/pr_summary.md and policy_out/pr_body.md
 ```

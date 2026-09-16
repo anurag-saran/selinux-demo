@@ -17,7 +17,7 @@ This guide explains **SELinux from zero** using the `myapp` **reference applicat
 | What you are doing | Where |
 |--------------------|--------|
 | Reading sections 1–7 | Anywhere — no Linux required |
-| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, Labs in [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | **Linux with SELinux** (physical VM, cloud instance, or Podman Machine on Mac) |
+| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, Labs in [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | **Linux with SELinux** (rhel-dev, cloud instance, or other RHEL/Fedora host) |
 | **`make check`**, reading `.te` files | **Repo root** on your laptop |
 
 macOS: you never run SELinux commands on the Mac itself — use [SELINUX_TRAINING_LAB.md — Running on macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos).
@@ -413,7 +413,7 @@ sudo ausearch -m avc -ts recent | grep myapp_t
 Export scripts filter the audit log to **app-related evidence only**:
 
 ```bash
-# Simplified from scripts/demo_present.sh export_avcs_native
+# Simplified from the AVC export used by scripts/dev_generate_policy.sh
 ausearch -m avc -ts boot --raw | grep -E "myapp|/opt/myapp|/var/lib/myapp|/run/myapp"
 ```
 

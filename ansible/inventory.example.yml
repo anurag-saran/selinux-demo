@@ -1,6 +1,6 @@
 # Local-connection lab (Ansible runs *on* the SELinux host).
 # Two RHEL boxes from a laptop: use inventory.dev.yml / inventory.production.yml
-# (scripts/setup_rhel_hosts.sh). Podman VM is a backup, not the default.
+# (scripts/setup_rhel_hosts.sh).
 
 all:
   hosts:

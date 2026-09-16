@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run_e2e_tests.sh — Local end-to-end checks (macOS/Linux; Podman optional for compile).
+# run_e2e_tests.sh — Local end-to-end checks (macOS/Linux; container compile optional).
 #
 set -euo pipefail
 
@@ -15,14 +15,6 @@ fail=0
 
 log_ok() { echo -e "${GREEN}[PASS]${NC} $*"; }
 log_fail() { echo -e "${RED}[FAIL]${NC} $*"; fail=1; }
-
-# Optional Podman (policy compile on macOS)
-if [[ -f "${HOME}/.local/share/selinux-demo/podman/env.sh" ]]; then
-    # shellcheck disable=SC1091
-    source "${HOME}/.local/share/selinux-demo/podman/env.sh"
-    podman machine start 2>/dev/null || true
-    sleep 2
-fi
 
 log_ok "smoke_test.py"
 SMOKE_SKIP_FLASK=1 python3 scripts/smoke_test.py --no-require-backend || log_fail "smoke_test.py"
@@ -46,7 +38,7 @@ fi
 if [[ -f policy_out/myapp.pp ]]; then
     log_ok "policy_out/myapp.pp built"
 else
-    log_fail "compile did not produce policy_out/myapp.pp (start Podman: podman machine start)"
+    log_fail "compile did not produce policy_out/myapp.pp (needs selinux-policy-devel or a compile container)"
 fi
 
 if bash scripts/validate_forbidden_patterns.sh selinux; then

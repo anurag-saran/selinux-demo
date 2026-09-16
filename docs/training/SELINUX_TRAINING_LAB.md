@@ -15,11 +15,11 @@ Optional labs for teams adopting **SELinux PaC**. Each lab follows the same patt
 | **[CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md)** | Where scripts and tools live |
 | **[README.md](../../README.md)** | SELinux PaC — start here |
 
-**Time:** about **90–120 minutes** on a **RHEL dev** box (add time only if you fall back to Podman on macOS instead of two RHEL VMs).
+**Time:** about **90–120 minutes** on a **RHEL dev** box.
 
-**You need:** two RHEL boxes if following [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md), or at least one SELinux Linux host. **Podman VM is backup.** `sudo`, this repo cloned, optional internet for Lab 6.
+**You need:** two RHEL boxes if following [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md), or at least one SELinux Linux host. `sudo`, this repo cloned, optional internet for Lab 6.
 
-**Automated walkthrough:** from repo root on the **RHEL dev** box (or on macOS after Podman setup):
+**Automated walkthrough:** from repo root on the **RHEL dev** box:
 
 ```bash
 bash scripts/run_training_lab.sh
@@ -29,9 +29,9 @@ Use `--auto` for no pauses, `--no-type` to skip the typewriter effect, `--short`
 
 **Convention:** Example output shows the **shape** of answers — your PIDs and timestamps will differ.
 
-**Repo root** = directory containing `scripts/` and `docs/` (clone path on Mac or Linux; inside the Podman VM it is usually `/home/core/selinux-pac` after `sync`).
+**Repo root** = directory containing `scripts/` and `docs/` (clone path on the Linux host).
 
-### Two learning paths (RHEL preferred vs Podman backup)
+### Two learning paths
 
 Lab **6** installs the **reference app** and **stub** policy. **Labs 2–5 and 7+ need that install** — paths under `/opt/myapp`, systemd units, permissive **`myapp_t`**.
 
@@ -39,7 +39,6 @@ Lab **6** installs the **reference app** and **stub** policy. **Labs 2–5 and 7
 |----------|---------------|----------------------------|
 | **RHEL two-host (preferred)** | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — `setup_rhel_hosts.sh`; clone + `setup_staging_env.sh` on **dev** | **1 → 6 → 2 → 3 → 4 → 5 → 7 → 8 → 9** (10 optional). Lab **6** includes **`sudo bash scripts/setup_staging_env.sh`**. |
 | **Native Linux** (single RHEL/Fedora/Stream) | Clone repo; `cd` to repo root | Same lab order as the RHEL two-host row. |
-| **macOS + Podman (backup)** | [Running on macOS](#running-on-macos) steps **1–5** (step **4** is the same install as Lab 6 via `run_on_podman_vm.sh setup`) | Open VM shell: **1 → [Lab 6 verify only](#verify-the-install) → 2 → …** Do **not** run `setup_staging_env.sh` again unless reinstalling. |
 | **Demo prep (short)** | Same as your platform row above | **1 → Lab 6 (install or verify) → 7 → Finish** |
 
 **Staging stub vs full policy in Git:** Lab 6 installs the **stub** module (`selinux/stub/` — minimal rules, **`myapp_t` permissive**). **`selinux/myapp.te`** is the **full** module ( **`myapp_backend_t`**, **`myapp_log_t`**, ports, etc.). Lab examples often show **full-policy** names; on stub-only staging the Flask app matches, but the **backend process** usually runs as **`myapp_t`**, not **`myapp_backend_t`**, until you install the full `.pp`. See [Lab 3](#lab-3--read-process-labels) and [Troubleshooting](#troubleshooting).
@@ -58,107 +57,18 @@ Lab **6** installs the **reference app** and **stub** policy. **Labs 2–5 and 7
 
 ## Running on macOS
 
-macOS has **no SELinux**. The Mac is the controller; policy runs on Linux.
+macOS has **no SELinux**. The Mac is the Ansible controller; labs and policy run on **Linux**.
 
-**Preferred:** two RHEL 9 aarch64 VMs (Boot ISO in UTM) and the admin scripts — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) and [README — Try it on a Mac](../../README.md#try-it-on-a-mac). Labs below then run **on rhel-dev** over SSH (not in macOS Terminal).
+Use two RHEL 9 aarch64 VMs (Boot ISO in UTM) and the admin scripts — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) and [README — Try it on a Mac](../../README.md#try-it-on-a-mac). Then SSH to **rhel-dev** and run the labs **there** (not in macOS Terminal).
 
-**Backup — no RHEL boxes yet:** Podman Machine (one Linux VM). You still **prepare** from the Mac, but you **run every lab command inside that VM**.
-
-**Why a Linux VM at all?** The labs need a kernel with SELinux, the **audit** subsystem, and **`semanage`**. That tool talks to the kernel’s policy database so you can list or change **per-domain permissive** mode (Lab 5) without turning off enforcement for the whole OS.
-
-The rest of this section is the **Podman backup** path. Skip it if you already have rhel-dev / rhel-prod.
-
-| Where you type | What runs there |
-|----------------|-----------------|
-| **Mac Terminal** (zsh), at the **repo root** after `git clone` | Podman install, `source env.sh`, `run_on_podman_vm.sh sync/setup/shell` — these talk to the VM from the host |
-| **Inside the VM** (`run_on_podman_vm.sh shell`, prompt looks like Linux) | Lab 1–10: `getenforce`, `sudo semanage …`, `curl 127.0.0.1:8888`, etc. |
-
-**Repo root on Mac** means the folder that contains `scripts/` and `docs/` — for example:
-
-```bash
-cd ~/selinux-pac    # your clone path may differ
-pwd                  # should end in selinux-pac
-```
-
-### One-time setup (Mac Terminal, repo root)
-
-Run these **on the Mac**, in order. Open **Terminal.app** (or iTerm), `cd` to the clone, then:
-
-#### 1. Install or repair Podman and start the Linux VM
-
-```bash
-bash scripts/fix_podman.sh
-```
-
-- **Where:** Mac Terminal, repo root (`…/selinux-pac`).
-- **Why:** Installs a supported Podman if needed, writes `~/.local/share/selinux-demo/podman/`, creates **`env.sh`**, and starts a SELinux-capable Linux VM.
-- **Good sign:** Script ends with “Podman fixed” and `podman machine ls` shows a **Running** machine.
-
-First run can take several minutes (download + VM init).
-
-#### 2. Point this shell at that Podman
-
-```bash
-source "${HOME}/.local/share/selinux-demo/podman/env.sh"
-```
-
-- **Where:** Same Mac Terminal session **after** step 1.
-- **Why:** Puts the user-local `podman` on `PATH` and sets config so `podman machine ssh` works. **New Terminal windows do not inherit this** — run `source …/env.sh` again, or add that line to `~/.zshrc`.
-- **Check:** `podman --version` prints 4.x or 5.x; `podman machine ls` shows **Running**.
-
-#### 3. Copy the repo into the VM
-
-```bash
-cd ~/selinux-pac   # repo root again if you left it
-bash scripts/run_on_podman_vm.sh sync
-```
-
-- **Where:** Mac Terminal, repo root, **after** sourcing `env.sh`.
-- **Why:** The VM has its own disk; `sync` copies your working tree to `/home/core/selinux-pac` inside the VM so labs see the same files as on your Mac.
-
-#### 4. Install demo staging inside the VM (same as Lab 6 **install** on Linux)
-
-```bash
-bash scripts/run_on_podman_vm.sh setup
-```
-
-- **Where:** Mac Terminal, repo root.
-- **Why:** Runs `sudo bash scripts/setup_staging_env.sh` **inside** the VM over SSH — never run that script on the Mac host.
-- **Good sign:** Ends with “Setup complete” and curl hints.
-- **If you see warnings:** `[WARN] Services did not respond yet` or backend **`unknown`** — install may still have finished. Open the VM shell and run [Lab 6 verify](#verify-the-install), not a second setup.
-- **Do not repeat on macOS:** After step 4, Lab 6 is **verify only** unless reinstalling.
-
-#### 5. Open a VM shell for hands-on labs
-
-```bash
-bash scripts/run_on_podman_vm.sh shell
-```
-
-- **Where:** Mac Terminal starts it; your **prompt and commands from here on are inside Linux**.
-- **Why:** Interactive SSH session so you run Lab 1’s `getenforce`, Lab 5’s `sudo semanage permissive -l`, etc. in the right OS.
-
-Inside the VM:
-
-```bash
-cd /home/core/selinux-pac   # FCOS may show /var/home/core — run pwd if unsure
-```
-
-**macOS lab order after steps 1–5:** Lab **1** → Lab **6 (verify only)** → Labs **2–5, 7–9**.
-
-**Checkpoint:** You can say which of the five setup commands run on the Mac vs which run only after `shell`.
-
-**While in the VM:** curl **`http://127.0.0.1:8888`** there — the reference app listens inside the VM, not on your Mac’s localhost.
-
-More Podman/image detail: [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md).
-
----
+**Why a Linux host?** The labs need a kernel with SELinux, the **audit** subsystem, and **`semanage`**. That tool talks to the kernel’s policy database so you can list or change **per-domain permissive** mode (Lab 5) without turning off enforcement for the whole OS.
 
 ## Course map
 
 | Lab | Why it matters | Commands |
 |-----|----------------|----------|
 | [1](#lab-1--is-selinux-on) | Nothing else works if SELinux is off | `getenforce`, `sestatus` |
-| [6](#lab-6--install-demo-staging) | Demo app + stub policy + permissive `myapp_t` | **Linux:** `setup_staging_env.sh` · **macOS:** done in [step 4](#4-install-demo-staging-inside-the-vm-same-as-lab-6-install-on-linux) — **verify** in VM |
+| [6](#lab-6--install-demo-staging) | Demo app + stub policy + permissive `myapp_t` | `sudo bash scripts/setup_staging_env.sh` on **rhel-dev** |
 | [2](#lab-2--read-file-labels) | Files have types; rules say who may touch them | `ls -Z`, `matchpathcon` |
 | [3](#lab-3--read-process-labels) | Processes have domains; different from file types | `ps -eZ` |
 | [4](#lab-4--policy-on-disk-vs-reality) | Wrong on-disk labels cause mysterious denials | `restorecon` |
@@ -172,7 +82,7 @@ More Podman/image detail: [COMPILE_IMAGE.md](../admin/COMPILE_IMAGE.md).
 
 ## Lab 1 — Is SELinux on?
 
-**Where:** **Inside the Podman VM** (macOS) or on your **SELinux Linux host** — not in macOS Terminal.
+**Where:** On your **SELinux Linux host** (typically **rhel-dev**) — not in macOS Terminal.
 
 **Why we do this:** Every other command in this course assumes the kernel is enforcing SELinux rules. If SELinux is disabled, `ls -Z` and AVC logs either lie or are empty — you would debug the wrong problem.
 
@@ -191,7 +101,7 @@ getenforce
 - **`Enforcing`** — denials block access (normal for production).
 - **`Permissive`** — denials are logged but not blocked (whole OS; rare in production).
 
-**Not OK for this course:** **`Disabled`** — use a RHEL/Fedora/Stream VM or the Podman VM.
+**Not OK for this course:** **`Disabled`** — use a RHEL/Fedora/Stream host.
 
 **Example output:**
 
@@ -222,7 +132,7 @@ Current mode:                   enforcing
 
 ## Lab 6 — Install demo staging
 
-**Why we do this:** SELinux PaC uses the Flask app under `/opt/myapp`, a **stub** SELinux module, systemd units, and permissive **`myapp_t`**. Lab 6 **installs** that staging world (Linux or macOS step 4) and **verifies** it works.
+**Why we do this:** SELinux PaC uses the Flask app under `/opt/myapp`, a **stub** SELinux module, systemd units, and permissive **`myapp_t`**. Lab 6 **installs** that staging world on **rhel-dev** and **verifies** it works.
 
 **Question you're answering:** *Is the reference app running with the staging setup?*
 
@@ -230,10 +140,9 @@ Current mode:                   enforcing
 
 | Platform | What you do in Lab 6 |
 |----------|----------------------|
-| **Native Linux** | Run **install** (below), then **verify** |
-| **macOS** | **Install** already ran via [`run_on_podman_vm.sh setup`](#4-install-demo-staging-inside-the-vm-same-as-lab-6-install-on-linux). Skip install; run **verify** only inside the VM shell |
+| **rhel-dev / native Linux** | Run **install** (below), then **verify** |
 
-### Install (native Linux only — skip on macOS if setup step 4 succeeded)
+### Install
 
 **Where:** Repo root on a **SELinux Linux host** (SSH or console), not the Mac.
 
@@ -252,11 +161,9 @@ sudo bash scripts/setup_staging_env.sh
 
 **Success signal:** Script exits **0**. A **`[WARN] Services did not respond yet`** line can still appear — use verify below.
 
-**macOS (Mac Terminal, repo root):** `bash scripts/run_on_podman_vm.sh setup` — equivalent install. Do **not** run `sudo setup_staging_env.sh` on the Mac.
-
 ### Verify the install
 
-**Where:** On the machine where the app runs — **inside the VM** on macOS.
+**Where:** On the machine where the app runs (**rhel-dev**).
 
 ```bash
 systemctl is-active myapp.service myapp-backend.service
@@ -266,7 +173,7 @@ systemctl is-active myapp.service myapp-backend.service
 
 **Good output:** Two lines, both **`active`**.
 
-If the second line is **`inactive`** or **`failed`**, use the steps below **inside the VM** (not on the Mac).
+If the second line is **`inactive`** or **`failed`**, use the steps below on **rhel-dev** (not on the Mac).
 
 #### If `myapp-backend.service` is not active
 
@@ -406,7 +313,7 @@ ps -eZ | grep backend_stub
 
 **Tip:** Capital **`-Z`** is SELinux; lowercase `-z` is unrelated — do not mix them up.
 
-**Podman FCOS VM (macOS lab):** Services may stay in **`init_t`** instead of **`myapp_t`** — stub policy includes **`init_t`** allows for staging; **`permissive myapp_t`** still applies when transition works.
+**Stub staging:** Services may stay in **`init_t`** instead of **`myapp_t`** — stub policy includes **`init_t`** allows for staging; **`permissive myapp_t`** still applies when transition works.
 
 **Full policy in Git / enforce path:** Flask → **`myapp_t`**; backend → **`myapp_backend_t`** (second domain for Tier 6).
 
@@ -552,7 +459,7 @@ sudo ausearch -m avc -ts recent 2>/dev/null | grep -E 'myapp|init_t' | tail -5
 
 **About `curl -sf`:** HTTP GET; **`-f`** makes the command fail if any URL returns an error — good for catching a broken endpoint in the loop.
 
-**Workshop Act 1:** Same curl order, then **`wc -l`** / **`head -1`** on **`policy_out/avc.log`** (see [DEMO_GUIDE.md](DEMO_GUIDE.md)).
+**After the curls:** export AVCs with `sudo bash scripts/dev_generate_policy.sh --apply`, then inspect **`policy_out/avc.log`** (`wc -l`, `head -1`).
 
 **Tier 6 paths:** `/probe-backend` and `/notify-socket` need **`myapp-backend.service` active**.
 
@@ -774,7 +681,7 @@ wc -l policy_out/avc.log
 - [ ] I can tie an access pattern to **`selinux/myapp.te`** and **`myapp.fc`**.
 - [ ] I know **`selinux/`** is reviewed in Git; **`policy_out/`** is local output.
 
-**Next:** [DEMO_GUIDE.md](DEMO_GUIDE.md) → `demo_present.sh --demo-mode` or `dev_generate_policy.sh`.
+**Next:** [DEMO_GUIDE.md](DEMO_GUIDE.md) / `bash scripts/demo_e2e_rhel_dev.sh`, or `dev_generate_policy.sh`.
 
 ---
 
@@ -782,19 +689,17 @@ wc -l policy_out/avc.log
 
 | Symptom | Why it happens | Try |
 |---------|----------------|-----|
-| `getenforce` → Disabled | No SELinux on this OS | RHEL/Fedora VM or Podman VM |
-| `podman machine ls` fails on Mac | Shell not using user-local Podman | `source ~/.local/share/selinux-demo/podman/env.sh` |
-| Ran Lab 6 install twice on macOS | Step 4 + `setup_staging_env.sh` in VM | **Verify only** after step 4; reinstall only when intentionally resetting |
+| `getenforce` → Disabled | No SELinux on this OS | Use a RHEL/Fedora/Stream host (rhel-dev) |
 | `can't open file … backend_stub.py` Errno 13 | `ProtectSystem=strict` + `/opt/myapp` not in `ReadWritePaths` | Update unit from repo; or drop-in `ReadWritePaths=/opt/myapp /run/myapp` + `PYTHONDONTWRITEBYTECODE=1` |
 | `203/EXEC` on `backend_stub.py` | Shebang exec / `NoNewPrivileges` blocking type_transition | Use current `app/myapp-backend.service` (`ExecStart` the labeled `.py`, `NoNewPrivileges=false`); `daemon-reload` + restart |
-| `FATAL: myapp-backend … unknown` at setup end | Backend not running when script checked | VM: [Lab 6 — journalctl + restart](#if-myapp-backendservice-is-not-active) |
+| `FATAL: myapp-backend … unknown` at setup end | Backend not running when script checked | [Lab 6 — journalctl + restart](#if-myapp-backendservice-is-not-active) |
 | `FATAL: … not myapp_backend_t` (stub staging) | **`wait_for_endpoints`** expects full manifest domains; stub uses **`myapp_t`** for both | Ignore if units are **active** and curls work; install full **`selinux/myapp.pp`** for production-like checks |
-| `selinux_canary_deployed_at` in `/var/lib/myapp` during training | Leftover from **`demo_present`** canary (Act 6) | Re-run **`bash scripts/run_on_podman_vm.sh setup`** (removes markers when reinstalling stub) or delete files manually |
+| `selinux_canary_deployed_at` in `/var/lib/myapp` during training | Leftover from a canary deploy | Re-run **`sudo bash scripts/setup_staging_env.sh`** (removes markers when reinstalling stub) or delete files manually |
 | Empty `ausearch` | auditd off or no denials yet | `systemctl start auditd`; Lab 7; Lab 8 shows a **sample** AVC when live count is 0 |
 | `curl` fails | App or backend not running | Lab 6 verify; `systemctl restart myapp-backend myapp` |
 | Wrong file types | Disk ≠ policy | `sudo restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp /var/run/myapp` |
-| `curl` on Mac to 8888 fails | App listens **inside VM only** | `run_on_podman_vm.sh shell`, then curl **127.0.0.1** there |
-| On Mac only | No SELinux on host | [Running on macOS](#running-on-macos) — VM shell for all labs |
+| `curl` on the Mac to 8888 fails | App listens on **rhel-dev**, not the Mac | SSH to rhel-dev, then curl **127.0.0.1** there |
+| On Mac only | No SELinux on host | [Running on macOS](#running-on-macos) — SSH to rhel-dev for all labs |
 
 ---
 
