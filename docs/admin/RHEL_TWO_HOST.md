@@ -21,6 +21,22 @@ Those addresses are this Mac’s UTM network. If a VM was recreated and `ping` f
 
 ---
 
+## Present this lab (three terminals)
+
+Open **three** Terminal windows. Each script types the explanation, types the command, then runs it (press Enter between steps). `--dry-run` types and talks only.
+
+| Window | Computer | Start here |
+|--------|----------|------------|
+| 1 | **Mac** | `cd /Users/asaran/projects/selinux-demo` then `bash scripts/demo_e2e_mac.sh` |
+| 2 | **Dev VM** | `ssh ansible@192.168.64.6` then, when the Mac says switch: `bash ~/selinux-demo/scripts/demo_e2e_rhel_dev.sh --part app` (later `--part generate`) |
+| 3 | **Prod VM** | `ssh ansible@192.168.64.5` then, when the Mac says switch: `bash ~/e2e-demo/demo_e2e_rhel_prod.sh` |
+
+The Mac script copies the VM talk tracks over SSH. Stay in the window whose prompt matches the table. Do not run `ssh ansible@192.168.64.6` from inside rhel-dev.
+
+`bash scripts/demo_e2e_mac.sh --auto` skips the Enter pauses (recording).
+
+---
+
 ## Words you will see (plain English)
 
 | Word | Meaning |

@@ -160,6 +160,7 @@ Those IPs are this Mac’s UTM shared network (`rhel-dev` = `192.168.64.6`, `rhe
 
 - [Words you will see](docs/admin/RHEL_TWO_HOST.md#words-you-will-see-plain-english)
 - [Part 2 — Install the demo app on the dev VM](docs/admin/RHEL_TWO_HOST.md#part-2--install-the-demo-app-on-the-dev-vm)
+- [Present this lab (three terminals)](docs/admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals) — typewriter scripts for the Mac, rhel-dev, and rhel-prod
 
 Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod.
 
@@ -204,7 +205,7 @@ config/       App manifests (bind ports, probes, domains)
 selinux/      Policy source of truth (.te/.fc, policy_version.txt)
 ansible/      selinux_pac role + aap/ Controller workflows
 packaging/    selinux-policy-ops + <app>-selinux; publish_internal.sh
-scripts/      setup_rhel_hosts.sh (admins), fix_podman.sh + run_on_podman_vm.sh (Mac backup)
+scripts/      setup_rhel_hosts.sh (admins), demo_e2e_*.sh (three-window lab talk track), fix_podman.sh + run_on_podman_vm.sh (Mac backup)
 docs/admin/   Adoption, two-host, AAP, soak/enforce runbooks
 docs/developers/  Onboarding, generator, tests
 docs/training/    Optional labs; macOS Podman path

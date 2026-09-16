@@ -61,11 +61,12 @@ tlab_pause_lab() {
 
 tlab_type_line() {
     local prompt="$1"
+    local ps1="${TLAB_PS1:-\$}"
     if [[ "${TLAB_NO_TYPE}" -eq 1 ]]; then
-        echo -e "${TLAB_GREEN}\$${TLAB_NC} ${prompt}"
+        echo -e "${TLAB_GREEN}${ps1}${TLAB_NC} ${prompt}"
         return 0
     fi
-    echo -n -e "${TLAB_GREEN}\$${TLAB_NC} "
+    echo -n -e "${TLAB_GREEN}${ps1}${TLAB_NC} "
     local i c
     for ((i = 0; i < ${#prompt}; i++)); do
         c="${prompt:i:1}"
