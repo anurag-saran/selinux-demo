@@ -8,12 +8,12 @@ Host stays **Enforcing**. Only the app domain may be permissive (canary soak). D
 
 1. Copy `/var/lib/<app>/selinux_soak_last_fail.json` and `selinux_soak_last_fail.avc` off the host.
 2. On **rhel-dev**: `bash scripts/dev_generate_policy.sh` (deterministic generator).
-3. PR → CI → CODEOWNERS → signed RPM.
+3. PR → CI (`forbidden-patterns`, `version-consistency`) → CODEOWNERS → signed RPM.
 4. AAP **SELinux – Release canary** (recanary). Soak clock resets.
 
 ## Already enforced (app is down)
 
-AAP **SELinux – Rollback** (`emergency_rollback.yml`): domain back to permissive, optional RPM downgrade. Then the same PR path. Never `setenforce 0`.
+AAP **SELinux – Rollback** (`emergency_rollback.yml`): domain back to permissive, optional RPM downgrade. Then the same PR path. Never `setenforce 0`. The two-host talk ([RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) Part 7) shows this after a **clean** soak and talk-only enforce, then `/feature-spool` 500.
 
 ## What to change in git
 

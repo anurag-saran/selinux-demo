@@ -31,6 +31,8 @@ APP_HOST = "0.0.0.0"
 APP_PORT = 8888
 
 DATA_LOG_PATH = Path("/var/log/myapp/data.log")
+# Act 2 denial demo: not in the first generated policy or file_contexts.
+FEATURE_SPOOL_PATH = Path("/var/spool/myapp/feature.log")
 BACKUP_SCRIPT = Path("/opt/myapp/bin/backup.sh")
 BACKEND_HEALTH_URL = os.environ.get("MYAPP_BACKEND_URL", "http://127.0.0.1:8889/health")
 NOTIFY_SOCK = Path(os.environ.get("MYAPP_NOTIFY_SOCK", "/run/myapp/notify.sock"))
@@ -168,6 +170,54 @@ def save_log():
             "status": "ok",
             "endpoint": "/save-log",
             "path": str(DATA_LOG_PATH),
+            "bytes_written": len(message.encode("utf-8")),
+        }
+    )
+
+
+@app.route("/feature-spool", methods=["GET"])
+def feature_spool():
+    """
+    Write a sidecar report under /var/spool/myapp.
+
+    Intentionally omitted from the first generated policy. After enforce, this
+    returns 500 with an AVC until a second generate + PR + recanary.
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()
+    message = f"[{timestamp}] feature spool write\n"
+
+    try:
+        FEATURE_SPOOL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with FEATURE_SPOOL_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(message)
+    except OSError as exc:
+        logger.exception("Failed to write feature spool at %s", FEATURE_SPOOL_PATH)
+        return (
+            jsonify(
+                with_selinux_error(
+                    {
+                        "status": "error",
+                        "endpoint": "/feature-spool",
+                        "path": str(FEATURE_SPOOL_PATH),
+                        "error": str(exc),
+                        "selinux_hint": (
+                            "Expected AVC: myapp_t write under /var/spool/myapp "
+                            "(typically var_spool_t). Add an .fc row and allow, "
+                            "then open a PR — do not semodule -i on prod."
+                        ),
+                    },
+                    exc,
+                )
+            ),
+            500,
+        )
+
+    logger.info("Wrote feature spool entry to %s", FEATURE_SPOOL_PATH)
+    return jsonify(
+        {
+            "status": "ok",
+            "endpoint": "/feature-spool",
+            "path": str(FEATURE_SPOOL_PATH),
             "bytes_written": len(message.encode("utf-8")),
         }
     )

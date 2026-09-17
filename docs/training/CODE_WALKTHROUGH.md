@@ -60,7 +60,7 @@ If any term is fuzzy, open [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). Qui
 1. A **reference Flask app** (`app/`) runs on a Linux host with SELinux on (`myapp`; swap in your service).
 2. While the app domain is **permissive**, the kernel **logs** denials (AVCs) instead of blocking everything.
 3. Scripts **collect** those logs and **generate** updates to `.te` / `.fc` (deterministic engine; optional LLM summary).
-4. **CI** checks the change (dangerous patterns, compile, semantics, version numbers).
+4. **CI** checks forbidden patterns and version consistency (generator already ran the same forbidden-pattern script). Compile and semantics run on **rhel-dev**.
 5. **Ansible Automation Platform (AAP)** deploys a new module (**Release canary**), runs **Soak monitor** (net-new vs installed policy), then **Promote to enforce**. A denial after ship is a **PR**, not a live host patch ([DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)).
 
 You are not expected to memorize every bash script. Most days you touch **`selinux/`**, **`config/*.manifest.yml`**, **`scripts/dev_generate_policy.sh`**, and AAP.
@@ -79,11 +79,14 @@ flowchart TD
   D --> E[deterministic_gen.py]
   E --> F[Files in policy_out/]
   F --> G[Human review + PR to selinux/]
-  G --> H[GitHub CI checks]
+  G --> H[GitHub CI: forbidden-patterns]
   H --> I[Merge]
   I --> J[Ansible canary deploy]
-  J --> K[Soak: soak_monitor.yml net-new vs installed policy]
+  J --> K[Soak: soak_monitor.yml clean first-ship]
   K --> L[Ansible enforce]
+  L --> M[New URL denied]
+  M --> N[emergency_rollback.yml]
+  N --> O[Generate on rhel-dev + second PR]
 ```
 
 **Step by step:**
@@ -93,7 +96,7 @@ flowchart TD
 3. **Export AVCs** — `scripts/dev_generate_policy.sh` calls `lib/avc_query.sh` with paths and domains from **`config/myapp.manifest.yml`** (not hardcoded `/opt/myapp` defaults).
 4. **Generate policy** — Default engine is **`cli/deterministic_gen.py`** (offline, rule-based). Optional: **`cli/summarize_pr.py`** polishes `pr_summary.md` only. Legacy all-in-one LLM: **`cli/selinux_gen.py --legacy-full-policy`**.
 5. **Review** — Output lands in **`policy_out/`** (`.te`, `.fc`, `pr_summary.md`, `findings.json`). You compare to **`selinux/`** and open a PR.
-6. **CI** — Workflow **`selinux-policy-ci.yml`** runs compile, forbidden-pattern checks, version consistency, blast-radius fixtures, etc.
+6. **CI** — Workflow **`selinux-policy-ci.yml`** runs `forbidden-patterns` and `version-consistency`. The generator already ran the same forbidden-pattern check, so these jobs should pass.
 7. **Deploy** — Admins use **AAP** ([`ansible/aap/`](../../ansible/aap/)): workflow **Release canary**, daily **Soak monitor**, then **Promote to enforce**. Soak fail: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md). See [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md).
 
 **Golden rule:** committed policy lives in **`selinux/`**. **`policy_out/`** is disposable local output.
@@ -116,7 +119,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 | [`packaging/`](../../packaging/) | RPM specs (`selinux-policy-ops`, `<app>-selinux`) and compile container. |
 | [`docs/`](../) | Guides (`admin/`, `developers/`, `policy/`, `training/`). |
 | [`policy_out/`](../../policy_out/) | Generated output on your machine (gitignored). |
-| [`.github/workflows/`](../../.github/workflows/) | PR CI; optional GHA deploy (same playbooks as AAP). |
+| [`.github/workflows/`](../../.github/workflows/) | PR CI: `forbidden-patterns` + `version-consistency`. Ship is AAP / Mac ansible-playbook. |
 | [`tests/fixtures/`](../../tests/fixtures/) | Small policy snippets used to test the blast-radius classifier in CI. |
 
 ---
@@ -127,7 +130,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 
 | File | What it does (simply) |
 |------|------------------------|
-| **`app.py`** | Web server on port **8888** with six routes (home, save log, run script, rotate log, call backend, Unix socket). |
+| **`app.py`** | Web server on port **8888**: six first-ship routes plus **`/feature-spool`** (Act 2 on prod; not in `wait_for_endpoints`). |
 | **`backend_stub.py`** | Tiny service on **8889** + socket under `/run/myapp/` — second SELinux domain (`myapp_backend_t`). |
 | **`myapp.service`**, **`myapp-backend.service`** | Tell systemd how to start the app and create state/log/run directories. |
 | **`backup.sh`** | Script the `/run-script` route executes (bash-only on purpose). |
@@ -143,7 +146,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 | **`myapp.te`** | Human-readable rules: types, `allow` lines, and reusable **macros** from refpolicy. |
 | **`myapp.fc`** | “This path on disk should have type X.” Used by `restorecon`. |
 | **`policy_version.txt`** | Version number (must match the `policy_module(myapp, …)` line in `.te`; CI checks this). |
-| **`stub/`** | Smaller module for early lab setups. |
+| **`stub/`** | Smaller module for **optional training labs** only. The customer talk uses `write_domain_seed.sh`, not this folder. |
 | **`payments/`** | Example second application module (see [ONBOARDING.md](../developers/ONBOARDING.md)). |
 
 **Review tip:** prefer **interface macros** (shared refpolicy helpers) over one-off allows copied from `audit2allow`. That matches what [`scripts/validate_forbidden_patterns.sh`](../../scripts/validate_forbidden_patterns.sh) enforces in CI.
@@ -213,7 +216,7 @@ Same AVC preprocessing, then sends a structured prompt (`prompt_templates.py`) t
 
 ## Shell scripts (`scripts/`) — what to run when
 
-Most scripts expect your shell’s **current directory** to be the **repo root** unless the doc says otherwise. Staging and demo scripts need **RHEL + SELinux** (dev box). Compile natively with `selinux-policy-devel` on RHEL, or the Stream 9 tool image on a laptop.
+Most scripts expect your shell’s **current directory** to be the **repo root** unless the doc says otherwise. Staging and demo scripts need **RHEL + SELinux** (dev box). Compile natively with `selinux-policy-devel` on RHEL.
 
 ### Day-to-day developer commands
 
@@ -222,7 +225,9 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`dev_generate_policy.sh`** | Main command: export AVCs → generate → diff → optional copy into `selinux/`. |
 | **`selinux_pac_adopt.sh`** | `doctor` + `init APP` — print manifest and **Ansible** next steps. |
 | **`setup_rhel_hosts.sh`** | Write `inventory.dev.yml` / `inventory.production.yml`; ping; doctor; bootstrap hints. |
-| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_dev.sh`** / **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
+| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_dev.sh`** / **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (domain seed → generate → PR → clean soak → enforce; `/feature-spool` fails on prod; admin rollback). |
+| **`write_domain_seed.sh`** | Types + file_contexts for `myapp_t` (customer demo). Optional `--load`. |
+| **`demo_open_generated_pr.sh`** | Open a GitHub PR from live generated `selinux/` (Mac, after scp from rhel-dev). Not the frozen `open_demo_policy_pr.sh`. |
 | **`assemble_pr_body.sh`** | Builds GitHub PR description from template + summary + optional rule diff. |
 | **`setup_staging_env.sh`** | Prepare a Linux host for the demo (root). |
 | **`compile_and_validate.sh`** | Compile `.te`/`.fc` to `.pp` and run basic checks. |
@@ -247,7 +252,7 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 |--------------|------|
 | **`lib/compile_policy.sh`** | Compile module with `selinux-policy-devel` (`make -f /usr/share/selinux/devel/Makefile`). |
 | **`compile_and_validate.sh`** | Forbidden-pattern check + compile. |
-| **`ci/install_rhel_policy_tools.sh`** | `dnf install` devel + setools for CI Stream 9 jobs. |
+| **`ci/install_rhel_policy_tools.sh`** | `dnf install` devel + setools on a RHEL/Stream box (optional; not a GitHub job). |
 
 ### CI-heavy scripts (you may read, rarely run locally)
 
@@ -267,6 +272,8 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 |--------|------|
 | **`run_training_lab.sh`** | Guided lab talk track on **rhel-dev** (Lab 7 uses staged probes). |
 | **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_dev.sh`**, **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
+| **`write_domain_seed.sh`** | Types-only `myapp` seed for the customer talk (`--load` compiles it). |
+| **`demo_open_generated_pr.sh`** | Live generate → GitHub PR (needs `gh`). |
 | **`run_demo.sh`** | Optional native-host walkthrough. |
 | **`lib/integration_probes.sh`** | All reference-app curls in one pass; optional AVC preview. |
 
@@ -279,7 +286,7 @@ Playbooks are short; behavior lives in the **`selinux_pac`** role (manifest-driv
 | Playbook | Phase |
 |----------|--------|
 | **`deploy_canary.yml`** | Install module, permissive domain, smoke endpoints, start soak clock. |
-| **`soak_monitor.yml`** | Daily / on-demand: fail if net-new access needs exceed threshold. |
+| **`soak_monitor.yml`** | Daily / on-demand: fail if net-new exceeds threshold. Talk: first-ship only so this **passes**. |
 | **`soak_status.yml`** | Read-only soak facts before enforce. |
 | **`enforce_production.yml`** | Soak gates passed → enforcing mode. |
 | **`emergency_rollback.yml`** | Break-glass rollback steps. |
@@ -302,13 +309,9 @@ Inventory examples: **`inventory.dev.example.yml`** (RHEL dev), **`inventory.pro
 
 ---
 
-## GitHub Actions (`.github/workflows/`)
+## GitHub review (no Actions in the paced lab)
 
-| Workflow | Triggers | What it protects |
-|----------|----------|------------------|
-| **`selinux-policy-ci.yml`** | Pull requests | Smoke tests, compile, forbidden patterns, version drift, blast-radius fixtures, payments generator leak check, policy diff comment, etc. |
-| **`selinux-staging-canary.yml`** | Push to main | Optional staging deploy smoke (same playbooks as AAP). |
-| **`selinux-deploy.yml`** | Manual | Optional GHA wrapper around canary / enforce / rollback. |
+The two-host talk track opens a **GitHub PR** with `scripts/demo_open_generated_pr.sh` so CODEOWNERS can review `selinux/`. GitHub Actions workflows are not part of that demo.
 
 PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md).
 
@@ -354,7 +357,7 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 | [README.md](../README.md) | **SELinux PaC** — start here |
 | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | First-time SELinux readers |
 | [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
-| [TESTING.md](../developers/TESTING.md) | CI jobs and local test commands |
+| [TESTING.md](../developers/TESTING.md) | PR CI (`forbidden-patterns`) and local `make check` |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | Optional paced walkthrough |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Offline generator and fixtures |
 | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) | Two RHEL boxes |

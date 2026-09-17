@@ -23,7 +23,7 @@ NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/myapp /var/lib/myapp /run/myapp /var/log/myapp
+ReadWritePaths=/opt/myapp /var/lib/myapp /run/myapp /var/log/myapp /var/spool/myapp
 
 # venv python is labeled myapp_exec_t so init_t -> myapp_t.
 

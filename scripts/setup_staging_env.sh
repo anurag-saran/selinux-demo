@@ -1,14 +1,34 @@
 #!/usr/bin/env bash
 #
 # setup_staging_env.sh
-# Prepares staging environment: app install, permissive stub policy, systemd.
+# Prepares staging: reference app + systemd. Default also loads the training
+# stub module (labs). Customer demo uses --app-only and write_domain_seed.sh.
 #
 set -euo pipefail
 
+APP_ONLY=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --app-only) APP_ONLY=1; shift ;;
+        -h|--help)
+            cat <<EOF
+Usage: $(basename "$0") [--app-only]
+
+  (default)  Install the Flask app, load selinux/stub/ (training labs), start units
+  --app-only Install the Flask app and units only — no SELinux module
+EOF
+            exit 0
+            ;;
+        *) echo "Unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-# shellcheck source=lib/compile_policy.sh
-source "${SCRIPT_DIR}/lib/compile_policy.sh"
+if [[ "${APP_ONLY}" -eq 0 ]]; then
+    # shellcheck source=lib/compile_policy.sh
+    source "${SCRIPT_DIR}/lib/compile_policy.sh"
+fi
 APP_SRC="${PROJECT_ROOT}/app"
 STUB_DIR="${PROJECT_ROOT}/selinux/stub"
 
@@ -16,6 +36,7 @@ INSTALL_ROOT="/opt/myapp"
 BIN_DIR="${INSTALL_ROOT}/bin"
 VAR_DIR="/var/lib/myapp"
 LOG_DIR="/var/log/myapp"
+SPOOL_DIR="/var/spool/myapp"
 RUNTIME_DIR="/run/myapp"
 SERVICE_NAME="myapp.service"
 SERVICE_USER="myapp"
@@ -84,17 +105,21 @@ ensure_auditd() {
 
 check_prerequisites() {
     log_info "Checking prerequisites..."
+    require_command systemctl "systemd"
+    if [[ "${APP_ONLY}" -eq 1 ]]; then
+        check_selinux
+        return 0
+    fi
     ensure_auditd
     require_command getenforce "policycoreutils"
     if command -v semanage >/dev/null 2>&1; then
         log_info "semanage available"
     else
-        log_warn "semanage not found; using permissive domain in stub policy module"
+        log_warn "semanage not found; training stub uses permissive myapp_t in policy source"
     fi
     require_command restorecon "policycoreutils"
     require_command ausearch "audit"
     require_command semodule "policycoreutils"
-    require_command systemctl "systemd"
     check_selinux
 }
 
@@ -110,7 +135,7 @@ create_service_user() {
 install_application() {
     log_info "Installing application to ${INSTALL_ROOT}"
 
-    mkdir -p "${INSTALL_ROOT}" "${BIN_DIR}" "${VAR_DIR}" "${LOG_DIR}"
+    mkdir -p "${INSTALL_ROOT}" "${BIN_DIR}" "${VAR_DIR}" "${LOG_DIR}" "${SPOOL_DIR}"
     install -m 0644 "${APP_SRC}/app.py" "${INSTALL_ROOT}/app.py"
     install -m 0755 "${APP_SRC}/backend_stub.py" "${INSTALL_ROOT}/backend_stub.py"
     install -m 0755 "${APP_SRC}/backup.sh" "${BIN_DIR}/backup.sh"
@@ -121,9 +146,10 @@ install_application() {
         install -m 0644 "${APP_SRC}/logrotate.d/myapp" "/etc/logrotate.d/myapp"
     fi
 
-    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${VAR_DIR}" "${LOG_DIR}"
+    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${VAR_DIR}" "${LOG_DIR}" "${SPOOL_DIR}"
     chmod 0750 "${VAR_DIR}"
     chmod 0750 "${LOG_DIR}"
+    chmod 0750 "${SPOOL_DIR}"
     chown -R root:root "${INSTALL_ROOT}"
     chmod 755 "${INSTALL_ROOT}" "${BIN_DIR}"
     mkdir -p "${INSTALL_ROOT}/__pycache__"
@@ -142,8 +168,19 @@ clear_staging_deploy_artifacts() {
         fi
     done
     if [[ "${removed}" -eq 1 ]]; then
-        log_info "Removed prior demo/canary deploy markers under ${VAR_DIR} (fresh stub staging)"
+        log_info "Removed prior demo/canary deploy markers under ${VAR_DIR}"
     fi
+}
+
+clear_stale_app_ports() {
+    # Local seport mappings survive semodule -r. The stub has no myapp_port_t /
+    # myapp_backend_port_t, so leftover tcp 8888/8889 maps make semodule -i fail.
+    if ! command -v semanage >/dev/null 2>&1; then
+        return 0
+    fi
+    log_info "Clearing leftover local port maps for tcp 8888/8889 (if any)"
+    semanage port -d -t myapp_port_t -p tcp 8888 2>/dev/null || true
+    semanage port -d -t myapp_backend_port_t -p tcp 8889 2>/dev/null || true
 }
 
 compile_stub_policy() {
@@ -153,9 +190,11 @@ compile_stub_policy() {
 
     clear_staging_deploy_artifacts
     log_info "Compiling stub SELinux policy module..."
+    clear_stale_app_ports
     for mod in myapp_ports myapp_canary myapp; do
         semodule -r "${mod}" 2>/dev/null || true
     done
+    clear_stale_app_ports
     cp "${STUB_DIR}/myapp.te" "${work_dir}/myapp.te"
     cp "${STUB_DIR}/myapp.fc" "${work_dir}/myapp.fc"
 
@@ -237,7 +276,7 @@ set_permissive_domain() {
             semanage permissive -a "${DOMAIN}"
         fi
     else
-        log_info "semanage not available; stub module uses permissive ${DOMAIN}"
+        log_info "semanage not available; training stub uses permissive ${DOMAIN} in policy source"
     fi
 }
 
@@ -265,6 +304,8 @@ Trigger SELinux AVC denials (permissive mode — requests may still succeed):
   curl -v http://127.0.0.1:8888/probe-backend
   curl -v http://127.0.0.1:8888/notify-socket
 
+Do not call /feature-spool until after the first policy is enforcing on prod (Act 2).
+
 View recent AVC denials:
 
   ausearch -m avc -ts recent | grep myapp
@@ -282,21 +323,27 @@ main() {
     check_prerequisites
     create_service_user
     install_application
-    compile_stub_policy
-    if [[ -f "${PROJECT_ROOT}/selinux/myapp_canary.te" ]]; then
-        log_info "Building FCOS canary overlay (myapp_canary.pp)..."
-        POLICY_MODULE=myapp_canary bash "${PROJECT_ROOT}/scripts/compile_and_validate.sh" "${PROJECT_ROOT}/selinux"
+    if [[ "${APP_ONLY}" -eq 0 ]]; then
+        compile_stub_policy
+        if [[ -f "${PROJECT_ROOT}/selinux/myapp_canary.te" ]]; then
+            log_info "Building FCOS canary overlay (myapp_canary.pp)..."
+            POLICY_MODULE=myapp_canary bash "${PROJECT_ROOT}/scripts/compile_and_validate.sh" "${PROJECT_ROOT}/selinux"
+        fi
+    else
+        log_info "--app-only: skipping SELinux module install (customer demo / prod app ship)"
     fi
     install_python_deps
-    set_permissive_domain
-    restore_contexts
-    if [[ -x "${PROJECT_ROOT}/scripts/verify_file_contexts.sh" ]]; then
-        bash "${PROJECT_ROOT}/scripts/verify_file_contexts.sh" \
-            --install-root "${INSTALL_ROOT}" \
-            --var-dir "${VAR_DIR}" \
-            --runtime-dir "${RUNTIME_DIR}" \
-            --app-name myapp \
-            --skip-if-unavailable || true
+    if [[ "${APP_ONLY}" -eq 0 ]]; then
+        set_permissive_domain
+        restore_contexts
+        if [[ -x "${PROJECT_ROOT}/scripts/verify_file_contexts.sh" ]]; then
+            bash "${PROJECT_ROOT}/scripts/verify_file_contexts.sh" \
+                --install-root "${INSTALL_ROOT}" \
+                --var-dir "${VAR_DIR}" \
+                --runtime-dir "${RUNTIME_DIR}" \
+                --app-name myapp \
+                --skip-if-unavailable || true
+        fi
     fi
     install_systemd_service
     wait_for_service

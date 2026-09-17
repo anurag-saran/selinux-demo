@@ -1,6 +1,5 @@
-# Security/platform owners for policy and deploy playbooks.
+# Security/platform owners for policy and Ansible.
 # GitHub CODEOWNERS: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 /selinux/                    @anurag-saran
 /ansible/                    @anurag-saran
-/.github/workflows/selinux-deploy.yml  @anurag-saran

@@ -3,6 +3,7 @@
 
 E2E_DRY="${E2E_DRY:-0}"
 E2E_PART="${E2E_PART:-all}"
+E2E_SKIP_EXPORT="${E2E_SKIP_EXPORT:-0}"
 DEV_HOST="${DEV_HOST:-192.168.64.6}"
 PROD_HOST="${PROD_HOST:-192.168.64.5}"
 E2E_SSH_USER="${ANSIBLE_SSH_USER:-ansible}"
@@ -13,6 +14,7 @@ Options:
   --auto       No Enter pauses. On the Mac script, also SSH and run the VM talk tracks.
   --no-type    Print commands instantly (no typewriter)
   --dry-run    Type and explain only — do not run commands
+  --skip-export  (rhel-dev --part generate) use existing policy_out/avc.log
   -h, --help   Show help
 EOF
 }
@@ -48,6 +50,9 @@ e2e_auto_flags() {
     if [[ "${E2E_DRY}" -eq 1 ]]; then
         flags+=" --dry-run"
     fi
+    if [[ "${E2E_SKIP_EXPORT}" -eq 1 ]]; then
+        flags+=" --skip-export"
+    fi
     echo "${flags}"
 }
 
@@ -58,6 +63,7 @@ e2e_parse_args() {
             --no-type) TLAB_NO_TYPE=1; shift ;;
             --dry-run|--say-only) E2E_DRY=1; shift ;;
             --part) E2E_PART="$2"; shift 2 ;;
+            --skip-export) E2E_SKIP_EXPORT=1; shift ;;
             -h|--help) usage; exit 0 ;;
             *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
         esac
@@ -89,7 +95,7 @@ e2e_run_expect_fail() {
     local cmd="$1"
     tlab_type_line "${cmd}"
     if [[ "${E2E_DRY}" -eq 1 ]]; then
-        echo -e "${TLAB_DIM}(dry-run — would fail on prod until 7 soak days)${TLAB_NC}"
+        echo -e "${TLAB_DIM}(dry-run — this command is expected to fail)${TLAB_NC}"
         echo
         return 0
     fi
@@ -100,6 +106,27 @@ e2e_run_expect_fail() {
     echo
     echo -e "${TLAB_YELLOW}Exit ${rc} — that failure is the point of this step.${TLAB_NC}"
     echo
+}
+
+# Run a command; on failure print a warning and continue (GitHub/auth hiccups).
+e2e_run_allow_fail() {
+    local cmd="$1"
+    tlab_type_line "${cmd}"
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        echo -e "${TLAB_DIM}(dry-run — not executing)${TLAB_NC}"
+        echo
+        return 0
+    fi
+    set +e
+    eval "${cmd}"
+    local rc=$?
+    set -e
+    echo
+    if [[ "${rc}" -ne 0 ]]; then
+        echo -e "${TLAB_YELLOW}Exit ${rc} — continuing the talk track. Fix auth/network and re-run this step if needed.${TLAB_NC}"
+        echo
+    fi
+    return 0
 }
 
 # Interactive: print the switch-window talk track and wait.
@@ -136,4 +163,20 @@ e2e_require_rhel() {
         echo "getenforce not found — this is not a SELinux host." >&2
         exit 1
     fi
+}
+
+# Talk-track legend for customer-visible files under selinux/ on rhel-dev.
+# Do not mention or list selinux/stub/ — that path is training-labs only.
+e2e_explain_selinux_tree() {
+    local root="${1:-.}"
+    tlab_explain "This folder is the policy product. Git reviews these files. Prod never clones them — it gets an RPM built from them."
+    e2e_run "ls -la '${root}/selinux/myapp.te' '${root}/selinux/myapp.fc' '${root}/selinux/policy_version.txt'"
+    tlab_explain "selinux/myapp.te — type enforcement. After write_domain_seed.sh this is types + systemd transition only. After generate --apply it is the first real allow list from AVCs."
+    tlab_explain "selinux/myapp.fc — file_contexts: which path gets which type. restorecon applies this. The generator adds rows when AVCs show unlabeled or wrong-type files."
+    tlab_explain "selinux/policy_version.txt — one line, kept in lockstep with policy_module(myapp, X.Y.Z) inside the .te. PRs and the myapp-selinux RPM bump this."
+    tlab_explain "selinux/myapp.pp — compiled binary (gitignored). Built on rhel-dev only. Copied to the Mac so Ansible can ship it. A Mac cannot compile SELinux."
+    tlab_explain "selinux/myapp_ports.cil — optional CIL portcon for hosts without semanage. On RHEL, canary uses Ansible seport instead."
+    tlab_explain "selinux/myapp_canary.te — optional overlay when semanage is missing. RHEL canary uses semanage permissive. Not loaded in this talk."
+    tlab_explain "selinux/payments/ — second sample app for onboarding. Not this talk."
+    tlab_explain "policy_out/ (created at generate) — avc.log is the denial export, generated .te/.fc live here before --apply copies them into selinux/, pr_body.md is the GitHub PR text."
 }

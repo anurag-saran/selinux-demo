@@ -234,5 +234,5 @@ echo
 echo -e "${TLAB_GREEN}${TLAB_BOLD}Full training lab run complete.${TLAB_NC}"
 echo "Finish checklist: docs/training/SELINUX_TRAINING_LAB.md"
 echo "Next (optional paced walkthrough): bash scripts/demo_e2e_rhel_dev.sh"
-echo "Policy PR for Act 4: bash scripts/open_demo_policy_pr.sh --reuse-pr-body  (needs gh auth login)"
+echo "Policy PR from live generate: bash scripts/demo_open_generated_pr.sh  (Mac, after scp; needs gh auth login)"
 echo

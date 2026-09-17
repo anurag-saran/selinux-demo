@@ -6,8 +6,8 @@ Static copies of CLI output for reviews when you cannot run staging or `assemble
 
 | File | Live equivalent | Use in demo |
 |------|-----------------|-------------|
-| [`pr_summary.example.md`](pr_summary.example.md) | `policy_out/pr_summary.md` | Act 4 — plain-English admin summary |
-| [`pr_body.example.md`](pr_body.example.md) | `policy_out/pr_body.md` | Act 4 — full GitHub PR body + checklist |
+| [`pr_summary.example.md`](pr_summary.example.md) | `policy_out/pr_summary.md` | Part 4 — plain-English admin summary |
+| [`pr_body.example.md`](pr_body.example.md) | `policy_out/pr_body.md` | Part 4 — GitHub PR body + checklist |
 
 Live policy in `selinux/` is **v1.1.3**. [`pr_body.example.md`](pr_body.example.md) / [`pr_summary.example.md`](pr_summary.example.md) are **frozen samples** (v1.1.2). `fixtures/skip_ai/generated/` is kept in sync with `selinux/` via `refresh_skip_ai_fixture.sh`. Regenerate live `policy_out/` on a SELinux host with:
 

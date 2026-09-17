@@ -192,7 +192,7 @@ init_daemon_domain(myapp_t, myapp_exec_t);
 - **`init_daemon_domain`** — standard pattern for systemd services.
 - **`require { type ... }`** — types defined in the **base** RHEL policy that you reference but do not create.
 
-Early staging uses a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;` to collect AVCs before the full module is ready.
+Optional training labs use a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;`. The customer two-host talk does **not** overlay that folder — it writes a types-only domain seed with `write_domain_seed.sh`, then generates the first real `.te` from AVCs.
 
 ### File contexts (`.fc`) — path → label mapping
 
@@ -609,7 +609,7 @@ Presenter steps: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md). Admin gates: [PRODU
 # Compile (this repo — refpolicy Makefile)
 bash scripts/compile_and_validate.sh selinux
 
-# Semantic checks (CI policy-semantics job)
+# Semantic checks on rhel-dev
 bash scripts/validate_policy_semantics.sh selinux
 
 # Install / upgrade on host (in-place — no semodule -r step)
@@ -741,7 +741,7 @@ sudo semodule -i selinux/myapp.pp              # upgrades in place
 |-------|----------|
 | **This file** | New to SELinux — labels, `.te`/`.fc`, commands with examples |
 | [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
-| [CODE_WALKTHROUGH.md](../training/CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, CI jobs |
+| [CODE_WALKTHROUGH.md](../training/CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, PR CI |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline policy generator from AVCs |
 | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Optional paced walkthrough |
 | [TESTING.md](../developers/TESTING.md) | Endpoints, smoke tests, CI matrix |

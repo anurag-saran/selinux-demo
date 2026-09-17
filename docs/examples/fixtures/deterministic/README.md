@@ -9,7 +9,7 @@ Each directory has `avc.log` + `expected.json` (golden `verdict` / `tgt` rows). 
 
 **Why:** CI compares generator output to `expected.json` so verdict logic cannot drift silently.
 
-CI runs all cases via **`bash scripts/run_deterministic_fixtures.sh`** (and `smoke_test.py` in **`smoke-tests`**). Job: **`deterministic-fixtures`**.
+CI compares generator output to `expected.json` (`make test-fixtures` / `bash scripts/run_deterministic_fixtures.sh`). Not a GitHub Actions job.
 
 | Case | Verdict exercised |
 |------|-------------------|

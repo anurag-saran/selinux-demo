@@ -84,15 +84,8 @@ type=AVC msg=audit(1730000006.106:506): avc: denied { connectto } for pid=4421 c
 
 **CI checks (must pass before merge):**
 
-- [x] `smoke-tests`
-- [x] `app-manifest`
-- [x] `forbidden-patterns`
+- [x] `forbidden-patterns` (generator already ran the same script)
 - [x] `version-consistency`
-- [x] `compile-policy` (artifact: `selinux-myapp-pp`)
-- [x] `policy-semantics` (`validate_policy_semantics.sh`)
-- [x] `blast-radius` (`run_blast_radius_fixtures.sh`)
-- [x] `ansible-lint`
-- [x] `policy-diff-comment` (PR comment with access delta; local body from `assemble_pr_body.sh`)
 
 
 ### 6. Security and Sysadmin Checklist (Admin Team Review)
@@ -101,10 +94,10 @@ type=AVC msg=audit(1730000006.106:506): avc: denied { connectto } for pid=4421 c
 
 | Security Check | Status | Notes / Approver Initials |
 | --- | --- | --- |
-| **No Over-Permissive Grants** | ✅ Pass | CI `forbidden-patterns` + `policy-semantics`; no `shadow_t`, `unconfined_t`, `sysadm_t` |
+| **No Over-Permissive Grants** | ✅ Pass | CI `forbidden-patterns`; no `shadow_t`, `unconfined_t`, `sysadm_t` |
 | **Custom Labels Enforced** | ✅ Pass | FHS paths `/var/lib/myapp`, `/var/log/myapp`, `/run/myapp`; dedicated types |
 | **Port Assignments Validated** | ✅ Pass | `myapp_port_t` TCP 8888, `myapp_backend_port_t` TCP 8889 |
-| **Compilation Test** | ✅ Pass | CI `compile-policy` artifact + refpolicy Makefile build |
+| **Compilation Test** | ✅ Pass | `compile_and_validate.sh` on rhel-dev |
 | **Path Labeling (restorecon -n)** | ⬜ Pending | `verify_file_contexts.sh` after canary deploy on staging |
 | **Domain Context Verified** | ⬜ Pending | Deploy report: `myapp.service` → `myapp_t`, backend → `myapp_backend_t` |
 | **Soak Period (7–14 days)** | ⬜ Pending | AAP `soak_monitor.yml` daily (net-new vs installed policy); `soak_status.yml` before enforce |
@@ -115,7 +108,7 @@ type=AVC msg=audit(1730000006.106:506): avc: denied { connectto } for pid=4421 c
 
 ### 7. Admin Action
 
-**After merge:** Compile with CLI, then AAP **SELinux – Release canary** (`ansible/deploy_canary.yml`). Optional GHA staging-canary only if a `selinux-staging` runner exists.
+**After merge:** Compile with CLI, then AAP **SELinux – Release canary** (`ansible/deploy_canary.yml`).
 
 **Soak:** Daily AAP **Soak monitor** (`soak_monitor.yml`). Before enforce: **Soak status** (`soak_status.yml`). Soak fail → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md), not live patch.
 

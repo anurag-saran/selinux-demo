@@ -21,7 +21,7 @@
 
 | Step | Document | You need |
 |------|----------|----------|
-| 1 | [RHEL_TWO_HOST.md](admin/RHEL_TWO_HOST.md) | Two RHEL boxes + Ansible from a controller (Mac laptop is fine) |
+| 1 | [RHEL_TWO_HOST.md](admin/RHEL_TWO_HOST.md) / [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Two RHEL boxes + Mac Ansible; `demo_e2e_*.sh` for the paced talk |
 | 2 | [ANSIBLE_OPERATIONS.md](admin/ANSIBLE_OPERATIONS.md) | AAP / ansible-playbook (control plane) |
 | 3 | [DENIAL_RESPONSE.md](admin/DENIAL_RESPONSE.md) | File or port denied after ship |
 | 4 | [PRODUCTION_READINESS.md](admin/PRODUCTION_READINESS.md) | Soak, enforce, rollback, incident card |
@@ -50,7 +50,7 @@
 | [TESTING.md](developers/TESTING.md) | CI, `make check`, integration endpoints (staged + batch) |
 | [DETERMINISTIC_POLICY.md](developers/DETERMINISTIC_POLICY.md) | Offline AVC → policy engine (default) |
 | [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
-| [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional paced walkthrough (`demo_e2e_*.sh`) |
+| [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | How to run the three-window demo end to end (`demo_e2e_*.sh`) |
 | [examples/README.md](examples/README.md) | Curated PR samples for offline demos |
 
 Repo entry point: [../README.md](../README.md). App manifest schema: [../config/README.md](../config/README.md). Ansible playbooks: [../ansible/README.md](../ansible/README.md). New app: `bash scripts/selinux_pac_adopt.sh init <app>`.

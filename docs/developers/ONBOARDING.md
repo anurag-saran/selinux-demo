@@ -78,14 +78,14 @@ Compile like `myapp` on a host with `selinux-policy-devel`:
 | | |
 |--|--|
 | **Where** | **rhel-dev** repo root |
-| **Why** | Produces `payments.pp` for install and CI compile gate |
+| **Why** | Produces `payments.pp` for install (`compile_and_validate.sh` also runs forbidden-patterns) |
 
 ```bash
 POLICY_MODULE=payments SELINUX_DOMAIN=payments_t \
   bash scripts/compile_and_validate.sh selinux/payments
 ```
 
-CI runs this gate on every policy PR.
+PR CI (`forbidden-patterns`, `version-consistency`) runs on `selinux/` including `payments/` when those paths change. Compile stays on rhel-dev.
 
 ## Install
 

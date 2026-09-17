@@ -89,7 +89,7 @@ Labeling fixes (`fc_fix`, `fc_drift`) are satisfied via `findings.json`, not all
 
 `findings.json` is an object: `sepolgen_status`, `sepolgen_detail`, `generation_blocked`, and `findings` (array of classified rows). Refusal cases (`forbidden`, `toolchain_required`) still write **`findings.json`** with `generation_blocked: true` before exit 1. Older list-only files still work in `verify_avc_coverage.py`.
 
-Golden fixtures: **`bash scripts/run_deterministic_fixtures.sh`** (CI job **`deterministic-fixtures`**). `pr_summary.md` includes a **Classification audit (engine)** table for reviewers.
+Golden fixtures: **`bash scripts/run_deterministic_fixtures.sh`** (`make test-fixtures`). `pr_summary.md` includes a **Classification audit (engine)** table for reviewers.
 
 ## Engines
 
@@ -99,7 +99,7 @@ Golden fixtures: **`bash scripts/run_deterministic_fixtures.sh`** (CI job **`det
 | `dev_generate_policy.sh --llm-summary` | above + `cli/summarize_pr.py` (narrative only) |
 | Legacy | `cli/selinux_gen.py --legacy-full-policy` (deprecated) |
 
-Fixtures: [`docs/examples/fixtures/deterministic/`](../examples/fixtures/deterministic/) — contiguous **`01`–`11`** AVC directories; **every classification verdict** has at least one golden row (`avc.log` + `expected.json`). CI: **`make test-fixtures`** / job **`deterministic-fixtures`**, plus smoke tests. Cases `08`/`09` use optional `sepolgen_mock.json` so CI does not require host ifgen. Boolean coverage: `04-boolean-network-connect` and `10-boolean-hint`.
+Fixtures: [`docs/examples/fixtures/deterministic/`](../examples/fixtures/deterministic/) — contiguous **`01`–`11`** AVC directories; **every classification verdict** has at least one golden row (`avc.log` + `expected.json`). Run **`make test-fixtures`**. Cases `08`/`09` use optional `sepolgen_mock.json` so hosts without ifgen still pass. Boolean coverage: `04-boolean-network-connect` and `10-boolean-hint`.
 
 ## After merge (not this CLI)
 

@@ -109,9 +109,9 @@ This runs the same fixture and validator scripts documented below (`make test-fi
 
 ---
 
-## 2. `scripts/smoke_test.py` (CI: `smoke-tests`)
+## 2. `scripts/smoke_test.py` (`make test-smoke`)
 
-Runs on **every PR** on Ubuntu — **no SELinux required** for most tests.
+Runs offline — **no SELinux required** for most tests. Not a GitHub Actions job; PR CI is `forbidden-patterns` + `version-consistency`.
 
 ```bash
 make test-smoke   # recommended (sets SMOKE_SKIP_FLASK=1)
@@ -153,7 +153,7 @@ python3 scripts/smoke_test.py --no-require-backend
 | CLI + flask smoke | `python3 scripts/smoke_test.py` | No |
 | Forbidden patterns | `bash scripts/validate_forbidden_patterns.sh selinux` | No |
 | Compile | `bash scripts/compile_and_validate.sh selinux` | Yes — `selinux-policy-devel` on **rhel-dev** |
-| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Yes — rhel-dev / CI Stream 9 |
+| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Yes — rhel-dev |
 | Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes (RHEL **dev**) |
 | AI / deterministic generate | `bash scripts/dev_generate_policy.sh --apply` (default engine: deterministic) | Yes (RHEL **dev**) |
 | **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root on RHEL **dev**) |
@@ -162,30 +162,22 @@ python3 scripts/smoke_test.py --no-require-backend
 
 ### 3.1 Compile on RHEL
 
-Policy compile needs `selinux-policy-devel` (`/usr/share/selinux/devel/Makefile`). Run `bash scripts/compile_and_validate.sh selinux` on **rhel-dev**. GitHub Actions uses a CentOS Stream 9 job container with the same packages (`scripts/ci/install_rhel_policy_tools.sh`).
+Policy compile needs `selinux-policy-devel` (`/usr/share/selinux/devel/Makefile`). Run `bash scripts/compile_and_validate.sh selinux` on **rhel-dev**. That script also runs `validate_forbidden_patterns.sh` before compile.
 
 ## 4. CI on pull requests
 
 Workflow: [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml)
 
-| Job | Script / action | Pass criteria |
-|-----|-----------------|---------------|
-| `smoke-tests` | `python3 scripts/smoke_test.py` | AVC/prompt/manifest/assemble smoke (incl. deterministic tests when run full suite) |
-| `deterministic-fixtures` | `make deps` + deterministic fixture scripts | Every classification verdict has a golden fixture under `docs/examples/fixtures/deterministic/` |
-| `app-manifest` | `scripts/validate_app_manifest.sh` | Demo + onboarding example manifests validate |
-| `rpm-ops-parity` | `scripts/validate_rpm_ops_parity.sh` | Ops RPM allowlist matches checkout scripts |
-| `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, shadow_t, bin_t execute, etc. |
-| `version-consistency` | `scripts/validate_version_consistency.sh` | Every `selinux/**/policy_version.txt` matches its module's `policy_module()` line; RPM spec `Version: %{modver}` when a spec exists |
-| `shellcheck` | `shellcheck scripts/*.sh scripts/lib/*.sh scripts/ci/*.sh` | No shellcheck errors |
-| `blast-radius` | Stream 9 job + `scripts/run_blast_radius_fixtures.sh` | All blast-radius fixtures; corrupt input fail-closed |
-| `policy-diff-comment` | Stream 9 job + `post_pr_policy_diff_comment.sh` | PR comment with merge-base sesearch access delta (updates existing comment) |
-| `policy-access-delta` | `policy_module_diff.sh --from-merge-base` | PR gate: delta markdown must render (fail on error) |
-| `yamllint` | `yamllint ansible/ .github/workflows/` | YAML style clean |
-| `compile-policy` | Stream 9 job + `compile_and_validate.sh` | `.pp` builds; artifact uploaded |
-| `ansible-lint` | `ansible-lint ansible/*.yml` | Playbooks lint clean |
-| `policy-semantics` | `scripts/validate_policy_semantics.sh selinux` | No shadow/unlabeled/foreign entrypoint (isolated-store sesearch) |
+The generator already ran the same forbidden-pattern check, so these jobs are expected to **pass**. They are the admin review gate, not a fail-on-purpose demo step.
 
-Compiled `selinux/myapp.pp` is a **CI artifact only** — not committed to Git.
+| Job | Script | Pass criteria |
+|-----|--------|----------------|
+| `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, `shadow_t`, `bin_t` execute, etc. |
+| `version-consistency` | `scripts/validate_version_consistency.sh` | `policy_version.txt` matches `policy_module()` |
+
+Compile and semantics stay on **rhel-dev** (`compile_and_validate.sh`). Full offline suite: `make check`.
+
+Compiled `selinux/myapp.pp` is **not** committed to Git.
 
 ---
 
@@ -202,7 +194,7 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 | [`cli/soak_net_new.py`](../../cli/soak_net_new.py) | Soak exception JSON vs **installed** policy | `sesearch --allow`; `net_new_count` + `exceptions[]`; `fail_closed` without toolchain |
 | [`post_deploy_report.sh`](../../scripts/post_deploy_report.sh) | End of canary / enforce / rollback | Writes deploy report JSON (path from manifest or default) |
 | [`validate_app_manifest.sh`](../../scripts/validate_app_manifest.sh) | CI / onboarding | YAML schema + required fields |
-| [`classify_policy_blast_radius.sh`](../../scripts/classify_policy_blast_radius.sh) | Controller soak tier recommendation | sesearch rule diff between installed modules → 1 / 3 / 7 days; **`run_blast_radius_fixtures.sh`** (CI **`blast-radius`**) |
+| [`classify_policy_blast_radius.sh`](../../scripts/classify_policy_blast_radius.sh) | Controller soak tier recommendation | sesearch rule diff between installed modules → 1 / 3 / 7 days; **`run_blast_radius_fixtures.sh`** (`make test-fixtures`) |
 | [`validate_version_consistency.sh`](../../scripts/validate_version_consistency.sh) | CI / local | SemVer SSOT across `.te`, `policy_version.txt`, RPM spec |
 | [`assemble_pr_body.sh`](../../scripts/assemble_pr_body.sh) | Before opening PR | Fills PR template + merge-base policy access delta (`policy_module_diff.sh`) |
 
@@ -212,24 +204,14 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 
 ## 6. Staging and production gates
 
-### Merge to `main` (optional GHA staging)
-
-Workflow: [`.github/workflows/selinux-staging-canary.yml`](../../.github/workflows/selinux-staging-canary.yml)
-
-Production control plane is still **Ansible Automation Platform (AAP)** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)). If you use the GHA workflow:
-
-1. **`staging-canary`** — compile + `ansible/deploy_canary.yml` on self-hosted `selinux-staging` runner
-2. **`staging-endpoint-smoke`** — `wait_for_endpoints.sh` + deploy report exists
-
-### Production (manual — admin)
-
-**Preferred:** AAP workflows in [`ansible/aap/`](../../ansible/aap/) — [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Soak fail → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md). Optional: [`.github/workflows/selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml).
+Production control plane is **Ansible Automation Platform (AAP)** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)). The two-host talk ([DEMO_GUIDE.md](../training/DEMO_GUIDE.md)) runs the same playbooks from the Mac.
 
 | Phase | Playbook | Key tests embedded |
 |-------|----------|-------------------|
 | Canary | `deploy_canary.yml` | `verify_file_contexts`, `wait_for_endpoints`, `monitor_avc` (recent window), deploy report |
-| Soak | `soak_monitor.yml` / `soak_status.yml` | Daily net-new vs installed policy; read-only facts before enforce |
+| Soak | `soak_monitor.yml` / `soak_status.yml` | Daily net-new vs installed policy; read-only facts before enforce. Talk: first-ship URLs only — **clean** AVC file, then treat soak as complete |
 | Enforce | `enforce_production.yml` | `collect_soak_facts.sh` (`avc_net_new_count` when `soak_use_net_new`), `semodule -B`, enforce domain, `wait_for_endpoints`, deploy report |
+| Outage | `/feature-spool` under enforcing | HTTP 500 + AVC export (not in first-ship wait_for_endpoints list) |
 | Rollback | `emergency_rollback.yml` | permissive relief, `wait_for_endpoints`, deploy report, AVC export |
 
 Full Ansible task order and variables: [`ansible/README.md`](../../ansible/README.md).
@@ -241,13 +223,13 @@ Admin runbook with pass/fail examples: [`PRODUCTION_READINESS.md`](../admin/PROD
 ## 7. Test layer summary
 
 ```text
-Layer 1  smoke_test.py + forbidden-patterns     PR / laptop (no SELinux)
-Layer 2  compile + policy-semantics + version-consistency + blast-radius + ansible-lint   PR (Stream 9 job / rhel-dev)
-Layer 3  integration probes + policy_out/avc.log   staging discovery (permissive)
-Layer 4  deploy_canary + wait_for_endpoints   staging/prod canary host
-Layer 5  soak_monitor + soak_status + collect_soak_facts   soak period (net-new)
-Layer 6  enforce_production + wait_for_endpoints   production cutover
-Layer 7  emergency_rollback                   outage response
+Layer 1  forbidden-patterns + version-consistency     GHA PR (generator already ran forbidden-patterns)
+Layer 2  compile + policy-semantics + make check      rhel-dev / laptop
+Layer 3  integration probes + policy_out/avc.log      staging discovery (permissive)
+Layer 4  deploy_canary + wait_for_endpoints           staging/prod canary host
+Layer 5  soak_monitor + soak_status                   soak period (net-new; talk shows clean first-ship)
+Layer 6  enforce_production + wait_for_endpoints      production cutover
+Layer 7  emergency_rollback                           outage response
 ```
 
 ---

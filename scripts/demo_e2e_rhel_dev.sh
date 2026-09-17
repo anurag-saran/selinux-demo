@@ -5,8 +5,9 @@
 # Run ON rhel-dev, not on the Mac:
 #   ssh ansible@192.168.64.6
 #   cd ~/selinux-pac
-#   bash scripts/demo_e2e_rhel_dev.sh --part app        # before Mac canary
-#   bash scripts/demo_e2e_rhel_dev.sh --part generate   # after Mac canary
+#   bash scripts/demo_e2e_rhel_dev.sh --part app
+#   bash scripts/demo_e2e_rhel_dev.sh --part generate
+#   bash scripts/demo_e2e_rhel_dev.sh --part generate --skip-export   # after prod AVC copy
 #
 set -euo pipefail
 
@@ -37,9 +38,10 @@ Usage: $(basename "$0") [options]
 
 Presenter script for the DEV VM (${DEV_HOST}). Do not run this on the Mac.
 
-  --part app       Install packages + demo website (before Mac canary)
-  --part generate  sudo AVC → policy (after Mac canary)
-  --part all       Both, with a pause in the middle (default)
+  --part app              Flask app, domain seed, file tour, first-ship curls
+  --part generate         ausearch (or --skip-export) → policy
+  --part all              app, then pause, then generate
+  --skip-export           With --part generate: use policy_out/avc.log from prod
 
 $(e2e_usage_common)
 EOF
@@ -55,9 +57,9 @@ part_app() {
     e2e_run "whoami"
     tlab_pause
 
-    tlab_print_section "Part 2 — Install the demo app"
+    tlab_print_section "Part 2 — Install the app and a types-only domain seed"
     tlab_explain "These packages give us git, Python, and the SELinux tools: ausearch (read denials), sesearch (ask if a rule already exists), semanage (labels / permissive domain)."
-    e2e_run "sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils setools-console audit selinux-policy-devel"
+    e2e_run "sudo dnf install -y git python3 python3-pip policycoreutils policycoreutils-python-utils setools-console audit selinux-policy-devel"
     tlab_checkpoint "Complete! or already installed."
     tlab_pause
 
@@ -75,41 +77,61 @@ part_app() {
     tlab_pause
 
     cd "${HOME}/selinux-pac"
-    if systemctl is-active --quiet myapp.service 2>/dev/null; then
-        tlab_explain "myapp.service is already running — we skip the long install so the demo stays moving."
-        e2e_run "systemctl is-active myapp.service myapp-backend.service"
-    else
-        tlab_explain "setup_staging_env.sh installs a tiny website at /opt/myapp and starts two systemd services."
-        e2e_run "sudo bash scripts/setup_staging_env.sh"
-    fi
+    tlab_explain "Install the website only. No SELinux module yet — we will author types and labels next, then generate allows from AVCs."
+    e2e_run "sudo bash scripts/setup_staging_env.sh --app-only"
     tlab_pause
 
-    tlab_explain "doctor checks SELinux mode plus the app paths. Then we prove the site answers."
+    tlab_explain "A confined domain needs types and file labels so systemd can start myapp_t. That is not an allow list. write_domain_seed.sh writes those files, compiles them, and marks myapp_t permissive via semanage."
+    e2e_run "sudo bash scripts/write_domain_seed.sh --load"
+    e2e_run "head -20 selinux/myapp.te; echo '---'; cat selinux/policy_version.txt"
+    tlab_pause
+
+    tlab_print_section "What lives under selinux/ on this box"
+    e2e_explain_selinux_tree "${HOME}/selinux-pac"
+    tlab_pause
+
+    tlab_explain "doctor checks SELinux mode plus the app paths. Then we hit every first-ship URL so the audit log fills with AVCs. We do not call /feature-spool — that test is Act 2 on prod."
     e2e_run "sudo bash scripts/selinux_pac_adopt.sh doctor"
     e2e_run "getenforce"
     e2e_run "systemctl is-active myapp.service myapp-backend.service"
-    e2e_run "curl -sf -o /dev/null http://127.0.0.1:8888/ && echo 'HTTP 200 /'"
-    tlab_checkpoint "Enforcing; both services active; curl succeeded. Go back to the Mac window for compile + canary."
+    e2e_run 'for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do echo "=== GET ${path} ==="; curl -sf "http://127.0.0.1:8888${path}" | head -c 80; echo; done; echo "=== GET :8889/health ==="; curl -sf http://127.0.0.1:8889/health; echo'
+    tlab_checkpoint "Enforcing; both services active; six probes succeeded under a types-only seed. Go back to the Mac — next is generate."
 }
 
 part_generate() {
-    e2e_banner "DEV VM — turn denials into rules"
-    tlab_why "After canary, this box has been logging ‘SELinux said no’ without blocking. We read that log and propose allow rules."
+    e2e_banner "DEV VM — turn denials into the first (or next) real .te"
     cd "${HOME}/selinux-pac"
-    tlab_explain "restorecon applies labels that the .fc file already describes. Those AVCs are not missing allows — they are a labeling fix."
-    e2e_run "sudo restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp"
-    tlab_explain "sudo is required: the audit log is root-only, and policy_out/ is often owned by root from the earlier install. Do not SSH to yourself — you are already on rhel-dev."
-    e2e_run "sudo bash scripts/dev_generate_policy.sh --apply"
-    tlab_checkpoint "New allow lines, or nothing new. Then go back to the Mac for lab enforce (Part 5)."
+    if [[ "${E2E_SKIP_EXPORT}" -eq 1 ]]; then
+        tlab_why "Prod already captured the denial. We do not generate on prod. This box reads policy_out/avc.log copied from rhel-prod and writes new allows."
+        e2e_run "ls -l policy_out/avc.log; wc -l policy_out/avc.log"
+        tlab_explain "sudo is required: policy_out/ is often owned by root. --skip-export keeps the prod log."
+        e2e_run "sudo bash scripts/dev_generate_policy.sh --skip-export --apply"
+    else
+        tlab_why "The types-only seed plus semanage permissive logged ‘SELinux said no’ without blocking. We read that log and write the first real allow list."
+        tlab_explain "restorecon applies labels that the .fc file already describes. Those AVCs are a labeling fix, not missing allows."
+        e2e_run "sudo restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp"
+        tlab_explain "sudo is required: the audit log is root-only. Do not SSH to yourself — you are already on rhel-dev."
+        e2e_run "sudo bash scripts/dev_generate_policy.sh --apply"
+    fi
+    tlab_explain "Compile on this Linux box (a Mac cannot). The .pp is what Ansible will ship after we copy it to the laptop."
+    e2e_run "bash scripts/compile_and_validate.sh selinux"
+    e2e_run "ls -l selinux/myapp.te selinux/myapp.fc selinux/policy_version.txt selinux/myapp.pp"
+    e2e_run "echo '--- generated myapp.te (head) ---'; head -30 selinux/myapp.te; echo '--- policy_out ---'; ls -l policy_out"
+    tlab_checkpoint "selinux/myapp.te is generated from AVCs. Go back to the Mac: copy sources, open a GitHub PR, then canary."
 }
 
 case "${E2E_PART}" in
     app) part_app ;;
     generate) part_generate ;;
+    fail)
+        echo "Act 2 fail/retest runs on rhel-prod, not here:" >&2
+        echo "  bash ~/e2e-demo/demo_e2e_rhel_prod.sh --part fail" >&2
+        exit 2
+        ;;
     all)
         part_app
-        e2e_handoff "Leave this window open. On the Mac run compile + canary, then come back here.
-Press Enter when Mac canary has failed=0."
+        e2e_handoff "Leave this window open. On the Mac, do not canary yet. Come back here for --part generate.
+Press Enter when you are ready to generate."
         part_generate
         ;;
     *)
@@ -119,5 +141,5 @@ Press Enter when Mac canary has failed=0."
 esac
 
 echo
-echo -e "${TLAB_BOLD}End of the DEV talk track.${TLAB_NC} Do not type exit until the Mac script asks you to."
+echo -e "${TLAB_BOLD}End of this DEV talk-track part.${TLAB_NC} Do not type exit until the Mac script asks you to."
 echo

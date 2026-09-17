@@ -9,7 +9,7 @@ The same playbooks run under `ansible-playbook` on a laptop until the project is
 Playbook task order and variables: [`ansible/README.md`](../../ansible/README.md). **AAP objects:** [`ansible/aap/`](../../ansible/aap/). **Two RHEL boxes:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Admin runbook: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Denied file/port after ship: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). Fork wiring: [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md).
 
 ```text
-CLI / CI     →  RPM repo (.pp + selinux-policy-ops + <app>-selinux)
+CLI (rhel-dev)  →  RPM repo (.pp + selinux-policy-ops + <app>-selinux)
                       │
                       ▼
               AAP (Automation Controller)
@@ -80,7 +80,9 @@ bash scripts/setup_rhel_hosts.sh ping
 - **Dev** inventory: git checkout on the box + `setup_staging_env.sh`; `selinux_ops_dir` / `app_manifest_path` are **on the box** (not `playbook_dir` on the laptop); `soak_min_days: 0` is lab-only.
 - **Prod** inventory: RPMs only; `soak_min_days: 7`. Same host is `canary` and `production` until you add a fleet.
 
-Full walkthrough: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md).
+Paced talk: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) / [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`bash scripts/demo_e2e_mac.sh`). That talk shows a **clean** soak, then talk-only enforce, then `/feature-spool` outage and `emergency_rollback.yml`.
+
+## Production inventory
 
 ## Production inventory
 
@@ -99,9 +101,9 @@ Lab / checkout: [`ansible/inventory.dev.example.yml`](../../ansible/inventory.de
 - **Required toolchain:** `setools-console` is a **Requires:** of `selinux-policy-ops`. Canary, soak, and enforce **fail** if `sesearch` is missing (no silent raw-AVC fallback).
 - **Host CLI:** `monitor_avc.sh --manifest … --max-net-new 0 --format json` or `python3 cli/soak_net_new.py --manifest … --avc-file …`.
 
-## Optional: GitHub Actions
+## GitHub Actions (PR review)
 
-GHA [`selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml) runs the **same playbooks** on self-hosted `selinux-staging` / `selinux-production` runners. Treat it as an AAP-equivalent, not a different lifecycle. Compile locally with `bash scripts/compile_and_validate.sh` and [`packaging/build_rpms.sh`](../../packaging/build_rpms.sh).
+[`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) runs **`forbidden-patterns`** and **`version-consistency`** on PRs that touch `selinux/`. The deterministic generator already ran `validate_forbidden_patterns.sh`, so those jobs are expected to **pass**. Compile and canary stay on rhel-dev / AAP (`compile_and_validate.sh`, `packaging/build_rpms.sh`, playbooks above). There is no GitHub deploy or staging-canary workflow.
 
 ## First-time admin
 

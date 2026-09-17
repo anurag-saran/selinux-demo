@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# open_demo_policy_pr.sh — Optional paced-walkthrough PR (Act 4–5: admin review + CI).
+# open_demo_policy_pr.sh — Frozen 1.1.1 → 1.1.2 snapshot PR (not the live generate path).
 #
 # Frozen v1.1.1 → v1.1.2 review PR (base demo/policy-base-1.1.1).
 # Current main is policy v1.1.3; do not treat this script as the live module bump.
+# Live generate → PR: bash scripts/demo_open_generated_pr.sh
 #
 set -euo pipefail
 

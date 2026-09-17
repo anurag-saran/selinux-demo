@@ -1,6 +1,6 @@
 # SELinux PaC
 
-**The RHEL admin tool for shipping SELinux policy as code.** Developers open a PR, CI compiles and rejects dangerous allows, admins publish a signed RPM, **Ansible Automation Platform (AAP)** canaries, soaks, and enforces. The host stays **Enforcing**. Policy is a versioned product — not a one-off `audit2allow` on a box.
+**The RHEL admin tool for shipping SELinux policy as code.** Developers open a PR, CI rejects dangerous allows (`forbidden-patterns`), admins compile and publish a signed RPM, **Ansible Automation Platform (AAP)** canaries, soaks, and enforces. The host stays **Enforcing**. Policy is a versioned product — not a one-off `audit2allow` on a box.
 
 `myapp` is the **reference application** that ships with the tool. Optional labs: [docs/README.md](docs/README.md).
 
@@ -59,7 +59,7 @@ flowchart TD
   subgraph developer [Developer on rhel-dev]
     avc[App hits a denial]
     gen[deterministic_gen.py]
-    pr[PR: CI compile plus forbidden patterns]
+    pr[PR: forbidden-patterns CI]
     avc --> gen --> pr
   end
 
@@ -156,13 +156,19 @@ macOS has **no SELinux**. The Mac is the **Ansible controller**; policy still ru
 
 Those IPs are this Mac’s UTM shared network (`rhel-dev` = `192.168.64.6`, `rhel-prod` = `192.168.64.5`). Re-check with `ping` if a VM was recreated.
 
-**You are not done.** `bootstrap` only printed the next commands. Open **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)** (plain-language, one computer at a time):
+**You are not done.** `bootstrap` only printed the next commands. Run the paced lab from **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)** (plain-language, one computer at a time), especially [Present this lab (three terminals)](docs/admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals).
 
-- [Words you will see](docs/admin/RHEL_TWO_HOST.md#words-you-will-see-plain-english)
-- [Part 2 — Install the demo app on the dev VM](docs/admin/RHEL_TWO_HOST.md#part-2--install-the-demo-app-on-the-dev-vm)
-- [Present this lab (three terminals)](docs/admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals) — typewriter scripts for the Mac, rhel-dev, and rhel-prod
+**End to end (customer talk):** three Terminal windows. The Mac script is the conductor; press Enter between steps.
 
-Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod.
+| Window | Start |
+|--------|--------|
+| Mac | `cd /Users/asaran/projects/selinux-pac` then `bash scripts/demo_e2e_mac.sh` |
+| rhel-dev | `ssh ansible@192.168.64.6` — run the `--part` the Mac prints (`app`, then `generate`, later `--skip-export`) |
+| rhel-prod | `ssh ansible@192.168.64.5` — run the `--part` the Mac prints (`app`, `rpms`, `soak`, `soak-avc`, `fail`, `restore`, `retest`) |
+
+Unattended rehearsal: `bash scripts/demo_e2e_mac.sh --auto --no-type`. Talk-only: `--dry-run`. PR checks: `gh auth login`; push [`.github/workflows/selinux-policy-ci.yml`](.github/workflows/selinux-policy-ci.yml) to `main` first so `forbidden-patterns` can go green (`validate_forbidden_patterns.sh` already ran at generate time).
+
+Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod. The paced talk uses `force_enforce=true` plus a change ticket on prod so a **clean** soak can be treated as complete; `inventory.production.yml` stays at 7 days. Do **not** overlay `selinux/stub/` in this talk.
 
 ---
 
@@ -179,7 +185,7 @@ gh pr create --body-file policy_out/pr_body.md --label security --label selinux
 
 The generator classifies the denial: **file** → `.fc` + `restorecon`; **port** → `selinux_ports` in the manifest; **boolean** → host `setsebool` (not in the RPM); **new allow** → `.te` under CI forbidden-patterns. It does not auto-edit production.
 
-CI must pass `smoke-tests`, `app-manifest`, `forbidden-patterns`, `compile-policy`. CODEOWNERS (`@anurag-saran`) review `selinux/` and `ansible/`.
+CI must pass `forbidden-patterns` and `version-consistency` (the generator already ran the same forbidden-pattern check). Compile on rhel-dev with `compile_and_validate.sh`. CODEOWNERS (`@anurag-saran`) review `selinux/` and `ansible/`.
 
 New app: `bash scripts/selinux_pac_adopt.sh init payments` — [docs/developers/ONBOARDING.md](docs/developers/ONBOARDING.md).
 
@@ -204,7 +210,7 @@ docs/training/    Optional labs (run on rhel-dev)
 
 ## Safety
 
-- Never `force_enforce` without a change ticket. Never copy `soak_min_days: 0` from `inventory.dev.yml` onto prod (enforce refuses it on the `production` group).
+- Never `force_enforce` without a change ticket. Never copy `soak_min_days: 0` from `inventory.dev.yml` onto prod (enforce refuses it on the `production` group). The three-window demo may pass `force_enforce=true` with `-e change_ticket=DEMO` so the talk can finish.
 - If a file or port is denied after ship: [docs/admin/DENIAL_RESPONSE.md](docs/admin/DENIAL_RESPONSE.md) — PR + recanary, not live `semodule -i`.
 - Optional LLM polishes `pr_summary.md` only. Legacy `--legacy-full-policy` is emergency/controller-only.
 - Host CLI `apply_policy.sh` is **not** the control plane (skips AAP, RPMs, `serial: 1`).

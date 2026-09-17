@@ -1,6 +1,8 @@
 # SELinux PaC — optional hands-on labs
 
-Optional labs for teams adopting **SELinux PaC**. Each lab follows the same pattern:
+Optional labs for teams adopting **SELinux PaC**. They are **not** the customer two-host talk ([DEMO_GUIDE.md](DEMO_GUIDE.md) / [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). Labs may still install [`selinux/stub/`](../../selinux/stub/); the customer talk uses a types-only domain seed and never overlays that folder.
+
+Each lab follows the same pattern:
 
 1. **Why** — what problem this step solves in real life  
 2. **Question** — what you should be able to answer afterward  

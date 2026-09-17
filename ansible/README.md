@@ -8,7 +8,7 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 
 | What | Where |
 |------|--------|
-| `ansible-playbook …` | **Controller** (AAP execution node, laptop, or CI runner) with SSH to inventory hosts |
+| `ansible-playbook …` | **Controller** (AAP execution node or laptop) with SSH to inventory hosts |
 | `semanage`, `semodule`, soak scripts on hosts | **Target RHEL/Stream machines** in inventory |
 | `compile_and_validate.sh` before deploy | **RHEL** with `selinux-policy-devel` (typically rhel-dev) |
 
@@ -114,7 +114,7 @@ Set in inventory `vars` or pass with `-e`. Role defaults live in [`roles/selinux
 
 **Deprecated (do not use on production targets):** `project_root`, `policy_pp_path`, `policy-history/`, `rollback_target_version`.
 
-**Optional blast-radius soak tier (`check_soak_ready.sh` on controller):** pass **`--auto-tier`** with **`--base-policy`** and **`--candidate-policy`** (paths to `.te`/`.pp` for previous vs candidate module). The script calls [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) (sesearch rule diff, not `sediff`). On classifier error or `fail_closed` JSON, minimum soak stays at **`soak_min_days`** (default 7) — never shortens the gate on failure. Tier logic is gated by CI job **`blast-radius`** ([`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/)).
+**Optional blast-radius soak tier (`check_soak_ready.sh` on controller):** pass **`--auto-tier`** with **`--base-policy`** and **`--candidate-policy`** (paths to `.te`/`.pp` for previous vs candidate module). The script calls [`classify_policy_blast_radius.sh`](../scripts/classify_policy_blast_radius.sh) (sesearch rule diff, not `sediff`). On classifier error or `fail_closed` JSON, minimum soak stays at **`soak_min_days`** (default 7) — never shortens the gate on failure. Tier logic is gated by **`make test-fixtures`** ([`tests/fixtures/blast_radius/`](../tests/fixtures/blast_radius/)).
 
 **Ansible enforce role** uses **`collect_soak_facts.sh`** with `soak_min_days` plus **`avc_net_new_count`**. `sesearch` (`setools-console`) is required on canary/prod.
 
@@ -167,14 +167,7 @@ ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml \
 
 (Production inventory uses RPMs; staging/example passes `policy_pp_src` — see inventory files.)
 
-### GitHub Actions (optional)
-
-Same playbooks as AAP:
-
-- Merge to `main`: [`.github/workflows/selinux-staging-canary.yml`](../.github/workflows/selinux-staging-canary.yml)
-- Manual: **SELinux Policy Deploy** → `canary`
-
-Preferred admin UI: [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md).
+Preferred admin UI: [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md). PR review CI: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selinux-policy-ci.yml) (`forbidden-patterns`, `version-consistency`).
 
 ---
 
@@ -247,20 +240,18 @@ After an **interrupted canary** (host left on `semodule -DB` or permissive): `se
 
 ---
 
-## GitHub Actions integration (optional)
+## GitHub Actions (PR review)
 
-Same playbooks as AAP — [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md) is the preferred admin UI.
+Same playbooks as AAP for ship — [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md) is the admin UI. GitHub only runs policy best-practices on the PR:
 
-Workflow: [`.github/workflows/selinux-deploy.yml`](../.github/workflows/selinux-deploy.yml)
+Workflow: [`.github/workflows/selinux-policy-ci.yml`](../.github/workflows/selinux-policy-ci.yml)
 
-| Input | Playbook |
-|-------|----------|
-| `canary` + `staging` | `deploy_canary.yml` |
-| `canary` + `production` | `deploy_canary.yml` (`--limit canary`) |
-| `enforce` + `production` | `enforce_production.yml` |
-| `rollback` | `emergency_rollback.yml` |
+| Job | Script |
+|-----|--------|
+| `forbidden-patterns` | `validate_forbidden_patterns.sh` (generator already ran this) |
+| `version-consistency` | `validate_version_consistency.sh` |
 
-Runners: `selinux-staging` / `selinux-production` with GitHub Environments.
+Canary / enforce / rollback are AAP (or `ansible-playbook` from the Mac), not GitHub runners.
 
 ---
 
@@ -280,7 +271,7 @@ Installed by **`selinux-policy-ops`** RPM (or checkout when `selinux_ops_from_pa
 
 **Controller / CI only:** `compile_and_validate.sh`, `classify_policy_blast_radius.sh`, `cli/selinux_gen.py`, `scripts/selinux_pac_adopt.sh`.
 
-Parity guard: [`scripts/validate_rpm_ops_parity.sh`](../scripts/validate_rpm_ops_parity.sh) (CI job `rpm-ops-parity`).
+Parity guard: [`scripts/validate_rpm_ops_parity.sh`](../scripts/validate_rpm_ops_parity.sh) (`make test-rpm`).
 
 ---
 

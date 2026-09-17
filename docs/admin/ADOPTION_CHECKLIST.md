@@ -18,7 +18,7 @@ Two-host layout: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md).
 ## Repository and CI
 
 - [ ] Confirm [`.github/CODEOWNERS`](../../.github/CODEOWNERS) (`@anurag-saran` or your platform team)
-- [ ] Enable branch protection: `smoke-tests`, `compile-policy`, `forbidden-patterns`, `app-manifest`, `version-consistency`
+- [ ] Enable branch protection: `forbidden-patterns`, `version-consistency` ([`selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml); generator already ran the forbidden-pattern check)
 - [ ] Compile policy on RHEL with `selinux-policy-devel` (`dnf install selinux-policy-devel`)
 
 ## Per application
@@ -42,7 +42,7 @@ Two-host layout: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md).
 
 ## Optional
 
-- [ ] Self-hosted GHA runners `selinux-staging` / `selinux-production` for [`selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml) (same playbooks as AAP; enforce still requires `change_ticket`)
+- [ ] Two-host talk track: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) / [DEMO_GUIDE.md](../training/DEMO_GUIDE.md)
 
 ## Admin runbook
 

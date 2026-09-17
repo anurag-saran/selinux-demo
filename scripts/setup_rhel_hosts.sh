@@ -186,24 +186,29 @@ sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \\
 # Clone this repo on the box (or rsync from your laptop):
 git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-pac
 cd ~/selinux-pac
-sudo bash scripts/setup_staging_env.sh
+sudo bash scripts/setup_staging_env.sh --app-only
+sudo bash scripts/write_domain_seed.sh --load
 sudo bash scripts/selinux_pac_adopt.sh doctor
 
-Compile on rhel-dev (macOS has no selinux-policy-devel), copy the .pp back, then canary from the controller:
-  ssh ${ANSIBLE_USER}@${dev_hint} 'cd ~/selinux-pac && bash scripts/compile_and_validate.sh selinux'
-  scp ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/myapp.pp selinux/myapp.pp
+Generate on rhel-dev from AVCs, copy sources + .pp back, open a GitHub PR, then canary from the controller:
+  ssh ${ANSIBLE_USER}@${dev_hint} 'cd ~/selinux-pac && sudo bash scripts/dev_generate_policy.sh --apply && bash scripts/compile_and_validate.sh selinux'
+  scp ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/myapp.te ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/myapp.fc ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/policy_version.txt ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/myapp.pp selinux/
+  bash scripts/demo_open_generated_pr.sh
   ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 
 === PROD RHEL box (no git clone) ===
-=== Explained in docs/admin/RHEL_TWO_HOST.md section 3 ===
+=== Explained in docs/admin/RHEL_TWO_HOST.md Part 2g + Part 6 ===
 
-sudo dnf install -y policycoreutils policycoreutils-python-utils setools-console audit
+# App first (scp app/ + setup_staging_env.sh --app-only). Then RPMs for policy.
+sudo dnf install -y python3 python3-pip policycoreutils policycoreutils-python-utils setools-console audit
 # After you build RPMs on the controller:
 #   bash packaging/build_rpms.sh
 # Install selinux-policy-ops + myapp-selinux from your internal repo, then:
   ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
   ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary
-  ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml
+# Customer prod waits 7 days. Talk-only: add -e force_enforce=true (still needs a ticket).
+  ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \\
+    -e change_ticket=DEMO -e force_enforce=true
 
 Docs: docs/admin/RHEL_TWO_HOST.md
 EOF

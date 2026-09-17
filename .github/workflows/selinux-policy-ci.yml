@@ -1,0 +1,38 @@
+# Policy best-practices on every PR that touches selinux/.
+# The deterministic generator already ran validate_forbidden_patterns.sh, so
+# these jobs are expected to pass. They are a review gate, not a fail-on-purpose
+# demo step. Compile stays on rhel-dev (selinux-policy-devel).
+name: SELinux Policy CI
+
+on:
+  pull_request:
+    paths:
+      - 'selinux/**'
+      - 'scripts/validate_forbidden_patterns.sh'
+      - 'scripts/validate_version_consistency.sh'
+      - '.github/workflows/selinux-policy-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'selinux/**'
+      - 'scripts/validate_forbidden_patterns.sh'
+      - 'scripts/validate_version_consistency.sh'
+      - '.github/workflows/selinux-policy-ci.yml'
+
+jobs:
+  forbidden-patterns:
+    name: forbidden-patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate forbidden SELinux patterns
+        run: bash scripts/validate_forbidden_patterns.sh selinux
+
+  version-consistency:
+    name: version-consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify policy version single source of truth
+        run: bash scripts/validate_version_consistency.sh

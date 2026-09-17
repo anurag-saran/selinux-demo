@@ -9,7 +9,7 @@ Day-to-day runbook for **shipping SELinux policy** with application teams. Ansib
 | **New to SELinux** | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
 | **Running day-to-day deploys** | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) then [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | Phases 1–6 as your checklist |
 | **Reviewing policy PRs** | [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) §8 | PR template + CI mapping §15 |
-| **Optional training** | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) acts 6–10 | This guide from section 4 onward |
+| **Optional training** | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (two-act talk) | This guide from section 4 onward |
 
 **Learning path:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) → **this guide**. Concepts: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
 
@@ -113,19 +113,17 @@ Full timeline for beginners: [SELINUX_BASICS.md §7.5](../policy/SELINUX_BASICS.
 
 ## 4. Three deploy paths
 
-**Ansible Automation Platform (AAP) is the production path.** Click-create objects from [`ansible/aap/`](../../ansible/aap/). Compile with CLI scripts (`compile_and_validate.sh`, `packaging/build_rpms.sh`). Optional GitHub Actions can call the same playbooks. See [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md).
+**Ansible Automation Platform (AAP) is the production path.** Click-create objects from [`ansible/aap/`](../../ansible/aap/). Compile with CLI scripts (`compile_and_validate.sh`, `packaging/build_rpms.sh`). PR review is [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) (`forbidden-patterns`, `version-consistency`). See [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md).
 
 | When | Who | How |
 |------|-----|-----|
-| **PR open** | CI (automatic) | `smoke-tests`, `forbidden-patterns`, `compile-policy` |
-| **Merge / release** | Admin / optional CI | `compile_and_validate.sh` + `packaging/build_rpms.sh`; optional [`.github/workflows/selinux-staging-canary.yml`](../../.github/workflows/selinux-staging-canary.yml) |
+| **PR open** | CI (automatic) | `forbidden-patterns`, `version-consistency` ([`selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml); generator already ran the same check) |
+| **Merge / release** | Admin | `compile_and_validate.sh` + `packaging/build_rpms.sh` on rhel-dev |
 | **Production cutover** | Admin (manual) | AAP workflow **SELinux – Promote to enforce** (`enforce_production.yml`, `change_ticket` required) |
 
 Manual Ansible (`ansible-playbook` or AAP) uses the playbooks in [`ansible/`](../../ansible/) — see phases below.
 
-**Merge pipeline (optional GHA):** after `staging-canary` installs policy on a self-hosted staging runner, **`staging-endpoint-smoke`** runs `wait_for_endpoints.sh` and verifies the deploy report. This catches regressions before an admin starts prod canary.
-
-**Staging soak is scheduled Ansible, not a GitHub timer:** enable AAP job **SELinux – Soak monitor** daily. There is **no automatic enforce**. Wait 7–14 days, then run workflow **SELinux – Promote to enforce**. If soak fails: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md).
+**Staging soak is scheduled Ansible, not a GitHub timer:** enable AAP job **SELinux – Soak monitor** daily. There is **no automatic enforce**. Wait 7–14 days, then run workflow **SELinux – Promote to enforce**. If soak fails: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). The two-host talk shows a **clean** soak, then talk-only `force_enforce` so the recording can continue to the outage/rollback act.
 
 ---
 
@@ -136,15 +134,14 @@ See also: [`TESTING.md`](../developers/TESTING.md) (full endpoint → policy map
 | Phase | Goal | Command / playbook | **Pass looks like** |
 | --- | --- | --- | --- |
 | **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` on a host with `selinux-policy-devel` | `myapp.pp` built, no errors |
-| **Semantic assertions** | Required allows present in compiled module | `bash scripts/validate_policy_semantics.sh selinux` (CI `policy-semantics` job) | `sesearch` checks pass |
+| **Semantic assertions** | Required allows present in compiled module | `bash scripts/validate_policy_semantics.sh selinux` on rhel-dev | `sesearch` checks pass |
 | **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` | `Forbidden-pattern checks passed` |
 | **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp` | `File context verification passed` |
-| **Staging canary** | Permissive domain + integration smoke | Merge to `main` or `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.dev.yml` | All **six** endpoints return HTTP 200; services run as `myapp_t` / `myapp_backend_t`; deploy report `"status": "pass"` with `domain_context_verified: true` |
+| **Staging canary** | Permissive domain + integration smoke | `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.dev.yml` | All **six** endpoints return HTTP 200; services run as `myapp_t` / `myapp_backend_t`; deploy report `"status": "pass"` with `domain_context_verified: true` |
 | **Canary AVC gate** | Block canary if denials already present | `deploy_canary.yml` (default `canary_max_avc=0`) | Playbook fails if recent `myapp_t` AVC count exceeds threshold |
-| **Post-merge staging smoke** | CI re-check after canary on runner | `staging-endpoint-smoke` job in `selinux-staging-canary.yml` | `wait_for_endpoints.sh` passes; deploy report present |
 | **Permissive soak** | Capture weekly cron, logrotate, restarts (7–14 days) | `ansible/soak_monitor.yml` daily (net-new vs installed policy) | `net_new_count=0`; raw AVC count informational |
 | **Production canary host** | Deploy to one node before fleet | `deploy_canary.yml --limit canary` | Marker file written, app + backend healthy |
-| **Blast-radius tiering** | Soak minimum from policy delta (fail-closed) | `bash scripts/run_blast_radius_fixtures.sh` (CI **`blast-radius`** job) | All fixtures match `expected.json`; tier logic changes require fixture updates |
+| **Blast-radius tiering** | Soak minimum from policy delta (fail-closed) | `bash scripts/run_blast_radius_fixtures.sh` (`make test-fixtures`) | All fixtures match `expected.json`; tier logic changes require fixture updates |
 | **Enforce gate** | Automated soak + net-new + deploy report | `collect_soak_facts.sh` in `enforce_production.yml` (`soak_use_net_new: true`) | Role reports soak gate passed |
 | **Production enforce** | Remove permissive domain | `ansible/enforce_production.yml` | `semanage permissive -l` empty; **six** production smoke tests pass under enforcing |
 | **Outage response** | Instant relief + AVC capture | `ansible/emergency_rollback.yml` | Domain back in permissive list; endpoints pass; deploy report written; soak marker reset |
@@ -168,7 +165,7 @@ $ sudo semanage permissive -l
 myapp_t
 ```
 
-**Duration:** 7 to 14 days by default (`soak_min_days`). Optional **`check_soak_ready.sh --auto-tier`** adjusts the minimum using [`classify_policy_blast_radius.sh`](../../scripts/classify_policy_blast_radius.sh) (sesearch rule diff, not sediff). Tiering is **gated on** [`tests/fixtures/blast_radius/`](../../tests/fixtures/blast_radius/) — do not change tier logic without updating fixtures and passing the **`blast-radius`** CI job.
+**Duration:** 7 to 14 days by default (`soak_min_days`). Optional **`check_soak_ready.sh --auto-tier`** adjusts the minimum using [`classify_policy_blast_radius.sh`](../../scripts/classify_policy_blast_radius.sh) (sesearch rule diff, not sediff). Tiering is **gated on** [`tests/fixtures/blast_radius/`](../../tests/fixtures/blast_radius/) — do not change tier logic without updating fixtures and passing **`make test-fixtures`**.
 
 The canary playbook records a deploy timestamp at `/var/lib/myapp/selinux_canary_deployed_at` (epoch seconds), runs **`semodule -DB`** so dontaudit rules do not hide soak AVCs, and installs policy with **`semodule -i`** (in-place upgrade — no `semodule -r`). Production enforce refuses to run until soak requirements pass (unless `force_enforce=true` break-glass).
 
@@ -328,7 +325,7 @@ Production inventory uses **RPMs** (`policy_pp_src: ""`). Lab inventories pass `
 
 ## 11. Phase 6 — Emergency rollback
 
-If enforce causes an outage, run **`ansible-playbook ... ansible/emergency_rollback.yml`** (AAP **SELinux – Rollback**, or optional GitHub **SELinux Policy Deploy** → `rollback`). The playbook **sets the domain permissive first** (stock `semanage` / Ansible modules), then optional **`dnf downgrade myapp-selinux-<version>`** when `rollback_dnf_version` is set, then `semodule -B`, `restorecon`, and service restarts. It exports AVCs to **`/tmp/emergency_avc.log`**.
+If enforce causes an outage, run **`ansible-playbook ... ansible/emergency_rollback.yml`** (AAP **SELinux – Rollback**). The playbook **sets the domain permissive first** (stock `semanage` / Ansible modules), then optional **`dnf downgrade myapp-selinux-<version>`** when `rollback_dnf_version` is set, then `semodule -B`, `restorecon`, and service restarts. It exports AVCs to **`/tmp/emergency_avc.log`**.
 
 **Policy generation is controller-only:** run **`ansible/generate_emergency_patch.yml`** against a **git checkout on localhost**. It writes `policy_out/` for a PR. Do **not** run it on production hosts or `semodule -i` the output. Optional `OPENAI_API_KEY` polishes `pr_summary.md` only. See [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md).
 
@@ -338,7 +335,7 @@ Optional ops scripts (`wait_for_endpoints`, deploy report) run only when **`seli
 
 See [`ansible/emergency_rollback.yml`](../../ansible/emergency_rollback.yml), [`ansible/reset_host_state.yml`](../../ansible/reset_host_state.yml), and [`ansible/generate_emergency_patch.yml`](../../ansible/generate_emergency_patch.yml).
 
-The two-host talk track shows these commands in [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) and `scripts/demo_e2e_rhel_prod.sh`.
+The two-host talk track shows RPM install, **clean soak**, talk-only enforce, `/feature-spool` outage, and admin rollback in [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) Parts 6–7 and `scripts/demo_e2e_*.sh`. The recording may pass `force_enforce=true` plus a change ticket so prod enforce can finish after a clean soak; `soak_min_days: 7` on production inventory is unchanged.
 
 ---
 
@@ -501,29 +498,24 @@ Before you enforce on production, confirm:
 
 ## 15. CI mapping (developer PR)
 
-| Admin PR table row | CI job |
+| Admin PR table row | Where it runs |
 | --- | --- |
-| No over-permissive grants | `forbidden-patterns` |
-| Compilation test | `compile-policy` |
-| Semantic policy checks | `policy-semantics` (`sesearch` via `validate_policy_semantics.sh`) |
-| Version SSOT | `version-consistency` |
-| Policy access delta (review aid) | `policy-diff-comment` + `assemble_pr_body.sh` locally |
-| Soak tier logic (do not change without fixtures) | `blast-radius` |
-| Canary readiness | AAP **Release canary** / `deploy_canary.yml` (optional GHA `staging-canary` on merge) |
-| Post-canary endpoint smoke | `wait_for_endpoints.sh` + deploy report (`staging-endpoint-smoke` if using GHA) |
+| No over-permissive grants | GHA `forbidden-patterns` (`validate_forbidden_patterns.sh`; generator already ran this) |
+| Compilation test | `compile_and_validate.sh` on **rhel-dev** (not GitHub) |
+| Semantic policy checks | `validate_policy_semantics.sh` on **rhel-dev** |
+| Version SSOT | GHA `version-consistency` |
+| Policy access delta (review aid) | `assemble_pr_body.sh` locally |
+| Soak tier logic (do not change without fixtures) | `make test-fixtures` / `run_blast_radius_fixtures.sh` |
+| Canary readiness | AAP **Release canary** / `deploy_canary.yml` |
+| Post-canary endpoint smoke | `wait_for_endpoints.sh` + deploy report |
 | Canary AVC gate at deploy | `deploy_canary.yml` (`canary_max_avc`, default 0) |
 | Soak net-new | `soak_monitor.yml` / `collect_soak_facts.sh` (`soak_max_net_new`) |
 
-**GitHub Actions secrets (optional):**
-
-| Secret | Used by | Purpose |
-|--------|---------|---------|
-| `OPENAI_API_KEY` | `emergency_rollback.yml`, deploy workflow | Emergency policy patch generation |
-| `INCIDENT_WEBHOOK_URL` | [`.github/workflows/selinux-deploy.yml`](../../.github/workflows/selinux-deploy.yml) | POST pass/fail notification; Ansible logs uploaded as artifact on failure |
+Optional LLM polish of `pr_summary.md` uses `OPENAI_API_KEY` on the **controller** (`generate_emergency_patch.yml` / `--llm-summary`), not a GitHub deploy workflow.
 
 Packaged installs: [`packaging/myapp-selinux.spec`](../../packaging/myapp-selinux.spec) builds an RPM from `selinux/` for hosts that prefer package delivery over playbook copy.
 
-Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE.md acts 3–5](../training/DEMO_GUIDE.md).
+Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE.md](../training/DEMO_GUIDE.md).
 
 ---
 

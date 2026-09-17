@@ -64,15 +64,10 @@ labels:
 
 **CI checks (must pass before merge):**
 
-- [ ] `smoke-tests`
-- [ ] `app-manifest`
-- [ ] `forbidden-patterns`
+- [ ] `forbidden-patterns` — generator already ran `validate_forbidden_patterns.sh`; this job should be green
 - [ ] `version-consistency`
-- [ ] `compile-policy` (artifact: `selinux-myapp-pp`)
-- [ ] `policy-semantics` (`validate_policy_semantics.sh`)
-- [ ] `blast-radius` (`run_blast_radius_fixtures.sh`)
-- [ ] `ansible-lint`
-- [ ] `policy-diff-comment` (PR comment with access delta)
+
+Compile and semantics are on **rhel-dev** (`compile_and_validate.sh`, `validate_policy_semantics.sh`), not GitHub.
 
 ---
 
@@ -82,10 +77,10 @@ labels:
 
 | Security Check | Status | Notes / Approver Initials |
 | --- | --- | --- |
-| **No Over-Permissive Grants** | ⬜ Pass / ⬜ Reject | CI `forbidden-patterns` + `policy-semantics`; no `shadow_t`, `unconfined_t`, `sysadm_t`, or broad `var_t:file write` |
+| **No Over-Permissive Grants** | ⬜ Pass / ⬜ Reject | CI `forbidden-patterns`; no `shadow_t`, `unconfined_t`, `sysadm_t`, or broad `var_t:file write` |
 | **Custom Labels Enforced** | ⬜ Pass / ⬜ Reject | FHS paths `/var/lib/myapp`, `/var/log/myapp`, `/run/myapp`; dedicated types; `.fc` without `--` on dirs |
 | **Port Assignments Validated** | ⬜ Pass / ⬜ Reject | `myapp_port_t` TCP 8888, `myapp_backend_port_t` TCP 8889 (not blanket `unreserved_port_t`) |
-| **Compilation Test** | ⬜ Pass / ⬜ Reject | CI `compile-policy` artifact + refpolicy Makefile build |
+| **Compilation Test** | ⬜ Pass / ⬜ Reject | `compile_and_validate.sh` on rhel-dev |
 | **Path Labeling (restorecon -n)** | ⬜ Pass / ⬜ Reject | `scripts/verify_file_contexts.sh` passes after canary deploy (includes `/var/log/myapp`) |
 | **Domain Context Verified** | ⬜ Pass / ⬜ Reject | Deploy report shows `myapp.service` → `myapp_t`, backend → `myapp_backend_t` |
 | **Soak Period (7–14 days)** | ⬜ Pass / ⬜ Reject | AAP **Soak monitor** (`soak_monitor.yml`) daily — net-new vs installed policy; **Soak status** (`soak_status.yml`) before enforce |
@@ -97,7 +92,7 @@ labels:
 
 ### 7. Admin Action
 
-**After merge:** Compile with CLI (`bash scripts/compile_and_validate.sh`, optional `packaging/build_rpms.sh`), then AAP **SELinux – Release canary** (`ansible/deploy_canary.yml`). Optional GitHub Actions staging-canary if you have a `selinux-staging` runner.
+**After merge:** Compile with CLI (`bash scripts/compile_and_validate.sh`, optional `packaging/build_rpms.sh`), then AAP **SELinux – Release canary** (`ansible/deploy_canary.yml`).
 
 **Soak:** Daily AAP **SELinux – Soak monitor** (`ansible/soak_monitor.yml`) — zero **net-new** access needs vs installed policy. Before enforce: **Soak status** (`ansible/soak_status.yml`). If soak fails: [`docs/admin/DENIAL_RESPONSE.md`](../../docs/admin/DENIAL_RESPONSE.md) (PR + recanary, not live patch).
 
