@@ -192,7 +192,7 @@ Press Enter here when curl / returns 200." \
 
 e2e_handoff "On the DEV VM window run:
   bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part app
-That installs the app, writes a types-only domain seed, and curls the first-ship URLs (not /feature-spool).
+That installs the Flask app (no policy module), shows the git 1.1.3 myapp.te and overwrites it with a types-only 1.0.0 seed, then curls first-ship URLs (not /feature-spool).
 Press Enter here when the six probes succeed." \
     "ssh ${E2E_SSH_USER}@${DEV_HOST} 'bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part app $(e2e_auto_flags)'"
 

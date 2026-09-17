@@ -169,7 +169,7 @@ e2e_require_rhel() {
 # Do not mention or list selinux/stub/ — that path is training-labs only.
 e2e_explain_selinux_tree() {
     local root="${1:-.}"
-    tlab_explain "This folder is the policy product. Git reviews these files. Prod never clones them — it gets an RPM built from them."
+    tlab_explain "This folder is the policy product. Git reviews these files. Prod never clones them — it gets an RPM built from them. The 1.1.3 file that arrived from git was overwritten by write_domain_seed.sh; after generate --apply this is the first real allow list."
     e2e_run "ls -la '${root}/selinux/myapp.te' '${root}/selinux/myapp.fc' '${root}/selinux/policy_version.txt'"
     tlab_explain "selinux/myapp.te — type enforcement. After write_domain_seed.sh this is types + systemd transition only. After generate --apply it is the first real allow list from AVCs."
     tlab_explain "selinux/myapp.fc — file_contexts: which path gets which type. restorecon applies this. The generator adds rows when AVCs show unlabeled or wrong-type files."

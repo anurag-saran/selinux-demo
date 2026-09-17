@@ -186,7 +186,9 @@ sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \\
 # Clone this repo on the box (or rsync from your laptop):
 git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-pac
 cd ~/selinux-pac
+# Flask only — no semodule. Git myapp.te 1.1.x is a CI snapshot; next line overwrites it.
 sudo bash scripts/setup_staging_env.sh --app-only
+# Types-only 1.0.0 seed + semanage permissive. First real allows come from generate --apply.
 sudo bash scripts/write_domain_seed.sh --load
 sudo bash scripts/selinux_pac_adopt.sh doctor
 

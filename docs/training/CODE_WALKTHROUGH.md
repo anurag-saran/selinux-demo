@@ -226,7 +226,7 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`selinux_pac_adopt.sh`** | `doctor` + `init APP` — print manifest and **Ansible** next steps. |
 | **`setup_rhel_hosts.sh`** | Write `inventory.dev.yml` / `inventory.production.yml`; ping; doctor; bootstrap hints. |
 | **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_dev.sh`** / **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (domain seed → generate → PR → clean soak → enforce; `/feature-spool` fails on prod; admin rollback). |
-| **`write_domain_seed.sh`** | Types + file_contexts for `myapp_t` (customer demo). Optional `--load`. |
+| **`write_domain_seed.sh`** | Overwrites `selinux/myapp.te` with a types-only 1.0.0 seed (not the git 1.1.x product). `--load` compiles it and `semanage permissive`. First real allows come from `dev_generate_policy.sh --apply`. |
 | **`demo_open_generated_pr.sh`** | Open a GitHub PR from live generated `selinux/` (Mac, after scp from rhel-dev). Not the frozen `open_demo_policy_pr.sh`. |
 | **`assemble_pr_body.sh`** | Builds GitHub PR description from template + summary + optional rule diff. |
 | **`setup_staging_env.sh`** | Prepare a Linux host for the demo (root). |
@@ -272,7 +272,7 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 |--------|------|
 | **`run_training_lab.sh`** | Guided lab talk track on **rhel-dev** (Lab 7 uses staged probes). |
 | **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_dev.sh`**, **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
-| **`write_domain_seed.sh`** | Types-only `myapp` seed for the customer talk (`--load` compiles it). |
+| **`write_domain_seed.sh`** | Overwrites git `myapp.te` with a types-only 1.0.0 seed; `--load` compiles it. |
 | **`demo_open_generated_pr.sh`** | Live generate → GitHub PR (needs `gh`). |
 | **`run_demo.sh`** | Optional native-host walkthrough. |
 | **`lib/integration_probes.sh`** | All reference-app curls in one pass; optional AVC preview. |

@@ -85,7 +85,7 @@ part_app() {
     e2e_run "sudo bash ${APP_BUNDLE}/scripts/setup_staging_env.sh --app-only"
     e2e_run "getenforce"
     e2e_run "systemctl is-active myapp.service myapp-backend.service"
-    e2e_run "curl -sf -o /dev/null http://127.0.0.1:8888/ && echo 'HTTP 200 /'"
+    e2e_run 'ok=0; for i in $(seq 1 30); do if curl -sf -o /dev/null http://127.0.0.1:8888/; then echo HTTP 200 /; ok=1; break; fi; sleep 2; done; test "${ok}" = 1'
     tlab_checkpoint "App is up. Go back to the Mac. Policy is not installed yet."
 }
 

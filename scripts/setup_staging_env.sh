@@ -287,7 +287,7 @@ restore_contexts() {
 }
 
 wait_for_service() {
-    bash "${SCRIPT_DIR}/wait_for_endpoints.sh" --host 127.0.0.1 --retries 15 --delay 1 \
+    bash "${SCRIPT_DIR}/wait_for_endpoints.sh" --host 127.0.0.1 --retries 30 --delay 2 \
         --skip-domain-check \
         || log_warn "Services did not respond yet. Check: systemctl status myapp-backend ${SERVICE_NAME}"
 }

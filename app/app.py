@@ -444,5 +444,11 @@ def rotate_log():
 if __name__ == "__main__":
     # Binding to 0.0.0.0:8888 may log tcp_socket name_bind AVC for myapp_t
     # until corenet_tcp_bind_all_unreserved_ports or port-specific rule is added.
+    # make_server binds immediately. Flask app.run() can stall ~20s on
+    # socket.getfqdn() when the VM has slow or broken DNS.
+    from werkzeug.serving import make_server
+
     logger.info("Starting Order Processor on %s:%s", APP_HOST, APP_PORT)
-    app.run(host=APP_HOST, port=APP_PORT, debug=False)
+    httpd = make_server(APP_HOST, APP_PORT, app, threaded=True)
+    logger.info("Listening on %s:%s", APP_HOST, APP_PORT)
+    httpd.serve_forever()

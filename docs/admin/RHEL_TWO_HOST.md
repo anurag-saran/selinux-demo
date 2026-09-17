@@ -152,7 +152,7 @@ The SSH user `ansible` needs sudo on the VMs (no password, or Ansible will ask).
 
 ## Part 2 — Install the app and a types-only domain seed
 
-The Mac still has no SELinux. The **demo website** lives on `192.168.64.6` (and, in Part 2g, on prod). Install the Flask app with `--app-only` (no SELinux module). Then write a **types-only domain seed** so systemd can start `myapp_t`. Permissive is `semanage`, not extra allows in the `.te`. Generate writes the first real policy from AVCs.
+The Mac still has no SELinux. The **demo website** lives on `192.168.64.6` (and, in Part 2g, on prod). GitHub has a last-shipped `selinux/myapp.te` so CI can lint a real file — **that is not the policy this VM is running.** Install the Flask app with `--app-only` (no SELinux module). Overwrite the git file with a **types-only domain seed** so systemd can start `myapp_t`. Permissive is `semanage`, not extra allows in the `.te`. Part 3 generates the first real allow list from AVCs.
 
 ### 2a. Log into the dev VM
 
@@ -202,36 +202,85 @@ git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-pac
 
 (The Mac talk track rsyncs instead of clone when the tree already exists.)
 
-### 2d. Install the app (no policy module)
+### 2d. Install the app, then write a types-only seed (from scratch)
 
-**Type this on: the dev VM**
+**Type this on: the dev VM.** Each command is explained before you run the next one.
+
+The checkout includes `selinux/myapp.te` version **1.1.3** (a previous generated product, so GitHub Actions has something to lint). **Do not canary that file.** We overwrite it, then generate a new allow list from denials on this box.
 
 ```bash
 cd ~/selinux-pac
+```
+
+**What it does:** Makes this VM’s copy of the project the working directory (`~/selinux-pac`, not `/Users/...` on the Mac).
+
+```bash
+echo '--- file from git (source control, not what we load) ---'
+head -8 selinux/myapp.te
+echo '--- what the kernel has loaded ---'
+sudo semodule -l | grep myapp || echo 'Good: no myapp module loaded'
+```
+
+**What it does:** `head` shows the git snapshot (`policy_module(myapp, 1.1.3)` and many `allow` lines). That file arrived with rsync/clone. `semodule -l` is what SELinux is actually running. Empty/`Good` means we start from scratch. A leftover `myapp` line is last week’s demo — the seed command replaces it.
+
+**You should see:** version **1.1.3** in the file, and either no `myapp` module or an old leftover.
+
+```bash
 sudo bash scripts/setup_staging_env.sh --app-only
 ```
 
-**What it does:** Installs a tiny website at `/opt/myapp` and starts `myapp` and `myapp-backend`. It does **not** load a SELinux module.
+**What it does:** Copies the Flask app to `/opt/myapp`, creates the `myapp` user, installs systemd units, and starts `myapp` + `myapp-backend`. `--app-only` means it does **not** compile policy and does **not** `semodule -i`.
 
-Then write types + file labels and load them. `semanage permissive` logs denials without blocking:
+**You should see:** `SELinux mode: Enforcing`, then services starting. Ignore a short “endpoint not ready” if Flask is still binding; the later `systemctl` / `curl` checks confirm it.
 
 ```bash
 sudo bash scripts/write_domain_seed.sh --load
+```
+
+**What it does:** **Overwrites** `selinux/myapp.te`, `myapp.fc`, and `policy_version.txt` with a **1.0.0 domain seed**: type names (`myapp_t`, …), file labels, and only the rules systemd needs to start the binary as `myapp_t`. That is a domain, **not** an application allow list (no ports, logs, scripts, spool). `--load` compiles, `semodule -i`s that seed, then `semanage permissive -a myapp_t` so denials are logged without blocking. Permissive is **not** written into the `.te`.
+
+**You should see:** `Wrote … domain seed 1.0.0` and `Loaded domain seed; myapp_t is permissive via semanage`.
+
+```bash
 head -20 selinux/myapp.te
 cat selinux/policy_version.txt
 ```
 
-**You should see:** `policy_module(myapp, 1.0.0)` and types / `init_daemon_domain` — **not** a page of extra `allow` lines, and **not** `permissive myapp_t` inside the `.te`.
+**What it does:** Proves the git **1.1.3** file is gone. You are looking at the seed we just wrote.
 
-Then:
+**You should see:** `policy_module(myapp, 1.0.0)` and types / `init_daemon_domain` — **not** a page of extra `allow` lines, and **not** `permissive myapp_t` inside the `.te`. `policy_version.txt` is `1.0.0`.
 
 ```bash
 sudo bash scripts/selinux_pac_adopt.sh doctor
+```
+
+**What it does:** Health check: SELinux is on, `ausearch`/`sesearch` exist, and the app paths (`/opt/myapp`, logs, runtime) are present. It does not generate policy.
+
+**You should see:** checks passing (or a short note if a path is missing).
+
+```bash
 getenforce
+```
+
+**What it does:** Prints the **host-wide** SELinux mode. The whole OS stays Enforcing. Only the demo app domain is permissive, and that flag lives in `semanage`, not in `myapp.te`.
+
+**You should see:** `Enforcing`.
+
+```bash
+sudo semanage permissive -l | grep myapp || true
+```
+
+**What it does:** Lists domains that are log-but-do-not-block. This is the “from scratch” discovery mode.
+
+**You should see:** `myapp_t` (and usually `myapp_backend_t`).
+
+```bash
 systemctl is-active myapp.service myapp-backend.service
 ```
 
-**You should see:** `Enforcing`, and `active` twice.
+**What it does:** Asks systemd whether both units are running. This is the website, not SELinux.
+
+**You should see:** `active` twice.
 
 ### 2e. Customer-visible files under `selinux/` on rhel-dev
 
@@ -239,7 +288,7 @@ Say this while `ls selinux/myapp.te selinux/myapp.fc selinux/policy_version.txt`
 
 | File | What it is |
 |------|------------|
-| **`myapp.te`** | Type enforcement. After `write_domain_seed.sh` this is types + systemd transition only. After `dev_generate_policy.sh --apply` it is the first real allow list from AVCs. |
+| **`myapp.te`** | Type enforcement. GitHub’s copy is last week’s product (today: 1.1.3) for CI. After `write_domain_seed.sh` **this VM’s file** is types + systemd transition only (1.0.0). After `dev_generate_policy.sh --apply` it is the first real allow list from AVCs. |
 | **`myapp.fc`** | `file_contexts`: which path gets which type. `restorecon` applies this. The generator adds rows when AVCs show unlabeled or wrong-type files. |
 | **`policy_version.txt`** | One line, kept in lockstep with `policy_module(myapp, X.Y.Z)` inside the `.te`. PRs and the `myapp-selinux` RPM bump this. |
 | **`myapp.pp`** | Compiled binary (**gitignored**). Built on rhel-dev only. Copied to the Mac so Ansible can ship it. A Mac cannot compile SELinux. |
@@ -260,8 +309,15 @@ for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; d
   curl -sf "http://127.0.0.1:8888${path}" | head -c 80
   echo
 done
+```
+
+**What it does:** Exercises every URL the **first** policy must allow. Each request may still succeed because `myapp_t` is permissive; SELinux writes an AVC (audit line) for anything the seed does not allow. Those lines are the input to generate.
+
+```bash
 curl -sf http://127.0.0.1:8889/health; echo
 ```
+
+**What it does:** Checks the sidecar backend on port 8889.
 
 **You should see:** JSON from each path. Under the types-only seed plus `semanage permissive`, the app succeeds; audit still records denials.
 
@@ -271,13 +327,27 @@ Stay on rhel-dev for Part 3 (or go back to the Mac so the typewriter can hand of
 
 **Type this on: the prod VM** (after the Mac has copied `~/e2e-demo/app` and `scripts/setup_staging_env.sh`)
 
+No git clone. No domain seed on prod. Policy arrives later as an RPM.
+
 ```bash
 sudo dnf install -y python3 policycoreutils policycoreutils-python-utils
+```
+
+**What it does:** Python to run Flask. `policycoreutils` is already on RHEL for later RPM/semodule work. We are **not** compiling policy on prod (`selinux-policy-devel` stays off this box).
+
+```bash
 sudo bash ~/e2e-demo/scripts/setup_staging_env.sh --app-only
+```
+
+**What it does:** Same app install as on rhel-dev, from the files the Mac scp’d into `~/e2e-demo`. No `semodule -i`.
+
+```bash
 curl -sf -o /dev/null http://127.0.0.1:8888/ && echo 'HTTP 200'
 ```
 
-No git clone. No domain seed on prod. Policy arrives later as an RPM.
+**What it does:** Confirms the website answers before any SELinux RPM is installed.
+
+**You should see:** `HTTP 200`.
 
 ---
 
@@ -292,15 +362,35 @@ Then **on the dev VM** (use `sudo` — the security log is root-only, and `polic
 
 ```bash
 cd ~/selinux-pac
+```
+
+**What it does:** Same as 2d — work in this VM’s tree.
+
+```bash
 sudo restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp
+```
+
+**What it does:** Applies the labels already listed in `myapp.fc`. Relabel denials are a labeling fix, not missing `allow` lines. Do this before generate so the AVC log is about real app actions.
+
+```bash
 sudo bash scripts/dev_generate_policy.sh --apply
+```
+
+**What it does:** This is the **from-scratch allow list**. `ausearch` exports denials → the generator writes candidate `.te`/`.fc` under `policy_out/` → `--apply` copies them over the 1.0.0 seed in `selinux/`. You now have the first real policy, produced from this box’s audit log, not from the git 1.1.3 file.
+
+```bash
 bash scripts/compile_and_validate.sh selinux
+```
+
+**What it does:** Compiles `.te`/`.fc` into `selinux/myapp.pp` on Linux (a Mac cannot). Also runs the forbidden-pattern check the GitHub Action will run later.
+
+```bash
 ls -l selinux/myapp.te selinux/myapp.fc selinux/policy_version.txt selinux/myapp.pp
 head -30 selinux/myapp.te
 ls policy_out
 ```
 
-**What it does:** Reads the “SELinux said no” log (`ausearch`) and writes allow rules into **this VM’s** `selinux/`. `--apply` copies them from `policy_out/`. Compile turns `.te`/`.fc` into `myapp.pp`.
+**What it does:** Show the generated sources, the bumped version, the compiled `.pp`, and `policy_out/` (`avc.log`, `pr_body.md`).
 
 **You should see:** new allow lines (not “nothing new” against last week’s 1.1.x module), `Built selinux/myapp.pp`, and `policy_out/pr_body.md`.
 

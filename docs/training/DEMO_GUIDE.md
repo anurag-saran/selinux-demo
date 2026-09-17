@@ -52,7 +52,7 @@ GitHub PR after generate (Mac, needs `gh auth login`): `bash scripts/demo_open_g
 
 | Act | What you show |
 |-----|----------------|
-| **1 — from scratch** | Types-only domain seed on rhel-dev → curl six first-ship URLs → generate first real `.te` → copy to Mac → **GitHub PR** (CI `forbidden-patterns` green) → canary/enforce on dev → RPMs on prod → canary → **soak: HTTP 200, AVC file clean** (`soak_monitor` passes) → talk-only prod enforce (treat soak as complete) |
+| **1 — from scratch** | On rhel-dev: **overwrite** git `myapp.te` with a types-only seed → curl six first-ship URLs → generate first real `.te` from AVCs → copy to Mac → **GitHub PR** (CI `forbidden-patterns` green) → canary/enforce on dev → RPMs on prod → canary → **soak: HTTP 200, AVC file clean** (`soak_monitor` passes) → talk-only prod enforce (treat soak as complete) |
 | **2 — outage, restore, PaC** | `curl /feature-spool` on **rhel-prod** returns **500** → `emergency_rollback.yml` (`myapp_t` permissive; host still Enforcing) → app **200** again → copy AVC log to rhel-dev → generate `--skip-export` → **second PR** → recanary prod (`soak_monitor` should pass) → curl succeeds under the new module |
 
 Do **not** canary the committed `1.1.x` module before generate. Do **not** overlay or mention `selinux/stub/` (training labs only).
@@ -65,7 +65,7 @@ Full table: [RHEL_TWO_HOST.md §2e](../admin/RHEL_TWO_HOST.md#2e-customer-visibl
 
 | Path | One line |
 |------|----------|
-| `myapp.te` / `.fc` | Seed = types + labels; after `--apply` = generated allows |
+| `myapp.te` / `.fc` | Git 1.1.3 is last week’s product (CI only). Seed overwrites to types + labels; after `--apply` = generated allows |
 | `policy_version.txt` | Lockstep with `policy_module()`; RPM/PR bump |
 | `myapp.pp` | Compiled on rhel-dev only (gitignored) |
 | `myapp_ports.cil` | Optional FCOS portcon; RHEL canary uses seport |
