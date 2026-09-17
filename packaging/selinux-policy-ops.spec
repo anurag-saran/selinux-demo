@@ -1,6 +1,6 @@
 Name:           selinux-policy-ops
 Version:        1.1.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Shared SELinux deploy/readiness scripts (app-independent)
 License:        MIT
 URL:            https://github.com/anurag-saran/selinux-pac
@@ -58,8 +58,11 @@ install -m 0644 %{_builddir}/selinux-policy-ops-src/lib/pac_cli/*.py \
 %{_libexecdir}/selinux-policy-ops/lib/pac_cli/*
 
 %changelog
+* Wed Sep 16 2026 SELinux PaC maintainers <maintainer@example.com> - 1.1.0-2
+- monitor_avc: net-new stays 0 when there are no matching AVCs (same-NVR lab reinstalls)
+
 * Mon Mar 16 2026 SELinux PaC maintainers <maintainer@example.com> - 1.1.0-1
 - Add soak net-new AVC analysis, check_soak_ready, manifest_shell
 
-* Sun Sep 13 2026 SELinux PaC maintainers <maintainer@example.com> - 1.0.0-1
+* Sat Sep 13 2025 SELinux PaC maintainers <maintainer@example.com> - 1.0.0-1
 - Initial shared ops package for target-side readiness scripts

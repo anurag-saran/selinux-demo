@@ -60,12 +60,22 @@ e2e_run "sudo dnf install -y policycoreutils policycoreutils-python-utils setool
 tlab_pause
 
 if compgen -G "${HOME}/selinux-policy-ops-*.rpm" >/dev/null && compgen -G "${HOME}/myapp-selinux-*.rpm" >/dev/null; then
-    tlab_explain "localinstall puts ops scripts in /usr/libexec/selinux-policy-ops and the manifest in /etc/myapp/."
-    e2e_run "sudo dnf localinstall -y ${HOME}/selinux-policy-ops-*.rpm ${HOME}/myapp-selinux-*.rpm"
+    newest_ops="$(ls -1 "${HOME}"/selinux-policy-ops-*.rpm | sort -V | tail -1)"
+    newest_app="$(ls -1 "${HOME}"/myapp-selinux-*.rpm | sort -V | tail -1)"
+    tlab_explain "rpm -Uvh --force installs or replaces with the newest files in ~. dnf localinstall is a no-op for the same version, which left stale ops scripts on this box."
+    e2e_run "sudo rpm -Uvh --force ${newest_ops} ${newest_app}"
+elif rpm -q selinux-policy-ops myapp-selinux >/dev/null 2>&1; then
+    tlab_explain "Both RPMs are already installed from an earlier run, and there is no new pair in ~. We skip localinstall."
 else
+    if [[ "${TLAB_AUTO}" -eq 1 ]]; then
+        echo "RPMs are not in ${HOME} and not installed. On the Mac, finish packaging/build_rpms.sh and scp, then re-run this script." >&2
+        exit 1
+    fi
     tlab_why "RPMs are not in ~ yet. Go to the Mac window, finish scp, then press Enter here."
     tlab_pause
-    e2e_run "sudo dnf localinstall -y ${HOME}/selinux-policy-ops-*.rpm ${HOME}/myapp-selinux-*.rpm"
+    newest_ops="$(ls -1 "${HOME}"/selinux-policy-ops-*.rpm | sort -V | tail -1)"
+    newest_app="$(ls -1 "${HOME}"/myapp-selinux-*.rpm | sort -V | tail -1)"
+    e2e_run "sudo rpm -Uvh --force ${newest_ops} ${newest_app}"
 fi
 
 e2e_run "rpm -q selinux-policy-ops myapp-selinux"

@@ -35,6 +35,7 @@
   when:
     - soak_use_net_new | default(true) | bool
     - soak_monitor.avc_fail_closed | default(false) | bool
+    - (soak_monitor.count | default(0) | int) > 0
 
 - name: Soak monitor summary
   ansible.builtin.debug:

@@ -5,6 +5,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="${ROOT}/dist"
 RPMBUILD="${ROOT}/packaging/rpmbuild"
+
+if ! command -v rpmbuild >/dev/null 2>&1; then
+    if [[ "$(uname -s)" == Darwin && "${BUILD_RPMS_LOCAL:-0}" != 1 ]]; then
+        echo "rpmbuild is not on macOS — compiling and packing on rhel-dev, then copying dist/*.rpm back here." >&2
+        exec bash "${ROOT}/scripts/build_rpms_on_dev.sh"
+    fi
+    echo "Note: rpmbuild not found; validating spec parity only" >&2
+    bash "${ROOT}/scripts/validate_rpm_ops_parity.sh"
+    exit 0
+fi
+
 # shellcheck source=../scripts/lib/version.sh
 source "${ROOT}/scripts/lib/version.sh"
 VERSION="$(policy_version "${ROOT}/selinux/policy_version.txt")"
@@ -42,21 +53,15 @@ cp "${ROOT}/config/myapp.manifest.yml" "${RPMBUILD}/SOURCES/selinux-manifest.yml
 rpmbuild -ba \
   --define "_topdir ${RPMBUILD}" \
   --define "_sourcedir ${RPMBUILD}/SOURCES" \
-  "${RPMBUILD}/SPECS/selinux-policy-ops.spec" \
-  2>/dev/null || {
-  echo "Note: full rpmbuild may require RHEL; validating spec parity only" >&2
-  exit 0
-}
+  "${RPMBUILD}/SPECS/selinux-policy-ops.spec"
 
 rpmbuild -ba \
   --define "_topdir ${RPMBUILD}" \
   --define "_sourcedir ${RPMBUILD}/SOURCES" \
   --define "modver ${VERSION}" \
-  "${RPMBUILD}/SPECS/myapp-selinux.spec" \
-  2>/dev/null || {
-  echo "Note: myapp-selinux rpmbuild may require RHEL; modver=${VERSION}" >&2
-  exit 0
-}
+  "${RPMBUILD}/SPECS/myapp-selinux.spec"
 
+rm -f "${DIST}"/*.rpm
 find "${RPMBUILD}/RPMS" -name '*.rpm' -exec cp {} "${DIST}/" \;
 echo "Built RPMs in ${DIST}/"
+ls -l "${DIST}"/*.rpm

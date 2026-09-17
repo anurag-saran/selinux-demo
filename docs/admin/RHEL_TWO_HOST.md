@@ -33,7 +33,7 @@ Open **three** Terminal windows. Each script types the explanation, types the co
 
 The Mac script copies the VM talk tracks over SSH. Stay in the window whose prompt matches the table. Do not run `ssh ansible@192.168.64.6` from inside rhel-dev.
 
-`bash scripts/demo_e2e_mac.sh --auto` skips the Enter pauses (recording).
+`bash scripts/demo_e2e_mac.sh --auto --no-type` skips the Enter pauses and runs the rhel-dev / rhel-prod talk tracks over SSH (recording / unattended).
 
 ---
 
@@ -157,7 +157,7 @@ ssh ansible@192.168.64.6
 | `policycoreutils` + `policycoreutils-python-utils` | Load SELinux rules and labels |
 | `setools-console` | `sesearch` — “is this already allowed?” |
 | `audit` | `ausearch` — read the “permission denied” log |
-| `selinux-policy-devel` | Build rules **on Linux** (the Mac uses a container instead) |
+| `selinux-policy-devel` | Build rules **on Linux** (the Mac cannot compile; copy `myapp.pp` back for Ansible) |
 
 ```bash
 sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \
@@ -229,6 +229,13 @@ bash scripts/compile_and_validate.sh selinux
 **What it does:** Turns the human-readable rules (`.te` / `.fc`) into a file the VM can load (`selinux/myapp.pp`). Needs `selinux-policy-devel` on this Linux host (a Mac cannot compile SELinux).
 
 **You should see:** `Built selinux/myapp.pp` and `ls selinux/myapp.pp` on rhel-dev.
+
+Then **on the Mac**, copy the package back so Ansible (controller path `policy_pp_src`) can ship it:
+
+```bash
+cd /Users/asaran/projects/selinux-pac
+scp ansible@192.168.64.6:~/selinux-pac/selinux/myapp.pp selinux/myapp.pp
+```
 
 ### 3b. Canary (install rules in safe mode)
 

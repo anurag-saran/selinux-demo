@@ -15,6 +15,7 @@ all:
       ansible_host: rhel-dev.example.com
       ansible_user: ansible
       ansible_become: true
+      ansible_python_interpreter: /usr/bin/python3
   vars:
     app_name: myapp
     domain: myapp_t

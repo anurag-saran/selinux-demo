@@ -67,6 +67,7 @@ all:
       ansible_host: ${DEV_HOST}
       ansible_user: ${ANSIBLE_USER}
       ansible_become: true
+      ansible_python_interpreter: /usr/bin/python3
   vars:
     app_name: myapp
     domain: myapp_t
@@ -107,6 +108,7 @@ all:
       ansible_host: ${PROD_HOST}
       ansible_user: ${ANSIBLE_USER}
       ansible_become: true
+      ansible_python_interpreter: /usr/bin/python3
   vars:
     app_name: myapp
     domain: myapp_t
@@ -187,8 +189,9 @@ cd ~/selinux-pac
 sudo bash scripts/setup_staging_env.sh
 sudo bash scripts/selinux_pac_adopt.sh doctor
 
-From the controller (laptop or AAP), compile then canary against DEV:
-  bash scripts/compile_and_validate.sh selinux
+Compile on rhel-dev (macOS has no selinux-policy-devel), copy the .pp back, then canary from the controller:
+  ssh ${ANSIBLE_USER}@${dev_hint} 'cd ~/selinux-pac && bash scripts/compile_and_validate.sh selinux'
+  scp ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/myapp.pp selinux/myapp.pp
   ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 
 === PROD RHEL box (no git clone) ===

@@ -10,7 +10,7 @@ Present the two-host lab with the typewriter scripts. Day-to-day work starts at 
 | rhel-dev | `bash scripts/demo_e2e_rhel_dev.sh` | SSH session on the dev VM |
 | rhel-prod | `bash scripts/demo_e2e_rhel_prod.sh` | SSH session on the prod VM |
 
-Flags: `--dry-run` (talk track only), `--auto` (no pauses), `--no-type` (no typewriter).
+Flags: `--dry-run` (talk track only), `--auto` (no pauses; the Mac script also SSHs and runs the VM talk tracks), `--no-type` (no typewriter).
 
 Optional hands-on labs (on **rhel-dev**, not macOS): [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md).
 
