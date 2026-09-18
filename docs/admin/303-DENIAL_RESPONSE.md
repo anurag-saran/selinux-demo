@@ -1,4 +1,4 @@
-# When a file or port is denied after ship
+# 303 — Denial response
 
 Host stays **Enforcing**. Only the app domain may be permissive (canary soak). Do not live-patch prod.
 
@@ -7,13 +7,13 @@ Host stays **Enforcing**. Only the app domain may be permissive (canary soak). D
 `soak_monitor.yml` fails on **net-new**. Do **not** run Enforce.
 
 1. Copy `/var/lib/<app>/selinux_soak_last_fail.json` and `selinux_soak_last_fail.avc` off the host.
-2. On **rhel-qa**: `bash scripts/dev_generate_policy.sh` (deterministic generator). It refuses to run if vendor/base policy already covers the app (JWS, EAP, httpd, …); install that RPM or tune booleans instead of generating a duplicate. `--force` only if the app genuinely differs. Customer: generate in the **app** repo checkout on QA, then PR that repo.
+2. On **rhel-qa**: `bash scripts/dev_generate_policy.sh` (deterministic generator). It refuses to run if vendor/base policy already covers the app (JWS, EAP, httpd, …). If the situation is `loaded` or `base_policy`, re-run with `--tune-report` for host commands (`semanage fcontext`, `setsebool`, `semanage port`) — that does not write a module. `--force "reason"` only if the app genuinely differs (reason is recorded on the PR). Customer: generate in the **app** repo checkout on QA, then PR that repo.
 3. PR → CI (`forbidden-patterns`, `version-consistency`) → CODEOWNERS → signed RPM.
 4. AAP **SELinux – Release canary** (recanary). Soak clock resets.
 
 ## Already enforced (app is down)
 
-AAP **SELinux – Rollback** (`emergency_rollback.yml`): domain back to permissive, optional RPM downgrade. Then the same PR path. Never `setenforce 0`. The two-host talk ([RHEL_TWO_HOST.md](RHEL_TWO_HOST.md)) shows this after a **clean** soak and talk-only enforce, then shopapi `/feature-spool` 500 on **:8091**.
+AAP **SELinux – Rollback** (`emergency_rollback.yml`): domain back to permissive, optional RPM downgrade. Then the same PR path. Never `setenforce 0`. The two-host talk ([203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md)) shows this after a **clean** soak and talk-only enforce, then shopapi `/feature-spool` 500 on **:8091**.
 
 ## What to change in git
 

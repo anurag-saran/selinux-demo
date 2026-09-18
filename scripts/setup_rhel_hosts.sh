@@ -20,7 +20,7 @@ usage() {
 Usage: $(basename "$0") <subcommand> [options]
 
 Two RHEL boxes is the default lab: one **QA** (AVC discovery / generate) and
-one **prod** (canary → soak → enforce). See docs/admin/RHEL_TWO_HOST.md.
+one **prod** (canary → soak → enforce). See docs/admin/203-RHEL_TWO_HOST.md.
 
 Subcommands:
   write     Write ansible/inventory.dev.yml (QA host rhel-qa) and inventory.production.yml
@@ -89,7 +89,6 @@ all:
     soak_max_avc: 0
     soak_max_net_new: 0
     soak_use_net_new: true
-    selinux_pac_install_demo_units: false
     http_probe_host: "127.0.0.1"
 EOF
 
@@ -181,7 +180,7 @@ print_bootstrap() {
     fi
     cat <<EOF
 === Bootstrap the QA RHEL box (run over SSH as a user with sudo) ===
-=== Next: docs/admin/RHEL_TWO_HOST.md (look at the prompt: Mac vs rhel-qa) ===
+=== Next: docs/admin/203-RHEL_TWO_HOST.md (look at the prompt: Mac vs rhel-qa) ===
 
 ssh ${ANSIBLE_USER}@${dev_hint}
 sudo dnf install -y git java-17-openjdk-headless maven python3 python3-pyyaml \\
@@ -190,7 +189,7 @@ sudo dnf install -y git java-17-openjdk-headless maven python3 python3-pyyaml \\
 git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-pac
 cd ~/selinux-pac
 # Spring Boot shopapi + types-only seed (SELinuxContext=shopapi_t, permissive).
-# Do not install Flask. Do not curl /feature-spool yet.
+# Do not curl /feature-spool yet.
 sudo bash scripts/demo_bootstrap.sh --shopapi-only
 sudo bash scripts/selinux_pac_adopt.sh doctor
 
@@ -202,10 +201,10 @@ open a GitHub PR on selinux-pac, then canary from the controller:
   ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 
 === PROD RHEL box (no git clone) ===
-=== Explained in docs/admin/RHEL_TWO_HOST.md ===
+=== Explained in docs/admin/203-RHEL_TWO_HOST.md ===
 
 # App first (scp demo/shopapi + demo_bootstrap.sh --shopapi-only --no-seed --unconfined).
-# Then RPMs for policy. Do not install Flask.
+# Then RPMs for policy.
 sudo dnf install -y java-17-openjdk-headless python3 python3-pyyaml \\
   policycoreutils policycoreutils-python-utils setools-console audit
 # After you build RPMs on the controller (or rhel-qa):
@@ -217,7 +216,7 @@ sudo dnf install -y java-17-openjdk-headless python3 python3-pyyaml \\
   ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml \\
     -e change_ticket=DEMO -e force_enforce=true
 
-Docs: docs/admin/RHEL_TWO_HOST.md
+Docs: docs/admin/203-RHEL_TWO_HOST.md
 EOF
 }
 

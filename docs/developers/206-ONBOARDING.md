@@ -1,10 +1,10 @@
-# Onboarding an application
+# 206 — Onboarding an application
 
 **Customer layout:** policy lives in **the application GitHub repo**, not in selinux-pac. Generate and compile on a **QA** RHEL box (`rhel-qa`). Admins ship a signed RPM and promote with AAP. **Prod never clones git.**
 
-This repository is the **platform** (generator, forbidden-pattern CI, Ansible/AAP, ops RPM). The live two-host demo application is **shopapi** (`demo/shopapi/`, `selinux/shopapi/`) — policy PRs land **here**. Flask `app/` and `selinux/myapp.te` remain **fixtures** for tests and optional training labs.
+This repository is the **platform** (generator, forbidden-pattern CI, Ansible/AAP, ops RPM). The live two-host demo application is **shopapi** (`demo/shopapi/`, `selinux/shopapi/`) — policy PRs land **here**. `selinux/myapp.te` and `config/myapp.manifest.yml` remain **offline generator goldens** for `make check`.
 
-**Prerequisites:** [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). Deploy: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md). Two-host lab: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). Org checklist: [ADOPTION_CHECKLIST.md](../admin/ADOPTION_CHECKLIST.md).
+**Prerequisites:** [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). Deploy: [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md). Prod AVC: [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md). Two-host lab: [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md). Org checklist: [304-ADOPTION_CHECKLIST.md](../admin/304-ADOPTION_CHECKLIST.md).
 
 ---
 
@@ -26,7 +26,7 @@ On **rhel-qa** (first confine or a new feature):
 
 1. Deploy **this** app build (no module, or last shipped module).
 2. First confine: run unconfined, show the AVC log is empty / not `app_t`, then create the domain (types + labels). Later features: old module + new endpoint → net-new AVCs.
-3. Generate (`dev_generate_policy.sh` pre-flights vendor/base policy first — JWS, EAP, httpd, named, postgresql), open a PR **on the app repo**. CI must run `forbidden-patterns` (copy [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) or call it as a reusable workflow). See [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) (vendor pre-flight).
+3. Generate (`dev_generate_policy.sh` pre-flights vendor/base policy first — JWS, EAP, httpd, named, postgresql), open a PR **on the app repo**. CI must run `forbidden-patterns` (copy [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) or call it as a reusable workflow). See [204-DETERMINISTIC_POLICY.md](204-DETERMINISTIC_POLICY.md) (vendor pre-flight).
 4. After merge: build `<app>-selinux` from **that** commit (`policy_version.txt` is the app’s policy NVR, not selinux-pac’s tag). AAP canary on prod.
 
 Do not copy Ansible playbooks into every app repo. Do not keep a second “live” `.te` in selinux-pac for a customer app; this repo’s `selinux/myapp.te` is the **fixture** for tests. The demo’s live allow list is generated into [`selinux/shopapi/`](../../selinux/shopapi/).
@@ -46,7 +46,7 @@ bash scripts/selinux_pac_adopt.sh init payments
 |------|--------|
 | Copy manifest, `validate_app_manifest.sh`, compile | **rhel-qa** (`selinux-policy-devel`) |
 | `scaffold_sepolicy_module.sh`, `semodule -i`, `restorecon` | **rhel-qa** |
-| `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` (AAP **Release canary** / **Soak monitor**) | **Controller** SSH to **rhel-prod** ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) |
+| `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` (AAP **Release canary** / **Soak monitor**) | **Controller** SSH to **rhel-prod** ([203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md)) |
 
 ---
 
@@ -133,8 +133,8 @@ sudo restorecon -Rv /opt/payments /var/lib/payments /var/log/payments /run/payme
 
 ## Related
 
-- [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — Mac + rhel-qa + rhel-prod
+- [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md) — Mac + rhel-qa + rhel-prod
 - [config/README.md](../../config/README.md) — manifest schema (ports vs probe host)
-- [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) — canary / soak / enforce
-- [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) — AVC → policy with `--manifest config/payments.manifest.yml`
-- [ADOPTION_CHECKLIST.md](../admin/ADOPTION_CHECKLIST.md) — org fork checklist
+- [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md) — canary / soak / enforce
+- [204-DETERMINISTIC_POLICY.md](204-DETERMINISTIC_POLICY.md) — AVC → policy with `--manifest config/payments.manifest.yml`
+- [304-ADOPTION_CHECKLIST.md](../admin/304-ADOPTION_CHECKLIST.md) — org fork checklist

@@ -10,7 +10,7 @@
 #   bash scripts/reset_demo_vms.sh --dev-only
 #   bash scripts/reset_demo_vms.sh --prod-only
 #
-# After this, start docs/admin/RHEL_TWO_HOST.md at Part 1 (write / ping / rsync).
+# After this, start docs/admin/203-RHEL_TWO_HOST.md at Part 1 (write / ping / rsync).
 #
 set -euo pipefail
 
@@ -38,8 +38,7 @@ Lab reset for a second run of the two-host shopapi talk. From the Mac:
   • Restore this laptop’s types-only selinux/shopapi/ seed from git
   • Leave /opt/shopapi and shopapi.service in place
 
-Also clears leftover Flask/myapp policy from older rehearsals. Flask is not
-the demo app.
+Also clears leftover myapp policy from older rehearsals.
 
 Not ansible/reset_host_state.yml (that only runs semodule -B and clears
 permissive; the module stays). Not emergency_rollback.yml.
@@ -182,7 +181,7 @@ ssh_sudo() {
     ssh "${SSH_OPTS[@]}" "${SSH_USER}@${host}" "sudo bash -s -- ${role}" <<<"${REMOTE_RESET}"
 }
 
-echo "Demo VM reset (policy leftovers only; shopapi JVM stays). Flask is not the demo app."
+echo "Demo VM reset (policy leftovers only; shopapi JVM stays)."
 echo "dev=${DEV_HOST} prod=${PROD_HOST} user=${SSH_USER}"
 [[ "${DRY}" -eq 1 ]] && echo "dry-run: no SSH, no git checkout"
 
@@ -224,5 +223,5 @@ if [[ "${DO_PROD}" -eq 1 ]]; then
 fi
 
 echo
-echo "Next: start docs/admin/RHEL_TWO_HOST.md at Part 1 (write / ping / rsync / scp)."
+echo "Next: start docs/admin/203-RHEL_TWO_HOST.md at Part 1 (write / ping / rsync / scp)."
 echo "Do not canary until demo_bootstrap.sh --shopapi-only and generate --apply have run on rhel-qa."

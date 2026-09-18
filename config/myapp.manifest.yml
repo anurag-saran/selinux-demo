@@ -1,3 +1,4 @@
+# Offline generator fixture. Live demo is config/shopapi.manifest.yml.
 app_name: myapp
 domain: myapp_t
 
@@ -38,10 +39,10 @@ selinux_ports:
     proto: tcp
     type: myapp_backend_port_t
 
-# Optional: run under permissive on staging to collect AVCs (documented workflow)
+# Documented soak/discovery command for this fixture module (not a live app).
 integration_tests:
-  description: Order Processor demo curls (all paths) + export to policy_out/avc.log
-  command: bash -lc 'source scripts/lib/integration_probes.sh && INTEGRATION_UI=vm INTEGRATION_AUTO=1 run_integration_probes'
+  description: Offline myapp generator fixture — live probes are shopapi /health /state /log
+  command: echo "myapp is an offline generator fixture; use config/shopapi.manifest.yml for live probes"
   notes: Use real app test suite in production; see config/README.md
 
 policy:

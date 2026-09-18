@@ -1,6 +1,12 @@
 # SELinux PaC documentation
 
-**SELinux PaC** is the admin + developer tool. Optional labs live under `training/` — they are not the product.
+Guides are numbered like a course. **100** = learn, **200** = demo and develop, **300** = ship.
+
+| Band | Meaning | Start |
+|------|---------|--------|
+| **100** | Labels, one AVC, generate a module | **[101](training/101-SELINUX.md)** |
+| **200** | Three-app talk, two-host lab, generator, new apps | **[202](training/202-DEMO_GUIDE.md)** (after 101) |
+| **300** | AAP, soak, incidents, org rollout | **[301](admin/301-ANSIBLE_OPERATIONS.md)** |
 
 | Pattern | Meaning |
 |---------|---------|
@@ -8,49 +14,48 @@
 | **Where** | Which machine and directory (controller vs RHEL server vs repo root) |
 | **What / good sign** | What the command does and how you know it worked |
 
-**Terms** like domain, AVC, `.te`, and **`semanage`** are defined in [SELINUX_BASICS.md](policy/SELINUX_BASICS.md).
+**Terms** like domain, AVC, `.te`, and **`semanage`** are defined in **[102](policy/102-SELINUX_BASICS.md)**.
 
 | You are | Start here |
 |---------|------------|
-| **RHEL admin (customer env)** | [ADOPTION_CHECKLIST.md](admin/ADOPTION_CHECKLIST.md) → reading order below |
+| **New to SELinux** | **101** → **102** §1–4 if needed → **202** |
+| **RHEL admin (customer env)** | **[304](admin/304-ADOPTION_CHECKLIST.md)** → **300**s below |
 | **Trying this on a Mac** | [../README.md](../README.md#try-it-on-a-mac) — two RHEL VMs + `setup_rhel_hosts.sh` |
+| **Laptop only (no VM)** | **101** [Appendix B](training/101-SELINUX.md#appendix-b-laptop-no-selinux) + `make check` (**205**) |
 
 ---
 
-## Recommended reading order
+## Catalog
 
-| Step | Document | You need |
-|------|----------|----------|
-| 1 | [RHEL_TWO_HOST.md](admin/RHEL_TWO_HOST.md) / [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Two RHEL boxes + Mac Ansible; `demo_present.sh` (three-app talk) and `demo_e2e_*.sh` (pipeline) |
-| 2 | [ANSIBLE_OPERATIONS.md](admin/ANSIBLE_OPERATIONS.md) | AAP / ansible-playbook (control plane) |
-| 3 | [DENIAL_RESPONSE.md](admin/DENIAL_RESPONSE.md) | File or port denied after ship |
-| 4 | [PRODUCTION_READINESS.md](admin/PRODUCTION_READINESS.md) | Soak, enforce, rollback, incident card |
-| 5 | [ONBOARDING.md](developers/ONBOARDING.md) | Point a developer at a new app |
-| 6 | [ADOPTION_CHECKLIST.md](admin/ADOPTION_CHECKLIST.md) | CODEOWNERS, RPM repo, branch protection |
-| 7 | [SELINUX_BASICS.md](policy/SELINUX_BASICS.md) §1–7 | Optional — SELinux concepts |
-| 8 | [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) / [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional labs (lab soak is `soak_min_days: 0` on **QA** only) |
+### 100 — Learn
 
-**Contributors (no SELinux on laptop):** from repo root run `make check` — see [TESTING.md](developers/TESTING.md) §1.6.
+| # | Guide | You need |
+|---|--------|----------|
+| **101** | [SELinux 101](training/101-SELINUX.md) | Typed shopapi loop on **one** RHEL box |
+| **102** | [SELinux basics](policy/102-SELINUX_BASICS.md) | Reading primer (lab 0 is §1–4) |
+| **103** | [Hands-on recap](training/103-TRAINING_LAB.md) | One-screen recap after 101; `make training-lab` is the talk dry-run |
 
----
+### 200 — Demo and develop
 
-## Find the right guide
+| # | Guide | You need |
+|---|--------|----------|
+| **201** | [Code walkthrough](training/201-CODE_WALKTHROUGH.md) | What each folder and script is for |
+| **202** | [Three-app customer talk](training/202-DEMO_GUIDE.md) | `demo_present.sh` — finish **101** first |
+| **203** | [Two Linux VMs](admin/203-RHEL_TWO_HOST.md) | QA + prod + Mac Ansible (`demo_e2e_*.sh`) |
+| **204** | [Deterministic policy](developers/204-DETERMINISTIC_POLICY.md) | Offline AVC → `.te` / `.fc` |
+| **205** | [Testing](developers/205-TESTING.md) | `make check`, CI, endpoints |
+| **206** | [Onboarding an application](developers/206-ONBOARDING.md) | Point a developer at a new app |
+| **207** | [Best practices](policy/207-SELINUX_BEST_PRACTICES.md) | What this repo accepts in a policy PR |
 
-| Document | Best for |
-|----------|----------|
-| [RHEL_TWO_HOST.md](admin/RHEL_TWO_HOST.md) | **Two RHEL boxes** (QA + prod) |
-| [ANSIBLE_OPERATIONS.md](admin/ANSIBLE_OPERATIONS.md) | **AAP hub** — `ansible/aap/` workflows, soak, enforce |
-| [DENIAL_RESPONSE.md](admin/DENIAL_RESPONSE.md) | Prod AVC: rollback or soak-fail → PR, not live patch |
-| [PRODUCTION_READINESS.md](admin/PRODUCTION_READINESS.md) | Canary → soak (net-new) → enforce on real servers |
-| [ONBOARDING.md](developers/ONBOARDING.md) | Point a developer at a second app (`payments`) |
-| [ADOPTION_CHECKLIST.md](admin/ADOPTION_CHECKLIST.md) | Fork/org wiring: CODEOWNERS, inventories, RPMs |
-| [SELINUX_BEST_PRACTICES.md](policy/SELINUX_BEST_PRACTICES.md) | How to write policy this repo accepts |
-| [SELINUX_BASICS.md](policy/SELINUX_BASICS.md) | First-time SELinux: labels, policy files, permissive soak |
-| [CODE_WALKTHROUGH.md](training/CODE_WALKTHROUGH.md) | Repo layout and which script to run when |
-| [TESTING.md](developers/TESTING.md) | CI, `make check`, integration endpoints (staged + batch) |
-| [DETERMINISTIC_POLICY.md](developers/DETERMINISTIC_POLICY.md) | Offline AVC → policy engine (default) |
-| [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
-| [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) plus two-host pipeline (`demo_e2e_*.sh`) |
-| [examples/README.md](examples/README.md) | Curated PR samples for offline demos |
+### 300 — Ship
 
-Repo entry point: [../README.md](../README.md). App manifest schema: [../config/README.md](../config/README.md). Ansible playbooks: [../ansible/README.md](../ansible/README.md). New app: `bash scripts/selinux_pac_adopt.sh init <app>`.
+| # | Guide | You need |
+|---|--------|----------|
+| **301** | [Ansible operations](admin/301-ANSIBLE_OPERATIONS.md) | AAP / ansible-playbook |
+| **302** | [Production readiness](admin/302-PRODUCTION_READINESS.md) | Soak, enforce, rollback |
+| **303** | [Denial response](admin/303-DENIAL_RESPONSE.md) | File or port denied after ship |
+| **304** | [Adoption checklist](admin/304-ADOPTION_CHECKLIST.md) | CODEOWNERS, RPM repo, branch protection |
+
+**Contributors (no SELinux on laptop):** from repo root run `make check` — **205** §1.6.
+
+Samples (not numbered): [examples/README.md](examples/README.md). App manifest schema: [../config/README.md](../config/README.md). Ansible playbooks: [../ansible/README.md](../ansible/README.md). New app: `bash scripts/selinux_pac_adopt.sh init <app>` (**206**). Repo entry: [../README.md](../README.md).

@@ -25,6 +25,7 @@ CI compares generator output to `expected.json` (`make test-fixtures` / `bash sc
 | `09-direct-no-interface` | **`direct`** — sepolgen ran but no macro matched (`no_match` mock) |
 | `10-boolean-hint` | **`boolean`** — curated override in `config/boolean_hints.yml` (offline; no live policy) |
 | `12-execmem-review` | **`needs_review`** — `self:process execmem` is a security decision (exit 1 without `--allow-needs-review`) |
+| `13-cgroup-omit` | **`baseline`** — JVM `cgroup_t` filesystem getattr is omitted (no allow; type often undeclared) |
 
 Run classification without writing policy:
 

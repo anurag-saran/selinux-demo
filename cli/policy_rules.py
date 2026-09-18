@@ -27,6 +27,9 @@ GENERIC_FILE_TYPES = frozenset(
         "tmp_t",
         "default_t",
         "unlabeled_t",
+        "home_root_t",
+        "user_home_t",
+        "user_home_dir_t",
     }
 )
 

@@ -33,9 +33,6 @@ ports_cil_staging: /var/lib/selinux-policy-staging/{{ app_name | default('myapp'
 
 selinux_pac_phase: canary
 
-# Lab only: install demo systemd units from repo app/ directory.
-selinux_pac_install_demo_units: false
-
 # Soak gates (enforce + soak_monitor playbook).
 soak_min_days: 7
 soak_max_avc: 0

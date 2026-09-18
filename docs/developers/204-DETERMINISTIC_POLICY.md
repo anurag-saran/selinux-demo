@@ -1,10 +1,10 @@
-# Deterministic policy generation
+# 204 — Deterministic policy
 
 Offline AVC → `.te` / `.fc` updates using **house rules** and optional **sepolgen** interface matching (same stack as `audit2allow -R`). This is the **default** engine in `dev_generate_policy.sh` (no `--engine` flag required).
 
 **Who this is for:** policy authors who want **no API key** and reproducible verdicts (CI uses the same engine).
 
-**Where commands run:** `--explain` and fixture tests work at **repo root** on any OS. Full `dev_generate_policy.sh` with AVC export runs on the **RHEL dev** box ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). `sepolgen-ifgen` needs RHEL/Stream with policy devel packages.
+**Where commands run:** `--explain` and fixture tests work at **repo root** on any OS. Full `dev_generate_policy.sh` with AVC export runs on the **RHEL dev** box ([203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md)). `sepolgen-ifgen` needs RHEL/Stream with policy devel packages.
 
 **Doc index:** [README.md](../README.md).
 
@@ -18,16 +18,23 @@ Optional live check: **`bash scripts/run_boolean_query_integration.sh`** (skips 
 
 JWS/EAP SELinux lives in a **separate RPM** (`jws6-tomcat-selinux`, `eap7-selinux` / `eap8-selinux`) that is **not** installed by default. Until it is, Tomcat runs `unconfined_java_t`. An empty `semodule -l` is not proof that no vendor policy exists.
 
-| Situation | Generator | What you do |
-|-----------|-----------|-------------|
-| Vendor module already loaded (`jws6_tomcat`, `jboss`, `httpd`, …) | Exit non-zero | Tune booleans / `fcontext`; do **not** generate a duplicate |
-| Vendor RPM available but not installed | Exit non-zero | `dnf install jws6-tomcat-selinux` (or `eap*-selinux`); do **not** generate |
-| Genuinely no vendor/base policy for this app | Continues | Generate as usual |
-| `semodule` and `rpm` both missing (laptop) | One skip line, continues | Offline fixtures / `make check` stay green |
+The pre-flight classifies the app into **six situations**. Only `none` proceeds to generation.
 
-`--force` bypasses the check when the app **genuinely differs** from the vendor one; the generator prints that it bypassed. There is no network call (local `semodule -l`, `rpm -qa`, `dnf --cacheonly` only).
+| Situation | `action` | Generator | What you do |
+|-----------|----------|-----------|-------------|
+| `loaded` | `tune` | Exit non-zero | Vendor module is in `semodule -l` (JWS, Tomcat, EAP, …). Re-run with **`--tune-report`** for `semanage fcontext` / `setsebool` / `semanage port` commands. Do **not** generate a duplicate. |
+| `package_installed` | `enable` | Exit non-zero | Vendor SELinux RPM is installed but the module is not loaded. Enable/install it; do not generate. |
+| `package_available` | `install` | Exit non-zero | Vendor RPM is in the local dnf cache (`jws6-tomcat-selinux`, `eap*-selinux`, …). `dnf install` that package; do not generate. |
+| `unconfined` | `install` | Exit non-zero | Process is `unconfined_java_t` / `unconfined_service_t`. Vendor policy exists and is not enabled. |
+| `base_policy` | `tune` | Exit non-zero | `httpd` / `named` / `postgresql` covered by `selinux-policy-targeted`. **`--tune-report`** for host commands. Do not generate. |
+| `none` | `generate` | Continues | No vendor/base module covers this app (typical for Node / Spring Boot / `shopapi`). |
+| `semodule` and `rpm` both missing (laptop) | skip | One skip line, continues | Offline fixtures / `make check` stay green. |
 
-Admin commands: [PRODUCTION_READINESS.md §2.5](../admin/PRODUCTION_READINESS.md).
+`--tune-report` is read-only: it classifies denials for the **vendor** domain, prints the host commands, writes `policy_out/tune_report.md`, and never writes a `.te`. `direct` / `interface` denials land in a “not resolvable by tuning” section (possible vendor policy gap). On a host with no SELinux tooling it prints a skip notice and exits 0.
+
+`--force "reason"` bypasses the check when the app **genuinely differs** from the vendor one. Bare `--force` is rejected. The reason, overridden situation, and bypassed module/package are recorded in `policy_out/findings.json` (`vendor_override`), `pr_summary.md`, and the PR body (higher-scrutiny banner). There is no network call (local `semodule -l`, `rpm -qa`, `dnf --cacheonly` only).
+
+Admin commands: [302-PRODUCTION_READINESS.md §2.5](../admin/302-PRODUCTION_READINESS.md).
 
 ## Quick start
 
@@ -87,7 +94,7 @@ bash scripts/compile_and_validate.sh selinux
 | `fc_drift` | Path already covered by an existing `.fc` regex but wrong label on disk → **`restorecon` only** (no new `.fc` line) |
 | `private_port` | `name_bind` on shared port type → app `_port_t` |
 | `forbidden` | Refused (`shadow_t`, etc.) — same spirit as CI forbidden patterns |
-| `baseline` | Already covered in existing `.te` or baseline macro (e.g. `dev_read_urand` for `random_device_t`) |
+| `baseline` | Already covered in existing `.te` or baseline macro (e.g. `dev_read_urand` for `random_device_t`). Also **omits** `cgroup_t` filesystem getattr (JVM cgroupfs telemetry) — that type is often undeclared in targeted policy, so a raw allow fails compile. |
 | `interface` | sepolgen refpolicy macro (when ifgen data present) |
 | `direct` | Module-private types, or sepolgen ran but no macro matched (manual review) |
 | `toolchain_required` | Base-type denial with no sepolgen and no `--allow-degraded` — generation blocked |
@@ -117,8 +124,8 @@ Golden fixtures: **`bash scripts/run_deterministic_fixtures.sh`** (`make test-fi
 | `dev_generate_policy.sh --llm-summary` | above + `cli/summarize_pr.py` (narrative only) |
 | Legacy | `cli/selinux_gen.py --legacy-full-policy` (deprecated) |
 
-Fixtures: [`docs/examples/fixtures/deterministic/`](../examples/fixtures/deterministic/) — contiguous **`01`–`12`** AVC directories; **every classification verdict** has at least one golden row (`avc.log` + `expected.json`). Run **`make test-fixtures`**. Cases `08`/`09` use optional `sepolgen_mock.json` so hosts without ifgen still pass. Boolean coverage: `04-boolean-network-connect` and `10-boolean-hint`. `needs_review`: `12-execmem-review`.
+Fixtures: [`docs/examples/fixtures/deterministic/`](../examples/fixtures/deterministic/) — contiguous **`01`–`13`** AVC directories; **every classification verdict** has at least one golden row (`avc.log` + `expected.json`). Run **`make test-fixtures`**. Cases `08`/`09` use optional `sepolgen_mock.json` so hosts without ifgen still pass. Boolean coverage: `04-boolean-network-connect` and `10-boolean-hint`. `needs_review`: `12-execmem-review`. `cgroup_t` omit: `13-cgroup-omit`.
 
 ## After merge (not this CLI)
 
-Deterministic generation stops at a reviewed PR. Production install is **Ansible Automation Platform (AAP)** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md), objects in [`ansible/aap/`](../../ansible/aap/)): canary → `soak_monitor.yml` (net-new vs installed policy) → enforce. A denial after ship is a **new PR**, not a live host patch ([DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)). Compile/RPM from CLI: `bash scripts/compile_and_validate.sh` and [`packaging/build_rpms.sh`](../../packaging/build_rpms.sh).
+Deterministic generation stops at a reviewed PR. Production install is **Ansible Automation Platform (AAP)** ([301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md), objects in [`ansible/aap/`](../../ansible/aap/)): canary → `soak_monitor.yml` (net-new vs installed policy) → enforce. A denial after ship is a **new PR**, not a live host patch ([303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md)). Compile/RPM from CLI: `bash scripts/compile_and_validate.sh` and [`packaging/build_rpms.sh`](../../packaging/build_rpms.sh).

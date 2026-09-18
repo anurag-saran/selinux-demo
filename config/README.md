@@ -8,7 +8,7 @@ Each application onboarded to the SELinux Policy-as-Code pipeline declares an **
 
 **Where you edit files:** `config/<app>.manifest.yml` in your **git clone** (repo root). **Where validation runs:** same machine as your shell at repo root (`validate_app_manifest.sh`, CI).
 
-**More context:** [RHEL_TWO_HOST.md](../docs/admin/RHEL_TWO_HOST.md), [ONBOARDING.md](../docs/developers/ONBOARDING.md), [ANSIBLE_OPERATIONS.md](../docs/admin/ANSIBLE_OPERATIONS.md), [DENIAL_RESPONSE.md](../docs/admin/DENIAL_RESPONSE.md) (denied port → `selinux_ports`, not live `semanage port`), [docs/README.md](../docs/README.md).
+**More context:** [203-RHEL_TWO_HOST.md](../docs/admin/203-RHEL_TWO_HOST.md), [206-ONBOARDING.md](../docs/developers/206-ONBOARDING.md), [301-ANSIBLE_OPERATIONS.md](../docs/admin/301-ANSIBLE_OPERATIONS.md), [303-DENIAL_RESPONSE.md](../docs/admin/303-DENIAL_RESPONSE.md) (denied port → `selinux_ports`, not live `semanage port`), [docs/README.md](../docs/README.md).
 
 ## Quick start
 
@@ -18,7 +18,7 @@ bash scripts/selinux_pac_adopt.sh init payments
 
 1. Copy [`payments.manifest.example.yml`](payments.manifest.example.yml) to `config/<app_name>.manifest.yml`.
 2. Fill in paths, systemd units, HTTP probes, and SELinux port types (**same bind ports in every env**).
-3. Scaffold policy on RHEL: `bash scripts/scaffold_sepolicy_module.sh payments payments_t` (see [ONBOARDING.md](../docs/developers/ONBOARDING.md)).
+3. Scaffold policy on RHEL: `bash scripts/scaffold_sepolicy_module.sh payments payments_t` (see [206-ONBOARDING.md](../docs/developers/206-ONBOARDING.md)).
 4. Point scripts and Ansible at it:
 
 ```bash
@@ -27,7 +27,7 @@ bash scripts/wait_for_endpoints.sh --manifest "$APP_MANIFEST"
 bash scripts/validate_app_manifest.sh config/payments.manifest.yml
 ```
 
-Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.yml`. Demo JVM: [`shopapi.manifest.yml`](shopapi.manifest.yml) (`--app shopapi`). Flask `myapp` stays the `make check` reference.
+Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.yml` (offline generator golden). Demo JVM: [`shopapi.manifest.yml`](shopapi.manifest.yml) (`--app shopapi`).
 
 ## Schema
 
@@ -48,7 +48,7 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 | `http.backend.port` | if backend | Backend health port |
 | `http.backend.health_path` | if backend | Default `/health` |
 | `selinux_ports` | recommended | Port → type for canary `seport` / RPM (stable across env) |
-| `integration_tests.command` | no | Documented soak/discovery test command (demo: `integration_probes.sh`) |
+| `integration_tests.command` | no | Documented soak/discovery test command (demo: shopapi curls) |
 | `policy.module_dir` | no | Default `selinux` |
 | `deploy.soak_marker_file` | no | Default `{var_dir}/selinux_canary_deployed_at` |
 | `deploy.deploy_report_file` | no | Default `{var_dir}/selinux_deploy_report.json` |
@@ -57,7 +57,6 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 
 | Consumer | Purpose |
 |----------|---------|
-| [`scripts/lib/integration_probes.sh`](../scripts/lib/integration_probes.sh) | Staged discovery curls + AVC peeks (Lab 7) |
 | [`scripts/wait_for_endpoints.sh`](../scripts/wait_for_endpoints.sh) | systemd units, HTTP probes, domain verification |
 | [`scripts/post_deploy_report.sh`](../scripts/post_deploy_report.sh) | Deploy JSON service/domain fields |
 | [`scripts/check_soak_ready.sh`](../scripts/check_soak_ready.sh) | Domain context keys in deploy report; optional **`--auto-tier`** with policy pair paths |
@@ -76,11 +75,11 @@ Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.ym
 3. Always include `services.primary` and real health path(s).
 4. Run staging permissive → export AVCs → generate policy (`bash scripts/dev_generate_policy.sh`; default **`deterministic_gen.py`**, optional `--engine llm`).
 
-See [`docs/developers/TESTING.md`](../docs/developers/TESTING.md) for the full test-layer model.
+See [`docs/developers/205-TESTING.md`](../docs/developers/205-TESTING.md) for the full test-layer model.
 
 ## Ansible inventory
 
-**Two-host inventories:** `bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …` ([RHEL_TWO_HOST.md](../docs/admin/RHEL_TWO_HOST.md)).
+**Two-host inventories:** `bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …` ([203-RHEL_TWO_HOST.md](../docs/admin/203-RHEL_TWO_HOST.md)).
 
 **Laptop / AAP controller → RHEL target** (two-host lab). `playbook_dir` is the controller path — use it only for artifacts copied onto the host:
 

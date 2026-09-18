@@ -1,10 +1,10 @@
-# Two Linux VMs — shopapi generate / canary / soak
+# 203 — Two Linux VMs (generate / canary / soak)
 
 You have **three computers**. Only the two Linux VMs run SELinux. The Mac is the remote control.
 
-The **customer talk** (vendor Tomcat already enforcing → tune inherited Tomcat → generate for Spring Boot) is [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`). This file is **technical Act 5**: ship shopapi policy with Ansible.
+The **customer talk** (vendor Tomcat already enforcing → tune inherited Tomcat → generate for Spring Boot) is **[202](../training/202-DEMO_GUIDE.md)** (`demo_present.sh`). This file is **technical Act 5**: ship shopapi policy with Ansible.
 
-**Demo application is Spring Boot `shopapi`.** Flask `app/` is the offline `make check` fixture. Do not install Flask on the VMs.
+**Demo application is Spring Boot `shopapi`.** Offline `make check` uses deterministic fixtures. Do not install a second demo app on the VMs.
 
 | Computer | Address | How you know you are typing on it |
 |----------|---------|-----------------------------------|
@@ -24,8 +24,6 @@ Those addresses are this Mac’s UTM network. If a VM was recreated and `ping` f
 
 1. **From scratch:** install shopapi on rhel-qa with the types-only seed (`SELinuxContext=shopapi_t`, permissive) → curl `/health` `/state` `/log` (not `/feature-spool`) → generate `selinux/shopapi/` from those AVCs → **GitHub PR on selinux-pac** → canary on prod → **soak with the app up and a clean AVC file** → treat soak as complete (`force_enforce` + a change ticket; inventory still says 7 days).
 2. **Outage, admin restore, then PaC:** `/feature-spool` writes `/var/spool/shopapi/feature.log` and returns **500** on **rhel-prod** → `emergency_rollback.yml` puts `shopapi_t` permissive so the app is **200** again (host stays Enforcing; no `semodule -i` on prod) → copy the AVC log to rhel-qa → generate + **second PR** → recanary prod → the same curl succeeds under the new module.
-
-Do **not** overlay or mention `selinux/stub/` in this talk.
 
 Re-running on the **same** VMs? On the Mac first: `bash scripts/reset_demo_vms.sh`, then start at [Present this lab](#present-this-lab-three-terminals). That unloads leftover `shopapi` modules and prod RPMs and restores the types-only `selinux/shopapi/` seed. It does **not** uninstall the JVM. It is not `reset_host_state.yml`.
 
@@ -78,6 +76,7 @@ Unloads leftover `shopapi` modules and prod RPMs. Restores the types-only `selin
 
 ## Related
 
-- Customer talk: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md)
-- AAP: [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md)
-- Denial after ship: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md)
+- **101** labs: [101-SELINUX.md](../training/101-SELINUX.md)
+- **202** customer talk: [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md)
+- **301** AAP: [301-ANSIBLE_OPERATIONS.md](301-ANSIBLE_OPERATIONS.md)
+- **303** denial after ship: [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md)

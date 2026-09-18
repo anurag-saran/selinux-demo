@@ -90,7 +90,7 @@ FILE CONTEXTS (fc_content) — FHS paths, NO `--` file-type suffix on directorie
 USER_PROMPT_TEMPLATE = """Update the SELinux policy module for this application.
 
 ## Application Context
-- Service: Order Processor App (Flask, systemd unit myapp.service)
+- Service: Order Processor App (example systemd unit myapp.service)
 - Domain: {domain}
 - User: myapp
 - Install: /opt/myapp (venv at /opt/myapp/venv)

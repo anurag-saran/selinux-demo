@@ -225,6 +225,15 @@ def suggest_fc_type(path: str, manifest: dict) -> str | None:
         base = root.rstrip("/")
         if path == base or path.startswith(base + "/"):
             return f"{app}_{suffix}"
+    extras = paths.get("extra_fc_roots") or []
+    if isinstance(extras, str):
+        extras = [extras]
+    for root in extras:
+        if not root:
+            continue
+        base = str(root).rstrip("/")
+        if path == base or path.startswith(base + "/"):
+            return f"{app}_var_lib_t"
     return None
 
 
@@ -662,6 +671,14 @@ def merge_fc(existing_fc: str, fc_lines: list[str], path_hints: dict[str, str] |
 
 def write_pr_summary(findings: list[Finding], app_name: str, meta: dict | None = None) -> str:
     meta = meta or {}
+    from pr_summary_common import format_vendor_override_summary
+
+    lines: list[str] = []
+    override = meta.get("vendor_override")
+    if isinstance(override, dict) and override.get("reason"):
+        lines.append(format_vendor_override_summary(override).rstrip())
+        lines.append("")
+
     module_rows = [
         f
         for f in findings
@@ -679,7 +696,6 @@ def write_pr_summary(findings: list[Finding], app_name: str, meta: dict | None =
         ),
     )
 
-    lines: list[str] = []
     if review_rows:
         lines.extend(
             [
@@ -825,54 +841,53 @@ def write_findings_artifact(
     sepolgen_info: dict[str, str],
     *,
     generation_blocked: bool,
+    vendor_override: dict | None = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_dir.joinpath("findings.json").write_text(
-        json.dumps(
+    payload: dict = {
+        "sepolgen_status": sepolgen_info["status"],
+        "sepolgen_detail": sepolgen_info.get("detail", ""),
+        "generation_blocked": generation_blocked,
+        "policy_identity": {
+            "selinux_policy_rpm": sepolgen_info.get("selinux_policy_rpm", "unknown"),
+            "policy_version": sepolgen_info.get("policy_version", "unknown"),
+            "policy_kern": sepolgen_info.get("policy_kern", ""),
+        },
+        "host_admin_actions": host_admin_actions(findings),
+        "findings": [
             {
-                "sepolgen_status": sepolgen_info["status"],
-                "sepolgen_detail": sepolgen_info.get("detail", ""),
-                "generation_blocked": generation_blocked,
-                "policy_identity": {
-                    "selinux_policy_rpm": sepolgen_info.get("selinux_policy_rpm", "unknown"),
-                    "policy_version": sepolgen_info.get("policy_version", "unknown"),
-                    "policy_kern": sepolgen_info.get("policy_kern", ""),
-                },
-                "host_admin_actions": host_admin_actions(findings),
-                "findings": [
+                "src": f.need.src_type,
+                "tgt": f.need.tgt_type,
+                "class": f.need.tclass,
+                "perms": sorted(f.need.perms),
+                "verdict": f.verdict,
+                "rendered": f.rendered,
+                "note": f.note,
+                "engine": f.engine,
+                **({"boolean": f.boolean} if f.boolean else {}),
+                **({"next_action": f.next_action} if f.next_action else {}),
+                **({"port": f.bind_port} if f.bind_port is not None else {}),
+                **({"proto": f.bind_proto} if f.bind_proto else {}),
+                **({"port_type": f.port_type} if f.port_type else {}),
+                **(
                     {
-                        "src": f.need.src_type,
-                        "tgt": f.need.tgt_type,
-                        "class": f.need.tclass,
-                        "perms": sorted(f.need.perms),
-                        "verdict": f.verdict,
-                        "rendered": f.rendered,
-                        "note": f.note,
-                        "engine": f.engine,
-                        **({"boolean": f.boolean} if f.boolean else {}),
-                        **({"next_action": f.next_action} if f.next_action else {}),
-                        **({"port": f.bind_port} if f.bind_port is not None else {}),
-                        **({"proto": f.bind_proto} if f.bind_proto else {}),
-                        **({"port_type": f.port_type} if f.port_type else {}),
-                        **(
-                            {
-                                "selinux_ports_snippet": {
-                                    "port": f.bind_port,
-                                    "proto": f.bind_proto or "tcp",
-                                    "type": f.port_type,
-                                }
-                            }
-                            if f.verdict == VERDICT_PORT and f.bind_port is not None and f.port_type
-                            else {}
-                        ),
+                        "selinux_ports_snippet": {
+                            "port": f.bind_port,
+                            "proto": f.bind_proto or "tcp",
+                            "type": f.port_type,
+                        }
                     }
-                    for f in findings
-                ],
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
+                    if f.verdict == VERDICT_PORT and f.bind_port is not None and f.port_type
+                    else {}
+                ),
+            }
+            for f in findings
+        ],
+    }
+    if vendor_override:
+        payload["vendor_override"] = vendor_override
+    out_dir.joinpath("findings.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
@@ -890,6 +905,16 @@ def tool_versions() -> dict[str, str]:
             return "unknown"
 
     return {"refpolicy": rpm_q("selinux-policy-devel")}
+
+
+def _load_vendor_override(path: Path | None) -> dict | None:
+    if path is None:
+        return None
+    override_path = Path(path)
+    if not override_path.is_file():
+        return None
+    data = json.loads(override_path.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else None
 
 
 def run(args: argparse.Namespace) -> int:
@@ -956,6 +981,9 @@ def run(args: argparse.Namespace) -> int:
     meta["sepolgen"] = sepolgen_info["status"]
     if sepolgen_info.get("if_path"):
         meta["sepolgen_if_path"] = sepolgen_info["if_path"]
+    vendor_override = _load_vendor_override(getattr(args, "vendor_override", None))
+    if vendor_override:
+        meta["vendor_override"] = vendor_override
 
     blockers = generation_blockers(findings, args)
 
@@ -975,7 +1003,11 @@ def run(args: argparse.Namespace) -> int:
         if blockers:
             args.out_dir.mkdir(parents=True, exist_ok=True)
             write_findings_artifact(
-                args.out_dir, findings, artifact_ctx, generation_blocked=True
+                args.out_dir,
+                findings,
+                artifact_ctx,
+                generation_blocked=True,
+                vendor_override=vendor_override,
             )
         return 1 if blockers else 0
 
@@ -997,7 +1029,11 @@ def run(args: argparse.Namespace) -> int:
             label = "NEEDS REVIEW" if f.verdict == VERDICT_NEEDS_REVIEW else "REFUSED"
             print(f"{label}: {f.note}", file=sys.stderr)
         write_findings_artifact(
-            args.out_dir, findings, artifact_ctx, generation_blocked=True
+            args.out_dir,
+            findings,
+            artifact_ctx,
+            generation_blocked=True,
+            vendor_override=vendor_override,
         )
         (args.out_dir / "pr_summary.md").write_text(
             write_pr_summary(findings, app_name, meta),
@@ -1044,7 +1080,13 @@ def run(args: argparse.Namespace) -> int:
 
     (args.out_dir / f"{app_name}.te").write_text(out_te, encoding="utf-8")
     (args.out_dir / f"{app_name}.fc").write_text(out_fc, encoding="utf-8")
-    write_findings_artifact(args.out_dir, findings, artifact_ctx, generation_blocked=False)
+    write_findings_artifact(
+        args.out_dir,
+        findings,
+        artifact_ctx,
+        generation_blocked=False,
+        vendor_override=vendor_override,
+    )
     (args.out_dir / "pr_summary.md").write_text(
         write_pr_summary(findings, app_name, meta),
         encoding="utf-8",
@@ -1110,6 +1152,12 @@ def main() -> int:
         type=Path,
         default=Path(__file__).resolve().parent.parent / "config" / "boolean_hints.yml",
         help="Curated boolean overrides (consulted before sesearch policy query)",
+    )
+    parser.add_argument(
+        "--vendor-override",
+        type=Path,
+        default=None,
+        help="JSON from vendor_policy_preflight --force \"reason\" (recorded in findings.json)",
     )
     args = parser.parse_args()
     return run(args)

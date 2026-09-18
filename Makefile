@@ -3,7 +3,6 @@
 
 PYTHON ?= python3
 PIP ?= pip3
-export SMOKE_SKIP_FLASK ?= 1
 
 .PHONY: help deps test check lint fixtures test-smoke test-static test-manifest \
 	test-rpm test-forbidden test-version test-fixtures test-blast-radius \
@@ -28,10 +27,11 @@ check: test lint ## Full repo health: offline tests + linters when installed
 
 fixtures: test-fixtures ## Deterministic + payments + blast-radius fixture suites only
 
-test-fixtures: ## Golden deterministic, payments leak check, blast-radius fixtures
+test-fixtures: ## Golden deterministic, payments + blast-radius + tune-report fixtures
 	bash scripts/run_deterministic_fixtures.sh
 	bash scripts/run_deterministic_payments_check.sh
 	bash scripts/run_blast_radius_fixtures.sh
+	bash scripts/run_tune_report_fixtures.sh
 
 test-static: test-forbidden test-version test-rpm test-manifest ## Shell validators (offline)
 
@@ -50,8 +50,8 @@ test-version: ## policy_version.txt vs policy_module() consistency
 test-rpm: ## Ops RPM packaging allowlist
 	bash scripts/validate_rpm_ops_parity.sh
 
-test-smoke: deps ## Python smoke_test.py (skips live Flask by default)
-	$(PYTHON) scripts/smoke_test.py --no-require-backend
+test-smoke: deps ## Python smoke_test.py (offline; no SELinux host)
+	$(PYTHON) scripts/smoke_test.py
 
 test-blast-radius: ## Blast-radius fixtures only (skips live sesearch locally)
 	bash scripts/run_blast_radius_fixtures.sh
@@ -95,8 +95,8 @@ integration-blast-radius: ## Blast-radius with live sesearch (CI / rhel-dev)
 	fi
 	BLAST_RADIUS_REQUIRE_INTEGRATION=1 bash scripts/run_blast_radius_fixtures.sh
 
-training-lab: ## Guided lab walkthrough (run on rhel-dev)
-	bash scripts/run_training_lab.sh
+training-lab: ## Dry-run the customer talk (no SELinux required)
+	bash scripts/demo_present.sh --dry-run --profile customer --no-type --auto
 
 demo-bootstrap: ## Stand up App A/B + shopapi on RHEL (idempotent; not for macOS)
 	bash scripts/demo_bootstrap.sh

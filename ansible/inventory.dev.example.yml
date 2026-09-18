@@ -35,5 +35,4 @@ all:
     soak_max_avc: 0
     soak_max_net_new: 0
     soak_use_net_new: true
-    selinux_pac_install_demo_units: false
     http_probe_host: "127.0.0.1"

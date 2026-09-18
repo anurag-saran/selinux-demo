@@ -1,4 +1,4 @@
-# Ansible operations (AAP)
+# 301 — Ansible operations (AAP)
 
 **Ansible Automation Platform (AAP)** is the production control plane. Developers PR policy; you **compile and package** RPMs; **Automation Controller job templates** install, soak, and enforce. Do not clone this repo onto production targets.
 
@@ -6,7 +6,7 @@ The same playbooks run under `ansible-playbook` on a laptop until the project is
 
 **Where commands run:** AAP execution nodes (or `ansible-playbook` on a controller laptop) SSH to inventory hosts. `semodule` / `semanage` / soak scripts run on **RHEL targets**.
 
-Playbook task order and variables: [`ansible/README.md`](../../ansible/README.md). **AAP objects:** [`ansible/aap/`](../../ansible/aap/). **Two RHEL boxes:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Admin runbook: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Denied file/port after ship: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). Fork wiring: [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md).
+Playbook task order and variables: [`ansible/README.md`](../../ansible/README.md). **AAP objects:** [`ansible/aap/`](../../ansible/aap/). **Two RHEL boxes:** [203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md). Admin runbook: [302-PRODUCTION_READINESS.md](302-PRODUCTION_READINESS.md). Denied file/port after ship: [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md). Fork wiring: [304-ADOPTION_CHECKLIST.md](304-ADOPTION_CHECKLIST.md).
 
 ```text
 CLI (rhel-qa)  →  RPM repo (.pp + selinux-policy-ops + <app>-selinux)
@@ -37,8 +37,6 @@ CLI (rhel-qa)  →  RPM repo (.pp + selinux-policy-ops + <app>-selinux)
 
 Role: [`ansible/roles/selinux_pac/`](../../ansible/roles/selinux_pac/). The role loads `app_manifest_path` and registers **ports from `selinux_ports`** (stable across environments). Probe IP is `http.host` in the manifest or inventory `http_probe_host` (changes per env).
 
-Lab-only: `selinux_pac_install_demo_units: true` copies demo systemd units. Production inventories leave this **false**.
-
 ## AAP job templates and workflows
 
 Source of truth: [`ansible/aap/`](../../ansible/aap/) (`job_templates.yml`, `workflows.yml`, `survey_enforce.json`). Click-create in Automation Controller (project playbook path `ansible/`).
@@ -51,7 +49,7 @@ Source of truth: [`ansible/aap/`](../../ansible/aap/) (`job_templates.yml`, `wor
 | SELinux – Enforce | `enforce_production.yml` | After approval on **Promote to enforce** |
 | SELinux – Rollback | `emergency_rollback.yml` | Standalone break-glass — never on the promote graph |
 
-**Workflows:** **Release canary** = Canary. **Promote to enforce** = Soak status → approval → Enforce. Attach an AAP notification template to Soak monitor (job failed) so net-new AVCs page someone without mutating the host. Denial path: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md).
+**Workflows:** **Release canary** = Canary. **Promote to enforce** = Soak status → approval → Enforce. Attach an AAP notification template to Soak monitor (job failed) so net-new AVCs page someone without mutating the host. Denial path: [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md).
 
 Survey / extra-vars:
 
@@ -80,7 +78,7 @@ bash scripts/setup_rhel_hosts.sh ping
 - **QA** inventory: git checkout on the box + `demo_bootstrap.sh --shopapi-only`; `selinux_ops_dir` / `app_manifest_path` are **on the box** (not `playbook_dir` on the laptop); `soak_min_days: 0` is lab-only. `app_name: shopapi`, `policy_pp_src` → `selinux/shopapi/shopapi.pp`.
 - **Prod** inventory: RPMs only (`shopapi-selinux`); `soak_min_days: 7`. Same host is `canary` and `production` until you add a fleet.
 
-Customer talk: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`). Two-host generate/canary/soak: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) (`bash scripts/demo_e2e_mac.sh`) — clean soak, talk-only enforce, then shopapi `/feature-spool` outage and `emergency_rollback.yml`. Flask is not installed on the VMs.
+Customer talk: [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md) (`demo_present.sh`). Two-host generate/canary/soak: [203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md) (`bash scripts/demo_e2e_mac.sh`) — clean soak, talk-only enforce, then shopapi `/feature-spool` outage and `emergency_rollback.yml`.
 
 ## Production inventory
 

@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# selinux-gen — convenience wrapper for cli/selinux_gen.py (Shift-Left PaC CLI)
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-exec python3 "${ROOT}/cli/selinux_gen.py" "$@"

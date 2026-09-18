@@ -166,7 +166,6 @@ e2e_require_rhel() {
 }
 
 # Talk-track legend for customer-visible files under selinux/ on rhel-qa.
-# Do not mention or list selinux/stub/ — that path is training-labs only.
 e2e_explain_selinux_tree() {
     local root="${1:-.}"
     tlab_explain "This folder is the shopapi policy product in selinux-pac. Git reviews these files. Prod never clones them — it gets an RPM built from them. The types-only seed is committed; after generate --apply this is the first real allow list."

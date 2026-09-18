@@ -1,26 +1,26 @@
-# SELinux Basics
+# 102 — SELinux basics
 
-This guide explains **SELinux from zero** using the `myapp` **reference application** that ships with **SELinux PaC**. No prior experience required.
+This guide is a **reading primer** (labels, AVCs, `.te` / `.fc`, permissive vs enforcing). Typed labs use live **shopapi** on one RHEL box — **[101](../training/101-SELINUX.md)** — not Flask and not host commands against `myapp`. Examples below that mention `myapp_t` match the **offline golden** in `selinux/myapp.te` (`make check`). The demo domain is `shopapi_t`.
 
 **How to read this guide (about 15–20 minutes reading):**
 
-1. Sections 1–4 — what SELinux is and how **labels** work (start here)
+1. Sections 1–4 — what SELinux is and how **labels** work (start here; 101 lab 0)
 2. Sections 5–7 — **commands** to view labels, **policy files** (`.te`/`.fc`), **`restorecon`**, and the **two-layer model** (OS Enforcing + permissive app domain)
 3. Section 7.5 — **soak** timeline (why production waits 7–14 days)
 4. Sections 8–10 — **AVC denials**, export filtering, and a **worked example** on `myapp`
 5. Sections 11+ — reference tables, cheat sheet, and admin runbooks
 
-**Optional labs:** [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md). **Ship path:** [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md). **All documentation:** [docs/README.md](../README.md).
+**Typed labs:** **[101](../training/101-SELINUX.md)** (shopapi; finish before the talk). **Talk:** **[202](../training/202-DEMO_GUIDE.md)**. **Ship path:** **[302](../admin/302-PRODUCTION_READINESS.md)**. **Catalog:** [docs/README.md](../README.md).
 
 ### Where to run commands in this guide
 
 | What you are doing | Where |
 |--------------------|--------|
 | Reading sections 1–7 | Anywhere — no Linux required |
-| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, Labs in [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | **Linux with SELinux** (rhel-qa, cloud instance, or other RHEL/Fedora host) |
-| **`make check`**, reading `.te` files | **Repo root** on your laptop |
+| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, labs in [101-SELINUX.md](../training/101-SELINUX.md) | **Linux with SELinux** (rhel-qa, cloud instance, or other RHEL/Fedora host) |
+| **`make check`**, reading `.te` files, 101 laptop appendix | **Repo root** on your laptop |
 
-macOS: you never run SELinux commands on the Mac itself — use [SELINUX_TRAINING_LAB.md — Running on macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos).
+macOS: you never run SELinux commands on the Mac itself — [101-SELINUX.md — Appendix B](../training/101-SELINUX.md#appendix-b-laptop-no-selinux) (fixtures) or [103-TRAINING_LAB.md — Running on macOS](../training/103-TRAINING_LAB.md#running-on-macos) (two VMs).
 
 ---
 
@@ -46,7 +46,7 @@ Think of SELinux labels like **badges and room signs**:
 
 | Real-world idea | SELinux equivalent | Example in this repo |
 |-----------------|-------------------|----------------------|
-| Employee badge color | **Process type** (domain) | `myapp_t` — the running Flask app |
+| Employee badge color | **Process type** (domain) | `myapp_t` — example process domain (offline golden in `selinux/myapp.te`; live demo is `shopapi_t`) |
 | Sign on a door | **File/directory type** | `myapp_var_lib_t` — files under `/var/lib/myapp`; `myapp_var_run_t` — runtime under `/run/myapp` |
 | Company access policy | **`allow` rules** in `.te` | "Processes with badge `myapp_t` may write to rooms labeled `myapp_var_lib_t`" |
 
@@ -192,7 +192,7 @@ init_daemon_domain(myapp_t, myapp_exec_t);
 - **`init_daemon_domain`** — standard pattern for systemd services.
 - **`require { type ... }`** — types defined in the **base** RHEL policy that you reference but do not create.
 
-Optional training labs use a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;`. The customer talk ([DEMO_GUIDE.md](../training/DEMO_GUIDE.md)) never overlays that folder. The two-host **shopapi** pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) installs Spring Boot with a types-only seed so first-ship curls produce `shopapi_t` AVCs, then generates the first real `.te`. This page still uses Flask `myapp` as the teaching example.
+The two-host **shopapi** pipeline ([203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md)) installs Spring Boot with a types-only seed so first-ship curls produce `shopapi_t` AVCs, then generates the first real `.te`. This page uses `myapp_t` / `selinux/myapp.te` as the **offline generator golden** (what `make check` classifies against), not a live app.
 
 ### File contexts (`.fc`) — path → label mapping
 
@@ -293,14 +293,14 @@ This repo uses **two separate checks**. Beginners often confuse them:
 ```text
 Host state during staging and soak:
   getenforce          →  Enforcing     (SSH, cron, systemd, etc. stay fully protected)
-  semanage permissive -l  →  myapp_t   (Flask app domain: deny → log only, app keeps running)
-  ps -eZ | grep app   →  myapp_t       (running Flask process label)
+  semanage permissive -l  →  myapp_t   (example app domain: deny → log only, app keeps running)
+  ps -eZ | grep shopapi   →  shopapi_t       (running demo process label)
 ```
 
 **What this means in plain English:**
 
 - **`sshd_t`**, **`init_t`**, **`cron_t`**, and every other domain stay **enforcing** — a denial blocks the operation.
-- Only **`myapp_t`** (the Flask app) is on the permissive list — denials are **logged** but the app **keeps working**.
+- Only the **app domain** (`myapp_t` in the golden, `shopapi_t` on the demo host) is on the permissive list — denials are **logged** but the app **keeps working**.
 - We **never** run `setenforce 0` (whole-OS permissive) in production workflows.
 
 #### Example: `-a` vs `-l`
@@ -355,7 +355,7 @@ Days 1–14   Soak (production)
         → app keeps running; myapp_t still log-only
         → daily: AAP **SELinux – Soak monitor** (`soak_monitor.yml`, net-new vs installed policy)
         → goal: zero **net-new** access needs (not zero raw AVC lines)
-        → if net-new appears: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) (PR, not live patch)
+        → if net-new appears: [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md) (PR, not live patch)
 
 Enforce gate   Ansible collect_soak_facts / soak_status must pass ALL:
         → marker age ≥ 7 days
@@ -370,13 +370,13 @@ Enforce   semanage permissive -d myapp_t
 | Artifact | Purpose |
 |----------|---------|
 | `/var/lib/myapp/selinux_canary_deployed_at` | Epoch timestamp — soak clock starts here |
-| `/var/lib/myapp/selinux_soak_last_fail.json` | Last soak-monitor fail (copy to rhel-qa; see [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)) |
+| `/var/lib/myapp/selinux_soak_last_fail.json` | Last soak-monitor fail (copy to rhel-qa; see [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md)) |
 | `ansible/soak_monitor.yml` | Daily AAP **Soak monitor** — fail if **net-new** needs remain |
 | `ansible/soak_status.yml` / `collect_soak_facts.sh` | First node of **Promote to enforce** |
 
 **"Zero AVCs during soak"** in this repo means no **net-new access needs** vs the **installed** canary module (duplicate log lines from cron do not fail the gate). It does **not** mean the audit log is empty globally.
 
-If policy changes mid-soak, redeploy canary and **reset the soak clock**. Full admin runbook: [PRODUCTION_READINESS.md §6–12](../admin/PRODUCTION_READINESS.md). Ansible hub: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
+If policy changes mid-soak, redeploy canary and **reset the soak clock**. Full admin runbook: [302-PRODUCTION_READINESS.md §6–12](../admin/302-PRODUCTION_READINESS.md). Ansible hub: [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md). Prod AVC: [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md).
 
 ---
 
@@ -447,7 +447,7 @@ Example: 42 raw lines may collapse to 6 merged rows, with only 2 net-new after s
 
 This ties labels, `.te`, `.fc`, AVCs, and the reference app together.
 
-The Flask app ([`app/app.py`](../../app/app.py)) exposes `GET /save-log`, which appends a line to `/var/log/myapp/data.log` (created by systemd `LogsDirectory=myapp`).
+Live demo analog: shopapi `GET /log` appends under `/var/log/shopapi`. The golden [`selinux/myapp.te`](../../selinux/myapp.te) shows the same pattern for `GET /save-log` writing `/var/log/myapp/data.log` (`LogsDirectory=myapp` in the fixture unit).
 
 ### Step 0 — Confirm two-layer SELinux state
 
@@ -461,7 +461,7 @@ $ sudo semanage permissive -l
 myapp_t
 ```
 
-SSH and other services stay enforcing; only the Flask process domain is permissive.
+SSH and other services stay enforcing; only the app process domain is permissive.
 
 ### Step 1 — Process and file labels
 
@@ -509,7 +509,7 @@ Same pattern applies to `/run-script` (execute `myapp_script_exec_t`), `/rotate-
 
 ### Tier 6 network endpoints (policy v1.1.1+)
 
-These endpoints exercise **cross-domain** rules between Flask (`myapp_t`) and the backend stub (`myapp_backend_t`):
+These fixture-module endpoints exercise **cross-domain** rules between `myapp_t` and `myapp_backend_t` (types in the golden `.te`; not a live app):
 
 | Endpoint | Client domain | Server / target | Typical net-new allows |
 |----------|---------------|-----------------|------------------------|
@@ -538,7 +538,7 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 
 **Script execution:** `GET /run-script` runs `backup.sh` labeled `myapp_script_exec_t`. Policy uses `domain_auto_trans(..., myapp_t)` so the process **remains `myapp_t`** — not a separate backup helper domain. The script intentionally avoids external `/usr/bin/*` binaries so policy stays within forbidden-pattern CI limits.
 
-**Backend execution:** `myapp-backend.service` starts `backend_stub.py` labeled `myapp_backend_exec_t` → running process is **`myapp_backend_t`**. Flask connects to it over TCP **8889** and the Unix socket at `/run/myapp/notify.sock`.
+**Backend execution:** `myapp-backend.service` starts `backend_stub.py` labeled `myapp_backend_exec_t` → running process is **`myapp_backend_t`**. The fixture client connects to it over TCP **8889** and the Unix socket at `/run/myapp/notify.sock`.
 
 ---
 
@@ -546,12 +546,12 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 
 | Type | Used for |
 |------|----------|
-| `myapp_t` | Running Flask app (process domain) |
+| `myapp_t` | Example process domain (offline golden; live demo is `shopapi_t`) |
 | `myapp_exec_t` | App binary, Python venv (entrypoint) |
 | `myapp_var_lib_t` | State under `/var/lib/myapp` (soak marker, deploy report) |
 | `myapp_log_t` | Logs under `/var/log/myapp` (`data.log`, rotated files) |
 | `myapp_var_run_t` | Runtime under `/run/myapp` (`notify.sock`; `files_pid_file`) |
-| `myapp_port_t` | TCP port **8888** (Flask bind) |
+| `myapp_port_t` | TCP port **8888** in the golden fixture (live demo: `shopapi_port_t` **8091**) |
 | `myapp_backend_port_t` | TCP port **8889** (backend bind) |
 | `myapp_script_exec_t` | `backup.sh` and scripts in `/opt/myapp/bin/` |
 | `myapp_backend_t` | Running backend stub (`backend_stub.py`) |
@@ -567,13 +567,13 @@ If you start the app manually as root (`python app.py`) instead of **`systemctl 
 3. Generate policy                     →  selinux/myapp.te + .fc updates
 4. Review + CI                         →  no wildcards / no shadow_t allows
 5. Canary deploy                       →  AAP **Release canary** (semodule -i + permissive domain)
-6. Soak + monitor                      →  AAP **Soak monitor** (net-new); fail → DENIAL_RESPONSE.md
+6. Soak + monitor                      →  AAP **Soak monitor** (net-new); fail → 303-DENIAL_RESPONSE.md
 7. Enforce                             →  AAP **Promote to enforce** (`change_ticket`)
 8. Deploy verification                 →  wait_for_endpoints.sh + selinux_deploy_report.json
 9. Outage?                             →  AAP **Rollback**, then PR (not live semodule -i)
 ```
 
-**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (HTTP probes from the manifest **plus domain-context check**) and write a deploy report JSON. Enforce uses Ansible **block/rescue** — on failure, the app domain is restored to permissive before the playbook exits. Production soak uses AAP **Soak monitor** (`soak_monitor.yml`, net-new vs installed policy). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
+**Deploy verification:** after canary, enforce, or rollback, playbooks run `scripts/wait_for_endpoints.sh` (HTTP probes from the manifest **plus domain-context check**) and write a deploy report JSON. Enforce uses Ansible **block/rescue** — on failure, the app domain is restored to permissive before the playbook exits. Production soak uses AAP **Soak monitor** (`soak_monitor.yml`, net-new vs installed policy). Prod AVC: [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md).
 
 ### App-visible SELinux signals
 
@@ -582,9 +582,9 @@ The reference app exposes SELinux state so app teams can distinguish policy issu
 - **`GET /`** health JSON includes `"selinux": { "mode", "domain", "domain_permissive", "policy_version" }`
 - Permission errors may include `"selinux_context"` alongside `"Permission denied"`
 
-Full triage steps for app teams: [PRODUCTION_READINESS.md §12.5](../admin/PRODUCTION_READINESS.md).
+Full triage steps for app teams: [302-PRODUCTION_READINESS.md §12.5](../admin/302-PRODUCTION_READINESS.md).
 
-Presenter steps: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`). Admin gates: [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md). Principles and anti-patterns: [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md).
+Presenter steps: [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md) (`demo_present.sh`). Admin gates: [302-PRODUCTION_READINESS.md](../admin/302-PRODUCTION_READINESS.md). Principles and anti-patterns: [207-SELINUX_BEST_PRACTICES.md](207-SELINUX_BEST_PRACTICES.md).
 
 ---
 
@@ -659,6 +659,8 @@ Port **8888** is labeled **`myapp_port_t`** (`semanage port` / canary `seport`) 
 ---
 
 ## 15. Command cheat sheet (by task)
+
+Examples below use **`myapp`**. Live **shopapi** copies of the same rows: **[101 — Command cheat sheet](../training/101-SELINUX.md#command-cheat-sheet)**.
 
 **Check SELinux status**
 
@@ -737,13 +739,15 @@ sudo semodule -i selinux/myapp.pp              # upgrades in place
 
 ## Document map
 
-| Guide | Audience |
-|-------|----------|
-| **This file** | New to SELinux — labels, `.te`/`.fc`, commands with examples |
-| [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
-| [CODE_WALKTHROUGH.md](../training/CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, PR CI |
-| [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline policy generator from AVCs |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) |
-| [TESTING.md](../developers/TESTING.md) | Endpoints, smoke tests, CI matrix |
-| [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | RHEL admins — soak, canary, enforce gates |
-| [README.md](../../README.md) | Project overview and command index |
+Numbered catalog: [docs/README.md](../README.md).
+
+| # | Guide | Audience |
+|---|--------|----------|
+| **101** | [SELinux 101](../training/101-SELINUX.md) | Typed shopapi labs before the talk |
+| **This file (102)** | | New to SELinux — labels, `.te`/`.fc` |
+| **103** | [Hands-on recap](../training/103-TRAINING_LAB.md) | After 101: recap + `demo_present.sh` |
+| **201** | [Code walkthrough](../training/201-CODE_WALKTHROUGH.md) | Code tour |
+| **202** | [Three-app customer talk](../training/202-DEMO_GUIDE.md) | `demo_present.sh` |
+| **204** | [Deterministic policy](../developers/204-DETERMINISTIC_POLICY.md) | Offline generator |
+| **205** | [Testing](../developers/205-TESTING.md) | Endpoints, smoke, CI |
+| **302** | [Production readiness](../admin/302-PRODUCTION_READINESS.md) | Soak, canary, enforce |

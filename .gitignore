@@ -24,6 +24,8 @@ packaging/internal.env
 __pycache__/
 *.pyc
 .DS_Store
+.pytest_cache/
+.tmp-ansible/
 demo/shopapi/target/
 policy_out/pr_body.md
 policy_out/pr_summary.md

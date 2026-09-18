@@ -12,8 +12,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -261,89 +259,6 @@ def test_version_bump() -> None:
         assert read_policy_version(vf) == "1.0.1"
 
 
-def test_flask_endpoints(require_backend: bool = True) -> None:
-    tmp = Path(tempfile.mkdtemp(prefix="myapp-smoke-"))
-    bin_dir = tmp / "bin"
-    var_dir = tmp / "var" / "lib" / "myapp"
-    run_dir = tmp / "run" / "myapp"
-    bin_dir.mkdir()
-    var_dir.mkdir(parents=True)
-    run_dir.mkdir(parents=True)
-    notify_sock = run_dir / "notify.sock"
-    backend_port = 18889
-
-    backend_src = (PROJECT_ROOT / "app" / "backend_stub.py").read_text(encoding="utf-8")
-    backend_path = tmp / "backend_stub.py"
-    backend_path.write_text(backend_src, encoding="utf-8")
-
-    app_src = (PROJECT_ROOT / "app" / "app.py").read_text(encoding="utf-8")
-    app_src = app_src.replace("/var/lib/myapp", str(var_dir))
-    app_src = app_src.replace("/run/myapp", str(run_dir))
-    app_src = app_src.replace("/opt/myapp/bin/backup.sh", str(bin_dir / "backup.sh"))
-    app_path = tmp / "app.py"
-    app_path.write_text(app_src, encoding="utf-8")
-
-    backup_src = (PROJECT_ROOT / "app" / "backup.sh").read_text(encoding="utf-8")
-    backup_src = backup_src.replace("/var/lib/myapp", str(var_dir))
-    backup_path = bin_dir / "backup.sh"
-    backup_path.write_text(backup_src, encoding="utf-8")
-    backup_path.chmod(0o755)
-
-    backend_env = {
-        **os.environ,
-        "MYAPP_NOTIFY_SOCK": str(notify_sock),
-        "MYAPP_BACKEND_PORT": str(backend_port),
-    }
-    app_env = {
-        **os.environ,
-        "MYAPP_BACKEND_URL": f"http://127.0.0.1:{backend_port}/health",
-        "MYAPP_NOTIFY_SOCK": str(notify_sock),
-    }
-
-    backend_proc = subprocess.Popen(
-        [sys.executable, str(backend_path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=backend_env,
-    )
-    proc = subprocess.Popen(
-        [sys.executable, str(app_path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=app_env,
-    )
-    try:
-        for _ in range(30):
-            try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{backend_port}/health", timeout=1):
-                    pass
-                with urllib.request.urlopen("http://127.0.0.1:8888/", timeout=1) as resp:
-                    assert resp.status == 200
-                break
-            except (urllib.error.URLError, TimeoutError):
-                time.sleep(0.2)
-        else:
-            raise AssertionError("Flask app or backend stub did not become healthy")
-
-        if require_backend:
-            with urllib.request.urlopen(f"http://127.0.0.1:{backend_port}/health", timeout=3) as resp:
-                assert resp.status == 200
-
-        for path in ("/", "/save-log", "/run-script", "/rotate-log", "/probe-backend", "/notify-socket"):
-            with urllib.request.urlopen(f"http://127.0.0.1:8888{path}", timeout=3) as resp:
-                body = resp.read().decode("utf-8")
-                assert resp.status == 200
-                assert "ok" in body
-    finally:
-        proc.terminate()
-        backend_proc.terminate()
-        for child in (proc, backend_proc):
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
-
-
 def test_assemble_pr_body_policy_diff_section() -> None:
     """assemble_pr_body embeds precomputed sesearch delta (full diff needs sesearch + git merge-base)."""
     fixture = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "policy_diff" / "sample_delta.md"
@@ -429,6 +344,7 @@ def test_assemble_pr_body() -> None:
         assert "type=AVC" in body
         assert "<!-- AUTO:PR_SUMMARY -->" not in body
         assert "<!-- AUTO:AVC_EXCERPT -->" not in body
+        assert "<!-- AUTO:VENDOR_OVERRIDE -->" not in body
 
 
 def test_verify_file_contexts_skip() -> None:
@@ -594,13 +510,24 @@ def test_vendor_policy_check() -> None:
     assert "continuing" in proceed_out.lower()
     assert "no vendor or base module covers 'myapp'" in proceed_out
 
-    forced = run(
+    bare = run(
         ["--app-name", "tomcat", "--force"],
+        {"VENDOR_CHECK_SEMODULE_L": "jws6_tomcat"},
+    )
+    bare_out = bare.stdout + bare.stderr
+    assert bare.returncode != 0, bare_out
+    assert "reason" in bare_out.lower()
+    assert "bare --force" in bare_out.lower()
+
+    forced = run(
+        ["--app-name", "tomcat", "--force", "non-standard layout vs jws6_tomcat"],
         {"VENDOR_CHECK_SEMODULE_L": "jws6_tomcat"},
     )
     forced_out = forced.stdout + forced.stderr
     assert forced.returncode == 0, forced_out
     assert "bypassed (--force)" in forced_out
+    assert "non-standard layout vs jws6_tomcat" in forced_out
+    assert "TRIAGE situation=loaded" in forced_out
 
     with tempfile.TemporaryDirectory() as empty_path:
         skipped = run(
@@ -1150,6 +1077,7 @@ def _deterministic_run_args(
         allow_needs_review_perm=[],
         policy_kern=None,
         boolean_hints=hints_path,
+        vendor_override=None,
     )
 
 
@@ -1185,6 +1113,7 @@ def _run_deterministic_gen(
     boolean_mock: dict | None,
     allow_needs_review: bool = False,
     allow_needs_review_perm: list[str] | None = None,
+    allow_degraded: bool = False,
 ) -> tuple[int, str, str]:
     """Run deterministic_gen; in-process when fixture mocks are present."""
     import io
@@ -1198,6 +1127,7 @@ def _run_deterministic_gen(
     )
     args.allow_needs_review = allow_needs_review
     args.allow_needs_review_perm = list(allow_needs_review_perm or [])
+    args.allow_degraded = allow_degraded
     stdout = io.StringIO()
     stderr = io.StringIO()
 
@@ -1208,6 +1138,8 @@ def _run_deterministic_gen(
     extra_flags: list[str] = []
     if allow_needs_review:
         extra_flags.append("--allow-needs-review")
+    if allow_degraded:
+        extra_flags.append("--allow-degraded")
     for perm in args.allow_needs_review_perm:
         extra_flags.extend(["--allow-needs-review-perm", perm])
 
@@ -1423,6 +1355,27 @@ def test_deterministic_fixture_classify() -> None:
                     assert allow_findings.get("generation_blocked") is False
             continue
 
+        if case == "13-cgroup-omit":
+            out_te = (case_dir / "_out" / "myapp.te").read_text(encoding="utf-8")
+            assert "cgroup_t" not in out_te, f"{case}: must not emit cgroup_t in the .te"
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                deg_code, deg_out, deg_err = _run_deterministic_gen(
+                    case_dir,
+                    manifest,
+                    te,
+                    fc,
+                    explain=False,
+                    out_dir=tmp_path,
+                    mock=mock,
+                    boolean_mock=boolean_mock,
+                    allow_degraded=True,
+                )
+                assert deg_code == 0, f"{case}: --allow-degraded exit {deg_code}\n{deg_out}{deg_err}"
+                deg_te = (tmp_path / "myapp.te").read_text(encoding="utf-8")
+                assert "cgroup_t" not in deg_te, (
+                    f"{case}: --allow-degraded must still omit cgroup_t"
+                )
         if case == "02-port-bind":
             summary = (case_dir / "_out" / "pr_summary.md").read_text(encoding="utf-8")
             assert "add_manifest_port" in summary, f"{case}: pr_summary missing next_action"
@@ -1636,35 +1589,234 @@ def test_fc_labeling_drift_detection() -> None:
 
 
 def test_rhel_runtime_file_contexts() -> None:
-    fc = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
-    assert "/run/myapp(/.*)?" in fc
-    assert "/var/run/myapp(/.*)?" in fc
-    units = "\n".join(
-        (PROJECT_ROOT / "app" / name).read_text(encoding="utf-8")
-        for name in ("myapp.service", "myapp-backend.service")
+    myapp_fc = (PROJECT_ROOT / "selinux" / "myapp.fc").read_text(encoding="utf-8")
+    assert "/run/myapp(/.*)?" in myapp_fc
+    assert "/var/run/myapp(/.*)?" in myapp_fc
+    shopapi_fc = (PROJECT_ROOT / "selinux" / "shopapi" / "shopapi.fc").read_text(encoding="utf-8")
+    assert "/run/shopapi(/.*)?" in shopapi_fc
+    unit = (PROJECT_ROOT / "demo" / "shopapi" / "shopapi.service").read_text(encoding="utf-8")
+    assert "NoNewPrivileges=false" in unit
+    assert "SELinuxContext=" in unit
+    assert "ExecStart=/opt/shopapi/bin/java" in unit
+
+
+def _tune_report_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    env = os.environ.copy()
+    for key in list(env):
+        if key.startswith("VENDOR_CHECK_"):
+            del env[key]
+    env["VENDOR_CHECK_MOCK"] = "1"
+    env["VENDOR_CHECK_SEMODULE_L"] = "tomcat"
+    env["VENDOR_CHECK_RPM_QA"] = ""
+    env["VENDOR_CHECK_DNF_AVAILABLE"] = ""
+    env["VENDOR_CHECK_PS_EZ"] = ""
+    if extra:
+        env.update(extra)
+    return env
+
+
+def test_tune_report() -> None:
+    fixture = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "tune_report" / "tomcat"
+    avc = fixture / "avc.log"
+    expected = json.loads((fixture / "expected.json").read_text(encoding="utf-8"))
+    script = PROJECT_ROOT / "scripts" / "dev_generate_policy.sh"
+    with tempfile.TemporaryDirectory() as tmp:
+        out_dir = Path(tmp) / "policy_out"
+        result = subprocess.run(
+            [
+                BASH,
+                str(script),
+                "--tune-report",
+                "--skip-export",
+                "--app-name",
+                "tomcat",
+                "--avc-log",
+                str(avc),
+                "--out-dir",
+                str(out_dir),
+                "--app-root",
+                str(PROJECT_ROOT),
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env=_tune_report_env(),
+        )
+        combined = result.stdout + result.stderr
+        assert result.returncode == 0, combined
+        report_path = out_dir / "tune_report.md"
+        assert report_path.is_file(), combined
+        report = report_path.read_text(encoding="utf-8")
+        combined_text = combined + "\n" + report
+        for command in expected["commands"]:
+            assert command in combined_text, f"missing {command!r} in:\n{combined_text}"
+        assert "Not resolvable by tuning" in report
+        assert expected["unresolvable_tgt"] in report
+        assert "policy_module" not in report
+        te_files = list(out_dir.glob("*.te")) + list(out_dir.glob("*.fc")) + list(out_dir.glob("*.pp"))
+        assert te_files == [], f"tune-report must not write a policy module: {te_files}"
+
+
+def test_tune_report_skip_no_selinux() -> None:
+    script = PROJECT_ROOT / "scripts" / "dev_generate_policy.sh"
+    python = shutil.which("python3")
+    bash = shutil.which("bash") or BASH
+    assert python and bash
+    with tempfile.TemporaryDirectory() as tmp:
+        bindir = Path(tmp) / "bin"
+        bindir.mkdir()
+        os.symlink(python, bindir / "python3")
+        os.symlink(bash, bindir / "bash")
+        for name in (
+            "grep",
+            "cut",
+            "head",
+            "cat",
+            "mkdir",
+            "mktemp",
+            "dirname",
+            "basename",
+            "rm",
+            "sort",
+            "tr",
+            "uname",
+            "id",
+            "chmod",
+            "ln",
+            "cp",
+            "mv",
+            "tee",
+            "awk",
+            "sed",
+        ):
+            src = shutil.which(name)
+            if src:
+                dest = bindir / name
+                if not dest.exists():
+                    os.symlink(src, dest)
+        out_dir = Path(tmp) / "out"
+        env = os.environ.copy()
+        for key in list(env):
+            if key.startswith("VENDOR_CHECK_"):
+                del env[key]
+        env["PATH"] = str(bindir)
+        result = subprocess.run(
+            [
+                BASH,
+                str(script),
+                "--tune-report",
+                "--app-name",
+                "tomcat",
+                "--out-dir",
+                str(out_dir),
+                "--app-root",
+                str(PROJECT_ROOT),
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        combined = result.stdout + result.stderr
+        assert result.returncode == 0, combined
+        report_text = ""
+        report_file = out_dir / "tune_report.md"
+        if report_file.is_file():
+            report_text = report_file.read_text(encoding="utf-8")
+        blob = (combined + "\n" + report_text).lower()
+        assert "tune-report skipped" in blob, blob
+        assert list(out_dir.glob("*.te")) == []
+
+
+def test_force_reason_recorded() -> None:
+    gen = PROJECT_ROOT / "scripts" / "dev_generate_policy.sh"
+    bare = subprocess.run(
+        [BASH, str(gen), "--force"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
     )
-    assert "NoNewPrivileges=false" in units
-    assert "ExecStart=/opt/myapp/backend_stub.py" in units
+    bare_out = bare.stdout + bare.stderr
+    assert bare.returncode != 0, bare_out
+    assert "reason" in bare_out.lower()
+
+    case_dir = PROJECT_ROOT / "docs" / "examples" / "fixtures" / "deterministic" / "11-private-getopt"
+    with tempfile.TemporaryDirectory() as tmp:
+        out_dir = Path(tmp)
+        override_path = out_dir / "vendor_override.json"
+        override = {
+            "reason": "private connector layout vs jws6_tomcat",
+            "situation": "loaded",
+            "module": "jws6_tomcat",
+            "package": "jws6-tomcat-selinux",
+            "class": "tomcat",
+        }
+        override_path.write_text(json.dumps(override, indent=2) + "\n", encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "cli" / "deterministic_gen.py"),
+                "--avc-log",
+                str(case_dir / "avc.log"),
+                "--manifest",
+                str(PROJECT_ROOT / "config" / "myapp.manifest.yml"),
+                "--existing-te",
+                str(PROJECT_ROOT / "selinux" / "myapp.te"),
+                "--existing-fc",
+                str(PROJECT_ROOT / "selinux" / "myapp.fc"),
+                "--out-dir",
+                str(out_dir),
+                "--vendor-override",
+                str(override_path),
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        combined = result.stdout + result.stderr
+        assert result.returncode == 0, combined
+        findings = json.loads((out_dir / "findings.json").read_text(encoding="utf-8"))
+        assert findings["vendor_override"]["reason"] == override["reason"]
+        assert findings["vendor_override"]["situation"] == "loaded"
+        assert findings["vendor_override"]["module"] == "jws6_tomcat"
+        summary = (out_dir / "pr_summary.md").read_text(encoding="utf-8")
+        assert "Vendor policy override (higher scrutiny)" in summary
+        assert override["reason"] in summary
+        assert summary.find("Vendor policy override") < summary.find("### Network Bindings")
+
+        pr_summary = out_dir / "pr_summary.md"
+        avc_log = out_dir / "avc.log"
+        avc_log.write_text((case_dir / "avc.log").read_text(encoding="utf-8"), encoding="utf-8")
+        output = out_dir / "pr_body.md"
+        assembled = subprocess.run(
+            [
+                BASH,
+                str(PROJECT_ROOT / "scripts" / "assemble_pr_body.sh"),
+                "--template",
+                str(PROJECT_ROOT / ".github" / "PULL_REQUEST_TEMPLATE" / "selinux_policy_review.md"),
+                "--pr-summary",
+                str(pr_summary),
+                "--avc-log",
+                str(avc_log),
+                "--output",
+                str(output),
+                "--app-name",
+                "myapp",
+                "--skip-policy-diff",
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert assembled.returncode == 0, assembled.stdout + assembled.stderr
+        body = output.read_text(encoding="utf-8")
+        assert "HIGHER SCRUTINY" in body
+        assert override["reason"] in body
+        assert body.find("HIGHER SCRUTINY") < body.find("### 2.5 Policy access delta")
+        assert "<!-- AUTO:VENDOR_OVERRIDE -->" not in body
 
 
 def main() -> int:
-    import argparse
-
-    parser = argparse.ArgumentParser(description="SELinux demo smoke tests")
-    parser.add_argument(
-        "--require-backend",
-        action="store_true",
-        default=os.environ.get("SMOKE_REQUIRE_BACKEND", "1") != "0",
-        help="Fail if Tier 6 backend stub is not healthy (default: true)",
-    )
-    parser.add_argument(
-        "--no-require-backend",
-        action="store_true",
-        help="Skip backend health requirement in flask_endpoints test",
-    )
-    args = parser.parse_args()
-    require_backend = args.require_backend and not args.no_require_backend
-
     tests = [
         ("prompts", test_prompts),
         ("avc_parsing", test_avc_parsing),
@@ -1678,7 +1830,6 @@ def main() -> int:
         ("pr_summary_split_and_validate", test_pr_summary_split_and_validate),
         ("policy_json_validation", test_policy_json_validation),
         ("version_bump", test_version_bump),
-        ("flask_endpoints", lambda: test_flask_endpoints(require_backend=require_backend)),
         ("assemble_pr_body_policy_diff_section", test_assemble_pr_body_policy_diff_section),
         ("assemble_pr_body", test_assemble_pr_body),
         ("verify_file_contexts_skip", test_verify_file_contexts_skip),
@@ -1711,9 +1862,10 @@ def main() -> int:
         ("boolean_hint_yaml_still_documents_patterns", test_boolean_hint_yaml_still_documents_patterns),
         ("fc_labeling_drift_detection", test_fc_labeling_drift_detection),
         ("rhel_runtime_file_contexts", test_rhel_runtime_file_contexts),
+        ("tune_report", test_tune_report),
+        ("tune_report_skip_no_selinux", test_tune_report_skip_no_selinux),
+        ("force_reason_recorded", test_force_reason_recorded),
     ]
-    if os.environ.get("SMOKE_SKIP_FLASK") == "1":
-        tests = [t for t in tests if t[0] != "flask_endpoints"]
     for name, fn in tests:
         fn()
         print(f"PASS {name}")

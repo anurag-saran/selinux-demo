@@ -116,11 +116,15 @@ tmp="$(mktemp)"
 # Strip YAML frontmatter (--- ... ---) for body-file usage
 awk 'BEGIN {delim=0} /^---$/ { delim++; next } delim >= 2' "${TEMPLATE}" > "${tmp}"
 
-python3 - "${tmp}" "${OUTPUT}" "${policy_version}" "${STAGING_HOST}" "${TEST_SUITE}" "${avc_line_count}" "${PR_SUMMARY}" "${AVC_LOG}" "${sediff_file}" <<'PY'
+python3 - "${tmp}" "${OUTPUT}" "${policy_version}" "${STAGING_HOST}" "${TEST_SUITE}" "${avc_line_count}" "${PR_SUMMARY}" "${AVC_LOG}" "${sediff_file}" "${PROJECT_ROOT}" <<'PY'
+import json
 import pathlib
 import sys
 
-template_path, output_path, policy_version, staging_host, test_suite, avc_count, pr_summary_path, avc_log_path, sediff_path = sys.argv[1:10]
+template_path, output_path, policy_version, staging_host, test_suite, avc_count, pr_summary_path, avc_log_path, sediff_path, project_root = sys.argv[1:11]
+sys.path.insert(0, str(pathlib.Path(project_root) / "cli"))
+from pr_summary_common import format_vendor_override_pr_banner
+
 sediff_section = pathlib.Path(sediff_path).read_text(encoding="utf-8", errors="replace").strip()
 body = pathlib.Path(template_path).read_text(encoding="utf-8")
 pr_summary = pathlib.Path(pr_summary_path).read_text(encoding="utf-8").strip()
@@ -134,6 +138,17 @@ if avc_log.is_file() and avc_log.stat().st_size:
 else:
     avc_excerpt = "(no AVC log found — run export before assemble)"
 
+override_block = ""
+findings_path = pathlib.Path(pr_summary_path).with_name("findings.json")
+if findings_path.is_file():
+    try:
+        data = json.loads(findings_path.read_text(encoding="utf-8"))
+        override = data.get("vendor_override")
+        if isinstance(override, dict) and override.get("reason"):
+            override_block = format_vendor_override_pr_banner(override)
+    except (json.JSONDecodeError, OSError):
+        override_block = ""
+
 replacements = {
     "<!-- AUTO:POLICY_VERSION -->": policy_version,
     "<!-- AUTO:STAGING_HOST -->": staging_host,
@@ -142,6 +157,7 @@ replacements = {
     "<!-- AUTO:PR_SUMMARY -->": pr_summary + "\n",
     "<!-- AUTO:AVC_EXCERPT -->": avc_excerpt,
     "<!-- AUTO:SEDIFF -->": sediff_section + "\n",
+    "<!-- AUTO:VENDOR_OVERRIDE -->": override_block,
 }
 for marker, value in replacements.items():
     body = body.replace(marker, value)

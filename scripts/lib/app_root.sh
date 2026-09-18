@@ -1,10 +1,10 @@
-# app_root.sh — Resolve the application tree (policy + Flask) vs this tool tree.
+# app_root.sh — Resolve the application tree vs this tool tree.
 # Source from scripts that live in selinux-pac. Sets APP_ROOT.
 #
-#   APP_ROOT=/path/to/myapp          # or --app-root (caller sets APP_ROOT first)
-#   sibling ../myapp                 # Mac: /Users/…/projects/myapp
-#   ~/myapp                          # rhel-qa after sync_myapp.sh
-#   $1 (selinux-pac)                 # training labs / one-clone fallback
+#   APP_ROOT=/path/to/checkout       # or --app-root (caller sets APP_ROOT first)
+#   sibling ../myapp                 # optional split checkout (legacy)
+#   ~/myapp                          # optional split checkout on rhel-qa
+#   $1 (selinux-pac)                 # default: this repo (shopapi demo + myapp generator fixture)
 #
 # shellcheck shell=bash
 
@@ -16,11 +16,11 @@ resolve_app_root() {
         return
     fi
     sibling="$(cd "${tool_root}/.." && pwd)/myapp"
-    if [[ -d "${sibling}/app" || -d "${sibling}/selinux" || -d "${sibling}/.git" ]]; then
+    if [[ -d "${sibling}/selinux" || -d "${sibling}/.git" ]]; then
         echo "${sibling}"
         return
     fi
-    if [[ -d "${HOME}/myapp/app" || -d "${HOME}/myapp/selinux" ]]; then
+    if [[ -d "${HOME}/myapp/selinux" ]]; then
         echo "${HOME}/myapp"
         return
     fi

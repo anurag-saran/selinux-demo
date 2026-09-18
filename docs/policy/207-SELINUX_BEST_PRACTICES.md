@@ -1,14 +1,14 @@
-# SELinux PaC — Best Practices
+# 207 — Best practices
 
 This guide captures **design principles and anti-patterns** enforced in this repository after production-readiness review. It answers: *what does “correct” look like here, and why?*
 
 | You are… | Read this for… | Then use… |
 |----------|----------------|-----------|
-| **Policy author / app developer** | How to write `.te`/`.fc` and pass CI | [README.md](../../README.md), [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md), [cli/prompt_templates.py](../../cli/prompt_templates.py) |
+| **Policy author / app developer** | How to write `.te`/`.fc` and pass CI | [README.md](../../README.md), [204-DETERMINISTIC_POLICY.md](../developers/204-DETERMINISTIC_POLICY.md), [cli/prompt_templates.py](../../cli/prompt_templates.py) |
 | **Security / admin reviewer** | PR review checklist and gates | [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md), §Review checklist below |
-| **RHEL admin running deploy** | Step-by-step rollout | [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md), [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md), [ansible/README.md](../../ansible/README.md) |
-| **Testing / CI author** | Endpoint matrix, smoke tests, gates | [TESTING.md](../developers/TESTING.md) |
-| **New to SELinux concepts** | Labels, soak, permissive domains | [SELINUX_BASICS.md](SELINUX_BASICS.md) |
+| **RHEL admin running deploy** | Step-by-step rollout | [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md), [302-PRODUCTION_READINESS.md](../admin/302-PRODUCTION_READINESS.md), [ansible/README.md](../../ansible/README.md) |
+| **Testing / CI author** | Endpoint matrix, smoke tests, gates | [205-TESTING.md](../developers/205-TESTING.md) |
+| **New to SELinux concepts** | Labels, soak, permissive domains | [102-SELINUX_BASICS.md](102-SELINUX_BASICS.md) |
 
 **Doc index and reading order:** [README.md](../README.md).
 
@@ -36,7 +36,7 @@ Current module version: read **`selinux/policy_version.txt`** (SemVer). Keep the
 
 | Anti-pattern | Why it fails |
 |--------------|--------------|
-| Generate a custom module for JWS/Tomcat, EAP/JBoss, or httpd | Vendor/base policy already confines these; install `jws6-tomcat-selinux` / `eap*-selinux` or tune booleans. The generator refuses unless `--force`. |
+| Generate a custom module for JWS/Tomcat, EAP/JBoss, or httpd | Vendor/base policy already confines these; install `jws6-tomcat-selinux` / `eap*-selinux` or `--tune-report` for host commands. The generator refuses unless `--force "reason"`. |
 | Quietly add `allow … self:process execmem` (or `dac_override`) | Domain-weakening; generator classifies `needs_review` and exits until `--allow-needs-review` after confirming the AVC |
 | Raw `allow myapp_t syslogd_t:unix_stream_socket connectto` | Incomplete vs `logging_send_syslog_msg`; misses `devlog_t` / dgram paths |
 | `allow myapp_t unreserved_port_t:tcp_socket name_bind` | Binds **any** high port — not just 8888 |
@@ -129,7 +129,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 
 | Practice | Where |
 |----------|-------|
-| **`semodule -i` in-place upgrade** | `deploy_canary.yml`, `apply_policy.sh` — no remove-then-install gap |
+| **`semodule -i` in-place upgrade** | `deploy_canary.yml` — no remove-then-install gap |
 | **Per-domain permissive only** during soak | `semanage permissive -a myapp_t`; OS stays Enforcing |
 | **`semodule -DB` at canary start** | Surfaces dontaudit-hidden denials during soak |
 | **`semodule -B` on canary failure / rollback / before enforce** | Restores dontaudit baseline — host-wide change |
@@ -188,7 +188,7 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 | Immediate relief | `semanage permissive -a myapp_t` (via `emergency_rollback.yml`) |
 | Version rollback | `-e rollback_dnf_version=1.1.1-1` on emergency rollback (`dnf downgrade myapp-selinux-*`) |
 | Export AVCs after outage | `/tmp/emergency_avc.log` in rollback playbook |
-| App team triage | [PRODUCTION_READINESS.md §12.5](../admin/PRODUCTION_READINESS.md) — health JSON, deploy report |
+| App team triage | [302-PRODUCTION_READINESS.md §12.5](../admin/302-PRODUCTION_READINESS.md) — health JSON, deploy report |
 | Full recovery loop | permissive → policy PR → canary → soak → enforce |
 
 ### Don’t
@@ -214,7 +214,7 @@ The LLM path follows the same house rules as hand-written policy. See [`cli/prom
 
 **Human review is mandatory** — generated output passes CI but does not replace admin sign-off.
 
-The generator also **refuses to duplicate vendor policy**. Pointing it at JWS or EAP without `--force` exits non-zero; install `jws6-tomcat-selinux` / `eap*-selinux` (or tune the loaded module) instead. See [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md).
+The generator also **refuses to duplicate vendor policy**. Pointing it at JWS or EAP without `--force "reason"` exits non-zero; install `jws6-tomcat-selinux` / `eap*-selinux`, or run `--tune-report` for host commands, instead. See [204-DETERMINISTIC_POLICY.md](../developers/204-DETERMINISTIC_POLICY.md).
 
 ---
 
@@ -233,8 +233,8 @@ Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_re
 - [ ] Enforce plan: `collect_soak_facts.sh` / `soak_status.yml` (net-new), `semodule -B`, block/rescue tested or briefed
 - [ ] Developers can run `dev_generate_policy.sh --enforce-check` before opening PR
 - [ ] Rollback owner knows `emergency_rollback.yml`, optional `rollback_dnf_version`, and `reset_host_state.yml` for interrupted canary
-- [ ] AAP workflows mapped from [`ansible/aap/`](../../ansible/aap/) ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md))
-- [ ] Prod denial path is a PR ([DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)), not live `semodule -i`
+- [ ] AAP workflows mapped from [`ansible/aap/`](../../ansible/aap/) ([301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md))
+- [ ] Prod denial path is a PR ([303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md)), not live `semodule -i`
 
 ---
 
@@ -242,11 +242,11 @@ Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_re
 
 | Guide | Role |
 |-------|------|
-| [TESTING.md](../developers/TESTING.md) | Endpoint probes, smoke_test.py, CI and deploy gates |
-| [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AAP workflows (`ansible/aap/`) and soak monitor |
-| [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) | File/port AVC after ship → PR |
+| [205-TESTING.md](../developers/205-TESTING.md) | Endpoint probes, smoke_test.py, CI and deploy gates |
+| [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md) | AAP workflows (`ansible/aap/`) and soak monitor |
+| [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md) | File/port AVC after ship → PR |
 | [../ansible/README.md](../../ansible/README.md) | Ansible playbook task order and variables |
-| [SELINUX_BASICS.md](SELINUX_BASICS.md) | Concepts and beginner mistakes |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) |
-| [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
+| [102-SELINUX_BASICS.md](102-SELINUX_BASICS.md) | Concepts and beginner mistakes |
+| [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) |
+| [302-PRODUCTION_READINESS.md](../admin/302-PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
 | [README.md](../../README.md) | Commands, CI, Ansible pointer |

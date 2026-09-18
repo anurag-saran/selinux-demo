@@ -29,6 +29,7 @@ from pr_summary_common import (  # noqa: E402
     PR_SUMMARY_REQUIRED_HEADINGS,
     merge_pr_summary,
     split_pr_summary_sections,
+    split_vendor_override_head,
     validate_narrative_section,
     validate_pr_summary,
 )
@@ -124,7 +125,8 @@ def build_user_prompt(
     findings_text: str,
     avc_summary: str,
 ) -> str:
-    narrative, _tail = split_pr_summary_sections(template)
+    _head, rest = split_vendor_override_head(template)
+    narrative, _tail = split_pr_summary_sections(rest)
     headings = "\n".join(PR_SUMMARY_REQUIRED_HEADINGS)
     return f"""App module: {app_name}
 
@@ -176,7 +178,8 @@ def main() -> int:
         return 1
 
     template = args.template.read_text(encoding="utf-8")
-    _narrative, tail = split_pr_summary_sections(template)
+    head, rest = split_vendor_override_head(template)
+    _narrative, tail = split_pr_summary_sections(rest)
     if not tail:
         eprint(
             "Warning: template has no deterministic tail marker; "
@@ -198,6 +201,8 @@ def main() -> int:
     narrative = call_llm_narrative(user_prompt, args.model)
     validate_narrative_section(narrative)
     merged = merge_pr_summary(narrative, tail)
+    if head:
+        merged = head.rstrip() + "\n\n" + merged
     validate_pr_summary(merged)
 
     if args.dry_run:

@@ -10,6 +10,8 @@ labels:
 
 ## Pull Request: SELinux Policy Module Submission
 
+<!-- AUTO:VENDOR_OVERRIDE -->
+
 ### 1. Application Context
 
 - **App Name / Service:** `myapp` (Order Processor)
@@ -43,7 +45,7 @@ labels:
 - [ ] `selinux/myapp.fc` (File Contexts)
 - [ ] `selinux/policy_version.txt` (SemVer bump — must match `policy_module(myapp, …)` in `.te`; CI `version-consistency`)
 - [ ] `selinux/myapp.if` — N/A (standalone demo module)
-- [ ] `selinux/payments/payments.if` — updated if this PR touches cross-module interfaces (see [ONBOARDING.md](../../docs/developers/ONBOARDING.md))
+- [ ] `selinux/payments/payments.if` — updated if this PR touches cross-module interfaces (see [206-ONBOARDING.md](../../docs/developers/206-ONBOARDING.md))
 
 ---
 
@@ -73,7 +75,7 @@ Compile and semantics are on **rhel-qa** (`compile_and_validate.sh`, `validate_p
 
 ### 6. Security and Sysadmin Checklist (Admin Team Review)
 
-> Full principles and anti-patterns: [`docs/policy/SELINUX_BEST_PRACTICES.md`](../../docs/policy/SELINUX_BEST_PRACTICES.md) (§8 review checklist).
+> Full principles and anti-patterns: [`docs/policy/207-SELINUX_BEST_PRACTICES.md`](../../docs/policy/207-SELINUX_BEST_PRACTICES.md) (§8 review checklist).
 
 | Security Check | Status | Notes / Approver Initials |
 | --- | --- | --- |
@@ -94,9 +96,9 @@ Compile and semantics are on **rhel-qa** (`compile_and_validate.sh`, `validate_p
 
 **After merge:** Compile with CLI (`bash scripts/compile_and_validate.sh`, optional `packaging/build_rpms.sh`), then AAP **SELinux – Release canary** (`ansible/deploy_canary.yml`).
 
-**Soak:** Daily AAP **SELinux – Soak monitor** (`ansible/soak_monitor.yml`) — zero **net-new** access needs vs installed policy. Before enforce: **Soak status** (`ansible/soak_status.yml`). If soak fails: [`docs/admin/DENIAL_RESPONSE.md`](../../docs/admin/DENIAL_RESPONSE.md) (PR + recanary, not live patch).
+**Soak:** Daily AAP **SELinux – Soak monitor** (`ansible/soak_monitor.yml`) — zero **net-new** access needs vs installed policy. Before enforce: **Soak status** (`ansible/soak_status.yml`). If soak fails: [`docs/admin/303-DENIAL_RESPONSE.md`](../../docs/admin/303-DENIAL_RESPONSE.md) (PR + recanary, not live patch).
 
-**Production enforce (manual):** AAP workflow **SELinux – Promote to enforce** (`ansible/enforce_production.yml`) after soak. See [`ansible/aap/`](../../ansible/aap/), [`docs/admin/ANSIBLE_OPERATIONS.md`](../../docs/admin/ANSIBLE_OPERATIONS.md) and [`docs/admin/PRODUCTION_READINESS.md`](../../docs/admin/PRODUCTION_READINESS.md).
+**Production enforce (manual):** AAP workflow **SELinux – Promote to enforce** (`ansible/enforce_production.yml`) after soak. See [`ansible/aap/`](../../ansible/aap/), [`docs/admin/301-ANSIBLE_OPERATIONS.md`](../../docs/admin/301-ANSIBLE_OPERATIONS.md) and [`docs/admin/302-PRODUCTION_READINESS.md`](../../docs/admin/302-PRODUCTION_READINESS.md).
 
 ```bash
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary

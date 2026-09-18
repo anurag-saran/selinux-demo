@@ -1,10 +1,12 @@
-# SELinux PaC — three-app customer talk
+# 202 — Three-app customer talk
+
+**Finish [101](101-SELINUX.md) before Acts 0–3.** That guide is the typed shopapi loop (one AVC, generate, same URL adds no rule, new URL fails under enforcing). This talk assumes those commands.
 
 **LAST_VERIFIED:** 2026-09-17 — authored on macOS. **Not yet run on RHEL hardware.** Re-verify on RHEL 9.x (or CentOS Stream 9) with JWS 6 + `jws6-tomcat-selinux`, or the distro Tomcat fallback + JDK 17, and update this line.
 
-Present **nothing to do → tune it → build it**. Demo apps are **Tomcat App A**, **Tomcat App B**, and **Spring Boot shopapi**. Flask `app/` is **not** in the talk; it remains the offline `make check` fixture.
+Present **nothing to do → tune it → build it**. Demo apps are **Tomcat App A**, **Tomcat App B**, and **Spring Boot shopapi**. Offline `make check` uses deterministic fixtures (`selinux/myapp.te`), not a live Flask app.
 
-**Follow also:** [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) for the two-host shopapi generate/canary/soak acts (technical profile).
+**Follow also:** [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md) for the two-host shopapi generate/canary/soak acts (technical profile).
 
 ## The three situations
 
@@ -47,7 +49,7 @@ bash scripts/demo_present.sh --profile customer
 | `--dry-run` | Narration + commands + expected output; **executes nothing** |
 | `--open-pr` | Preflight requires `gh auth` |
 
-Two-host generate/canary/soak (`demo_e2e_mac.sh` / `_rhel_qa.sh` / `_rhel_prod.sh`) is **shopapi**, not Flask (technical Act 5).
+Two-host generate/canary/soak (`demo_e2e_mac.sh` / `_rhel_qa.sh` / `_rhel_prod.sh`) is **shopapi** (technical Act 5).
 
 ## Acts
 
@@ -55,7 +57,7 @@ Two-host generate/canary/soak (`demo_e2e_mac.sh` / `_rhel_qa.sh` / `_rhel_prod.s
 |-----|------|----------------|
 | **0 Triage** | ~2 min | Vendor-policy check: which apps are covered, which are unconfined. Names **shopapi** as the generate target. Runs **before** staging. |
 | **1 App A** | ~1 min | `getenforce`, process domain, successful `/standard/`, then `/standard/forbidden.jsp` + `ausearch`. No changes. |
-| **2 App B** | ~5 min | Trigger label / port / boolean denials. `ausearch \| audit2why`. One-line fixes. No `.te`. |
+| **2 App B** | ~5 min | Trigger label / port / boolean denials. `ausearch \| audit2why`. Optional `--tune-report` (same three commands, no `.te`). One-line fixes. |
 | **3 shopapi** | rest of customer path | `SELinuxContext=shopapi_t`, types-only seed, generate from **observed** AVCs. First-ship: `/health` `/state` `/log`. |
 | **4–5** | technical | PR on `selinux/shopapi/`; canary, soak, `/feature-spool` outage, rollback via `demo_e2e_*.sh`. |
 
@@ -63,7 +65,7 @@ Two-host generate/canary/soak (`demo_e2e_mac.sh` / `_rhel_qa.sh` / `_rhel_prod.s
 
 - Decline the generator twice (A covered, B tuned) before it appears. That restraint is the point.
 - Act 1 without the forbidden curl is just an assertion. Always show the denial. The file is world-readable on purpose so DAC cannot hide the AVC.
-- Act 2: if a probe produces **no** AVC, say so — do not invent a fix.
+- Act 2: if a probe produces **no** AVC, say so — do not invent a fix. Optional beat: `--tune-report` prints the same three host commands into `policy_out/tune_report.md` (attach to a ticket). Still no `.te`.
 - shopapi policy: **no JVM cookbook**. If `execmem` is in the AVC log, generate uses `--allow-needs-review` so CODEOWNERS see it. If it is not in the log, do not add it.
 - `SELinuxContext=` plus a private JRE launcher at `/opt/shopapi/bin/java` (labeled `shopapi_exec_t`). `/usr/bin/java` is shared `bin_t` and `203/EXEC` under enforcing `shopapi_t`.
 - Do not curl `/feature-spool` until after the first module is enforcing on prod.
@@ -72,18 +74,18 @@ Two-host generate/canary/soak (`demo_e2e_mac.sh` / `_rhel_qa.sh` / `_rhel_prod.s
 
 | Who | Path |
 |-----|------|
+| New to SELinux | [101-SELINUX.md](101-SELINUX.md) first, then this talk. |
 | Us (maintained host) | App A persists. `--preflight` the night before. Act 1 is evidence. |
 | Colleague on a throwaway VM | `make demo-bootstrap` (idempotent; resume after Ctrl-C). |
 | Customer after the meeting | Same bootstrap + `--dry-run` on a laptop first. |
-| Laptop, no RHEL | `--dry-run` only. `make check` still uses Flask as a **test** fixture. |
+| Laptop, no RHEL | 101 [Appendix B](101-SELINUX.md#appendix-b-laptop-no-selinux) + `--dry-run`. `make check` uses deterministic fixtures (no live app). |
 
 `payments/` remains a **CI multi-module fixture**, not a talk app.
 
 ## What is not in this talk
 
-- Flask `app/` — offline `make check` and optional training labs only. Do not install it on the VMs.
-- Overlaying `selinux/stub/`.
+- A live Flask app — `make check` is deterministic goldens + smoke, not HTTP to :8888.
 - Generating a `.te` for Tomcat App A or App B.
 - `semodule -i` (or `audit2allow`) on prod.
 
-**Ship path after generate:** [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
+**Ship path after generate:** [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md) → [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md) → [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md).

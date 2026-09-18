@@ -37,16 +37,26 @@ run_deterministic_policy_gen() {
 
     mkdir -p "${policy_out}"
     cp "${policy_version_file}" "${policy_out}/policy_version.txt"
-    python3 "${PROJECT_ROOT}/cli/deterministic_gen.py" \
-        --avc-log "${avc_log}" \
-        --manifest "${manifest}" \
-        --existing-te "${policy_te}" \
-        --existing-fc "${policy_fc}" \
-        --out-dir "${policy_out}" \
-        --version-file "${policy_out}/policy_version.txt" \
-        --bump-version \
-        $( [[ "${POLICY_ALLOW_DEGRADED:-0}" == "1" ]] && echo --allow-degraded ) \
-        $( [[ "${POLICY_ALLOW_NEEDS_REVIEW:-0}" == "1" ]] && echo --allow-needs-review )
+    local -a cmd=(
+        python3 "${PROJECT_ROOT}/cli/deterministic_gen.py"
+        --avc-log "${avc_log}"
+        --manifest "${manifest}"
+        --existing-te "${policy_te}"
+        --existing-fc "${policy_fc}"
+        --out-dir "${policy_out}"
+        --version-file "${policy_out}/policy_version.txt"
+        --bump-version
+    )
+    if [[ "${POLICY_ALLOW_DEGRADED:-0}" == "1" ]]; then
+        cmd+=(--allow-degraded)
+    fi
+    if [[ "${POLICY_ALLOW_NEEDS_REVIEW:-0}" == "1" ]]; then
+        cmd+=(--allow-needs-review)
+    fi
+    if [[ -f "${policy_out}/vendor_override.json" ]]; then
+        cmd+=(--vendor-override "${policy_out}/vendor_override.json")
+    fi
+    "${cmd[@]}"
     POLICY_MODULE="${app_name}" SELINUX_DOMAIN="${app_name}_t" \
         bash "${SCRIPT_DIR}/validate_forbidden_patterns.sh" "${policy_out}"
     POLICY_MODULE="${app_name}" SELINUX_DOMAIN="${app_name}_t" \

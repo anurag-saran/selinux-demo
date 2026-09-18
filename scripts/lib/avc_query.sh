@@ -79,8 +79,8 @@ avc_filter_lines_by_paths() {
         if [[ "${line}" == *" path="* ]]; then
             continue
         fi
-        # cgroupfs getattr needs gen_require(cgroup_t) and is optional JVM telemetry.
-        if [[ "${line}" == *" tclass=filesystem "* ]]; then
+        # cgroupfs getattr is optional JVM telemetry; cgroup_t is often undeclared.
+        if [[ "${line}" == *" tclass=filesystem"* ]]; then
             continue
         fi
         if [[ "${line}" == *" tclass=file "* || "${line}" == *" tclass=dir "* \
@@ -161,6 +161,31 @@ export_app_avcs_to_file() {
                 | grep "${backend_domain}" \
                 | avc_filter_lines_by_paths "${paths_csv}" "${backend_domain}" >> "${tmp}" || true
         fi
+    fi
+    sort -u "${tmp}" > "${outfile}"
+    rm -f "${tmp}"
+}
+
+# Domain-only AVC export for vendor tune-report (no path filter — binds/connects included).
+export_vendor_domain_avcs_to_file() {
+    local outfile="$1"
+    local domain="$2"
+    local since_ts="${3:-boot}"
+
+    if [[ -z "${domain}" ]]; then
+        echo "[ERROR] export_vendor_domain_avcs_to_file: domain required" >&2
+        return 1
+    fi
+
+    mkdir -p "$(dirname "${outfile}")"
+    : > "${outfile}"
+
+    local tmp
+    tmp="$(mktemp)"
+    fetch_domain_avc_raw "${domain}" "${since_ts}" >> "${tmp}" || true
+    if [[ -f /var/log/audit/audit.log ]]; then
+        grep -E '^(type=AVC|type=SELINUX_ERR|type=USER_AVC|type=USER_SELINUX_ERR)' /var/log/audit/audit.log \
+            | grep "${domain}" >> "${tmp}" || true
     fi
     sort -u "${tmp}" > "${outfile}"
     rm -f "${tmp}"

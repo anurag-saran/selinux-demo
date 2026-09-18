@@ -1,0 +1,4 @@
+type=AVC msg=audit(1710000001.000:101): avc:  denied  { read } for  pid=1000 comm="java" name="data.jsp" path="/opt/appdata/ROOT/data.jsp" dev="vda4" ino=101 scontext=system_u:system_r:tomcat_t:s0 tcontext=system_u:object_r:user_home_t:s0 tclass=file permissive=1
+type=AVC msg=audit(1710000002.000:102): avc:  denied  { name_connect } for  pid=1000 comm="java" dest=443 scontext=system_u:system_r:tomcat_t:s0 tcontext=system_u:object_r:http_port_t:s0 tclass=tcp_socket permissive=1
+type=AVC msg=audit(1710000003.000:103): avc:  denied  { name_bind } for  pid=1000 comm="java" src=8090 scontext=system_u:system_r:tomcat_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=1
+type=AVC msg=audit(1710000004.000:104): avc:  denied  { read } for  pid=1000 comm="java" name="id_rsa" path="/root/.ssh/id_rsa" dev="vda4" ino=104 scontext=system_u:system_r:tomcat_t:s0 tcontext=system_u:object_r:ssh_home_t:s0 tclass=file permissive=1

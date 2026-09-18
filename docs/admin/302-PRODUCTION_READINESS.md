@@ -1,4 +1,4 @@
-# Production Readiness Runbook (RHEL Admin)
+# 302 — Production readiness
 
 Day-to-day runbook for **shipping SELinux policy** with application teams. Ansible Automation Platform (AAP) is the control plane. Developers PR policy from a **QA** host; you compile, package, canary, soak, and enforce on **prod**.
 
@@ -6,14 +6,14 @@ Day-to-day runbook for **shipping SELinux policy** with application teams. Ansib
 
 | You are… | Read first | Then |
 |----------|------------|------|
-| **New to SELinux** | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
-| **Running day-to-day deploys** | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) then [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | Phases 1–6 as your checklist |
-| **Reviewing policy PRs** | [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) §8 | PR template + CI mapping §15 |
-| **Optional training** | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (three-app talk) | This guide from section 4 onward |
+| **New to SELinux** | [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
+| **Running day-to-day deploys** | [301-ANSIBLE_OPERATIONS.md](301-ANSIBLE_OPERATIONS.md) then [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) | Phases 1–6 as your checklist |
+| **Reviewing policy PRs** | [207-SELINUX_BEST_PRACTICES.md](../policy/207-SELINUX_BEST_PRACTICES.md) §8 | PR template + CI mapping §15 |
+| **Optional training** | [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md) (three-app talk) | This guide from section 4 onward |
 
-**Learning path:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) → **this guide**. Concepts: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
+**Learning path:** [203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md) → [301-ANSIBLE_OPERATIONS.md](301-ANSIBLE_OPERATIONS.md) → [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) → **this guide**. Concepts: [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
 
-**Where this guide applies:** two RHEL boxes (QA + prod) from a controller — [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **those servers**.
+**Where this guide applies:** two RHEL boxes (QA + prod) from a controller — [203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md). Commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **those servers**.
 
 ---
 
@@ -46,13 +46,13 @@ High-blast-radius SELinux changes need **per-domain permissive soak**, **path la
 | **semanage** | Tool on the **server** that adds/removes domains from the permissive list (`-a` / `-d`) and manages ports/booleans in the live policy DB |
 | **Vendor policy** | Module Red Hat already ships (JWS/Tomcat, EAP, httpd, …). Generate a custom module only when none exists; see §2.5 |
 
-SELinux theory (labels, `.te`/`.fc`, `semanage` examples): [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md).
+SELinux theory (labels, `.te`/`.fc`, `semanage` examples): [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md).
 
 ---
 
 ## 2.5 Do not duplicate vendor policy
 
-Before anyone runs `dev_generate_policy.sh` against JWS, EAP, httpd, named, or postgresql, confirm Red Hat does not already ship the domain. Generating a second module that half-duplicates `jws6_tomcat` or `jboss_t` is worse than no custom policy. The generator refuses that path unless you pass `--force`.
+Before anyone runs `dev_generate_policy.sh` against JWS, EAP, httpd, named, or postgresql, confirm Red Hat does not already ship the domain. Generating a second module that half-duplicates `jws6_tomcat` or `jboss_t` is worse than no custom policy. The generator refuses that path unless you pass `--force "reason"` (a reason is required and recorded on the PR). When the right answer is host tuning rather than a new module, re-run with `--tune-report` — it prints `semanage` / `setsebool` commands and writes `policy_out/tune_report.md` without generating a `.te`.
 
 JWS/EAP policy is a **separate package** (`jws6-tomcat-selinux`, `eap7-selinux` / `eap8-selinux`) and is **not** installed by default. Until it is, the JVM runs `unconfined_java_t` — that is not confinement, and the fix is install the vendor RPM, not generate `myapp_t`.
 
@@ -65,16 +65,21 @@ rpm -qa '*selinux*'
 
 # 3. Is this Tomcat/EAP still unconfined because the vendor RPM was never enabled?
 ps -eZ | grep -E 'unconfined_java_t|unconfined_service_t'
+
+# 4. If (1) is yes and the app is still denied: what should we tune?
+bash scripts/dev_generate_policy.sh --tune-report --app-name tomcat
 ```
 
-| What you see | Action |
-|--------------|--------|
-| `jws6_tomcat` / `jboss` / `httpd` in `semodule -l` | Tune booleans and `fcontext`. Do not generate. |
-| `jws6-tomcat-selinux` or `eap*-selinux` in `rpm -qa` / `dnf --cacheonly list available` but no module loaded | Install or enable that RPM. Do not generate. |
-| `unconfined_java_t` on a Tomcat/EAP process | Same — vendor policy exists and is not enabled. |
-| Custom app (Node, Spring Boot, the demo `shopapi`) with no vendor hit | Generate is appropriate. |
+| Situation | Action | What you do |
+|-----------|--------|-------------|
+| `loaded` — `jws6_tomcat` / `jboss` / `httpd` in `semodule -l` | `tune` | `--tune-report`; run the printed `fcontext` / boolean / port commands. Do not generate. |
+| `package_installed` — vendor SELinux RPM installed, module not loaded | `enable` | Enable that RPM. Do not generate. |
+| `package_available` — RPM in dnf cache, not installed | `install` | `dnf install jws6-tomcat-selinux` (or `eap*-selinux`). Do not generate. |
+| `unconfined` — `unconfined_java_t` on a Tomcat/EAP process | `install` | Same — vendor policy exists and is not enabled. |
+| `base_policy` — httpd / named / postgresql via `selinux-policy-targeted` | `tune` | `--tune-report`. Do not generate. |
+| `none` — custom app (Node, Spring Boot, demo `shopapi`) | `generate` | Generate is appropriate. |
 
-`--force` on `dev_generate_policy.sh` is the escape hatch only when the app is **not** the vendor one. Details: [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md).
+`--force "reason"` on `dev_generate_policy.sh` is the escape hatch only when the app **genuinely differs** from the vendor one. Bare `--force` is rejected. The reason, situation, and bypassed module are recorded in `findings.json`, `pr_summary.md`, and a **HIGHER SCRUTINY** banner on the PR. Details: [204-DETERMINISTIC_POLICY.md](../developers/204-DETERMINISTIC_POLICY.md).
 
 ---
 
@@ -91,14 +96,14 @@ flowchart LR
   Enforce -->|outage| Rollback[AAP Rollback]
 ```
 
-**Recommended sequence** ([RHEL_TWO_HOST.md](RHEL_TWO_HOST.md)):
+**Recommended sequence** ([203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md)):
 
 ```text
 PR merge → compile / RPM (CLI: compile_and_validate.sh, build_rpms.sh)
          → AAP **Release canary** (`deploy_canary.yml --limit canary`)
          → scheduled **Soak monitor** (`soak_monitor.yml`, net-new vs installed policy)
          → AAP **Promote to enforce** (Soak status → approval → Enforce)
-         → on denial: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) (PR, not live patch)
+         → on denial: [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) (PR, not live patch)
 ```
 
 ---
@@ -136,13 +141,13 @@ Enforce   semanage permissive -d myapp_t
 
 **If policy changes during soak:** redeploy canary, extend `.te`, and **reset the soak clock** (new marker timestamp). See [§14 Troubleshooting](#14-troubleshooting).
 
-Full timeline for beginners: [SELINUX_BASICS.md §7.5](../policy/SELINUX_BASICS.md).
+Full timeline for beginners: [102-SELINUX_BASICS.md §7.5](../policy/102-SELINUX_BASICS.md).
 
 ---
 
 ## 4. Three deploy paths
 
-**Ansible Automation Platform (AAP) is the production path.** Click-create objects from [`ansible/aap/`](../../ansible/aap/). Compile with CLI scripts (`compile_and_validate.sh`, `packaging/build_rpms.sh`). PR review is [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) (`forbidden-patterns`, `version-consistency`). See [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md).
+**Ansible Automation Platform (AAP) is the production path.** Click-create objects from [`ansible/aap/`](../../ansible/aap/). Compile with CLI scripts (`compile_and_validate.sh`, `packaging/build_rpms.sh`). PR review is [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) (`forbidden-patterns`, `version-consistency`). See [301-ANSIBLE_OPERATIONS.md](301-ANSIBLE_OPERATIONS.md).
 
 | When | Who | How |
 |------|-----|-----|
@@ -152,13 +157,13 @@ Full timeline for beginners: [SELINUX_BASICS.md §7.5](../policy/SELINUX_BASICS.
 
 Manual Ansible (`ansible-playbook` or AAP) uses the playbooks in [`ansible/`](../../ansible/) — see phases below.
 
-**Staging soak is scheduled Ansible, not a GitHub timer:** enable AAP job **SELinux – Soak monitor** daily. There is **no automatic enforce**. Wait 7–14 days, then run workflow **SELinux – Promote to enforce**. If soak fails: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). The two-host talk shows a **clean** soak, then talk-only `force_enforce` so the recording can continue to the outage/rollback act.
+**Staging soak is scheduled Ansible, not a GitHub timer:** enable AAP job **SELinux – Soak monitor** daily. There is **no automatic enforce**. Wait 7–14 days, then run workflow **SELinux – Promote to enforce**. If soak fails: [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md). The two-host talk shows a **clean** soak, then talk-only `force_enforce` so the recording can continue to the outage/rollback act.
 
 ---
 
 ## 5. Pre-production testing matrix
 
-See also: [`TESTING.md`](../developers/TESTING.md) (full endpoint → policy mapping and `smoke_test.py` cases), [`ansible/README.md`](../../ansible/README.md) (playbook task order).
+See also: [`205-TESTING.md`](../developers/205-TESTING.md) (full endpoint → policy mapping and `smoke_test.py` cases), [`ansible/README.md`](../../ansible/README.md) (playbook task order).
 
 | Phase | Goal | Command / playbook | **Pass looks like** |
 | --- | --- | --- | --- |
@@ -200,7 +205,7 @@ The canary playbook records a deploy timestamp at `/var/lib/myapp/selinux_canary
 
 **Admin sign-off — host-level `semodule -DB`:** disabling dontaudit affects the **entire host**, not just `myapp_t`. If canary fails or rollback runs, playbooks call **`semodule -B`** to restore the baseline. If enforce never runs after a successful canary, `-DB` stays active until enforce — document this in the change ticket. Failed canary and rollback paths always restore `-B`.
 
-**Admin sign-off — domain context verification:** deploy reports and soak gates require `wait_for_endpoints.sh` to confirm `myapp.service` runs as **`myapp_t`** and `myapp-backend.service` as **`myapp_backend_t`**. Without this check, a mislabeled entrypoint (`init_t`) can pass all HTTP gates with zero AVCs while the custom policy was never applied.
+**Admin sign-off — domain context verification:** deploy reports and soak gates require `wait_for_endpoints.sh` to confirm `shopapi.service` runs as **`shopapi_t`**. Without this check, a mislabeled entrypoint (`init_t`) can pass all HTTP gates with zero AVCs while the custom policy was never applied.
 
 **Canary AVC gate:** `deploy_canary.yml` counts recent `myapp_t` AVC lines and **fails** if the count exceeds `canary_max_avc` (default **`0`**). Override only with explicit approval:
 
@@ -210,7 +215,7 @@ ansible-playbook ... ansible/deploy_canary.yml -e "canary_max_avc=2"
 
 Do not raise the threshold to bypass missing policy — fix `.te`, redeploy, and re-soak instead.
 
-**List vs add:** `semanage permissive -l` lists domains; `-a` adds, `-d` removes. See [SELINUX_BASICS.md §7](../policy/SELINUX_BASICS.md).
+**List vs add:** `semanage permissive -l` lists domains; `-a` adds, `-d` removes. See [102-SELINUX_BASICS.md §7](../policy/102-SELINUX_BASICS.md).
 
 ---
 
@@ -242,30 +247,25 @@ This runs `matchpathcon` on key paths and fails if `restorecon -Rv -n` would rel
 
 Always run verification immediately after policy install and before `systemctl restart`.
 
-Full `restorecon` walkthrough: [SELINUX_BASICS.md §6](../policy/SELINUX_BASICS.md).
+Full `restorecon` walkthrough: [102-SELINUX_BASICS.md §6](../policy/102-SELINUX_BASICS.md).
 
 ---
 
 ## 8. Phase 3 — Systemd and cron attestation
 
-Staging tests must use **systemd**, not manual `python app.py`:
+Staging tests must use **systemd**, not a manual java/python launch:
 
 ```bash
-sudo systemctl restart myapp.service
-sudo systemctl is-active myapp.service
-curl -sf http://127.0.0.1:8888/rotate-log
+sudo systemctl restart shopapi.service
+sudo systemctl is-active shopapi.service
+curl -sf http://127.0.0.1:8091/log
 ```
 
-**Cron (optional — does not run as `myapp_t`):**
+**Cron (optional — does not run as the app domain):**
 
-The example below runs `backup.sh` as **root** in the **`cron_t`** domain — it does **not** exercise `myapp_t` during soak. Use it only to illustrate why real production soak must include schedulers that run **as the app domain** (systemd timers, app-owned cron, etc.).
+A root crontab entry runs as **`cron_t`**, not `shopapi_t`. Use it only to illustrate why real production soak must include schedulers that run **as the app domain** (systemd timers, app-owned cron, etc.). Do not treat a root cron smoke as evidence the app domain is ready.
 
-```bash
-# Illustration only — runs as cron_t/root, NOT myapp_t
-echo '0 2 * * * root /opt/myapp/bin/backup.sh' | sudo tee /etc/cron.d/myapp-backup-smoke
-```
-
-For staging discovery on the **reference app**, `GET /rotate-log` (Flask in `myapp_t`) simulates log rotation.
+For staging discovery on **shopapi**, `GET /log` (in `shopapi_t`) exercises log writes.
 
 That HTTP path does **not** replace real `logrotate` cron. Production soak must capture AVCs from `logrotate_t` (and any other scheduler domain) and extend policy before enforce.
 
@@ -356,7 +356,7 @@ Production inventory uses **RPMs** (`policy_pp_src: ""`). Lab inventories pass `
 
 If enforce causes an outage, run **`ansible-playbook ... ansible/emergency_rollback.yml`** (AAP **SELinux – Rollback**). The playbook **sets the domain permissive first** (stock `semanage` / Ansible modules), then optional **`dnf downgrade myapp-selinux-<version>`** when `rollback_dnf_version` is set, then `semodule -B`, `restorecon`, and service restarts. It exports AVCs to **`/tmp/emergency_avc.log`**.
 
-**Policy generation is controller-only:** run **`ansible/generate_emergency_patch.yml`** against a **git checkout on localhost**. It writes `policy_out/` for a PR. Do **not** run it on production hosts or `semodule -i` the output. Optional `OPENAI_API_KEY` polishes `pr_summary.md` only. See [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md).
+**Policy generation is controller-only:** run **`ansible/generate_emergency_patch.yml`** against a **git checkout on localhost**. It writes `policy_out/` for a PR. Do **not** run it on production hosts or `semodule -i` the output. Optional `OPENAI_API_KEY` polishes `pr_summary.md` only. See [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md).
 
 **Interrupted canary** (host left on `semodule -DB`): run **`ansible/reset_host_state.yml`** to restore dontaudit and clear permissive without changing the installed module.
 
@@ -364,7 +364,7 @@ Optional ops scripts (`wait_for_endpoints`, deploy report) run only when **`seli
 
 See [`ansible/emergency_rollback.yml`](../../ansible/emergency_rollback.yml), [`ansible/reset_host_state.yml`](../../ansible/reset_host_state.yml), and [`ansible/generate_emergency_patch.yml`](../../ansible/generate_emergency_patch.yml).
 
-The two-host talk track shows RPM install, **clean soak**, talk-only enforce, `/feature-spool` outage, and admin rollback in [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) and `scripts/demo_e2e_*.sh` (shopapi on :8091). The recording may pass `force_enforce=true` plus a change ticket so prod enforce can finish after a clean soak; `soak_min_days: 7` on production inventory is unchanged.
+The two-host talk track shows RPM install, **clean soak**, talk-only enforce, `/feature-spool` outage, and admin rollback in [203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md) and `scripts/demo_e2e_*.sh` (shopapi on :8091). The recording may pass `force_enforce=true` plus a change ticket so prod enforce can finish after a clean soak; `soak_min_days: 7` on production inventory is unchanged.
 
 ---
 
@@ -374,11 +374,11 @@ The two-host talk track shows RPM install, **clean soak**, talk-only enforce, `/
 
 1. **`collect_soak_facts.sh`** (role) — minimum soak days + **net-new** access needs (or raw AVC if `avc_fail_closed`) + passing deploy report with verified domain context (same checks as manual **`check_soak_ready.sh`** / **`soak_status.yml`**; optional **`--auto-tier`** with base/candidate policy paths on the controller)
 2. **`verify_file_contexts.sh`** — labeling dry-run (`restorecon` + `.fc` is source of truth)
-3. **Restart units from the app manifest** (demo: `shopapi.service`; Flask fixture: `myapp-backend.service` then `myapp.service`)
+3. **Restart units from the app manifest** (demo: `shopapi.service`)
 4. **Unified readiness** — `wait_for_endpoints.sh --manifest …` (systemd + domain context + that app’s HTTP list)
 5. **Deploy report** — `post_deploy_report.sh` writes `/var/lib/<app>/selinux_deploy_report.json` including `domain_context`
 
-The two-host demo inventory uses **shopapi** (`/health` `/state` `/log` on :8091). The Flask six-endpoint list is the offline fixture.
+The two-host demo inventory uses **shopapi** (`/health` `/state` `/log` on :8091).
 
 Enforce runs inside an Ansible **block/rescue**: if smoke tests or the deploy report fail, the playbook restores **the app domain** to permissive, restarts services, re-checks endpoints, then fails with guidance to inspect AVCs and the deploy report.
 
@@ -466,7 +466,7 @@ When SELinux deploy or enforce affects the app, app teams need fast, non-ambiguo
 
 ```bash
 systemctl is-active myapp myapp-backend
-curl -sf http://127.0.0.1:8888/ | python3 -m json.tool
+curl -sf http://127.0.0.1:8091/health
 bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 3 --delay 2
 cat /var/lib/myapp/selinux_deploy_report.json
 ```
@@ -481,7 +481,7 @@ cat /var/lib/myapp/selinux_deploy_report.json
 
 ### Expected recovery loop
 
-Follow [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). Do not live-patch the host.
+Follow [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md). Do not live-patch the host.
 
 ```text
 Outage → AAP Rollback (domain permissive) → export AVCs → policy PR → AAP Release canary → soak → Promote to enforce
@@ -513,8 +513,8 @@ Before you enforce on production, confirm:
 | Problem | What it looks like | What to do |
 |---------|-------------------|------------|
 | **Enforce fails soak gate** | `Soak period not met` or `Too many AVC denials` | Wait remaining days; fix policy from AVCs; redeploy canary — do **not** use `force_enforce` without approval |
-| **Mislabeled files after deploy** | `verify_file_contexts.sh` fails | Run `restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp`; re-verify; see [Basics §6](../policy/SELINUX_BASICS.md) |
-| **AVCs spike during soak** | `soak_monitor.yml` fails (`net_new_count` > 0) | [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) — copy `selinux_soak_last_fail.*`, PR, recanary; **reset soak clock**. Do **not** `semodule -i` on the host |
+| **Mislabeled files after deploy** | `verify_file_contexts.sh` fails | Run `restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp`; re-verify; see [Basics §6](../policy/102-SELINUX_BASICS.md) |
+| **AVCs spike during soak** | `soak_monitor.yml` fails (`net_new_count` > 0) | [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) — copy `selinux_soak_last_fail.*`, PR, recanary; **reset soak clock**. Do **not** `semodule -i` on the host |
 | **Ansible inventory missing** | `Could not match supplied host pattern` | Copy `inventory.production.example.yml` → `inventory.production.yml`; set real hostnames |
 | **Canary marker missing** | `Canary marker not found` | Run `deploy_canary.yml` first — marker is written on canary deploy |
 | **Audit tools unavailable** | `Could not determine AVC count` | Install `audit` package; ensure `auditd` is running |
@@ -523,7 +523,7 @@ Before you enforce on production, confirm:
 | **`/probe-backend` fails post-enforce** | `Permission denied` on TCP connect | Check backend on `:8889`; look for `tcp_socket getopt` or `cert_t` AVCs on `myapp_t` |
 | **`/run-script` fails post-enforce** | `Permission denied` on `/usr/bin/*` | Do not add `bin_t:file execute` — fix `backup.sh` to use bash builtins |
 | **Wrong cron path** | cron job fails silently | Use AAP **Soak monitor** or `/usr/libexec/selinux-policy-ops/monitor_avc.sh` — do **not** clone this repo onto prod |
-| **Generator refuses (vendor policy)** | `vendor policy already loaded` or `available but not installed` | Install/enable the vendor RPM or tune booleans. `--force` only if the app is not the vendor one. See §2.5 |
+| **Generator refuses (vendor policy)** | `vendor policy already loaded` or `available but not installed` | Install/enable the vendor RPM, or `--tune-report` for host commands. `--force "reason"` only if the app is not the vendor one. See §2.5 |
 
 ---
 
@@ -546,7 +546,7 @@ Optional LLM polish of `pr_summary.md` uses `OPENAI_API_KEY` on the **controller
 
 Packaged installs: [`packaging/myapp-selinux.spec`](../../packaging/myapp-selinux.spec) builds an RPM from `selinux/` for hosts that prefer package delivery over playbook copy.
 
-Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE.md](../training/DEMO_GUIDE.md).
+Developer workflow and PR assembly: [README.md](../../README.md) and [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md).
 
 ---
 
@@ -554,12 +554,12 @@ Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE
 
 | Guide | Sections to read | Audience |
 |-------|------------------|----------|
-| [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | §7 two-layer model; §7.5 soak timeline; §8 avc.log filter | New to SELinux |
-| [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`); two-host pipeline (`demo_e2e_*.sh`) | Presenters |
-| [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
-| [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) | AAP workflows in `ansible/aap/`, soak monitor, extra-vars | RHEL admins |
-| [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | File/port AVC after ship → PR, not live patch | RHEL admins |
-| [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md) | CODEOWNERS, inventories, RPM repo | Platform team |
+| [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md) | §7 two-layer model; §7.5 soak timeline; §8 avc.log filter | New to SELinux |
+| [207-SELINUX_BEST_PRACTICES.md](../policy/207-SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
+| [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`); two-host pipeline (`demo_e2e_*.sh`) | Presenters |
+| [204-DETERMINISTIC_POLICY.md](../developers/204-DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
+| [301-ANSIBLE_OPERATIONS.md](301-ANSIBLE_OPERATIONS.md) | AAP workflows in `ansible/aap/`, soak monitor, extra-vars | RHEL admins |
+| [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) | File/port AVC after ship → PR, not live patch | RHEL admins |
+| [304-ADOPTION_CHECKLIST.md](304-ADOPTION_CHECKLIST.md) | CODEOWNERS, inventories, RPM repo | Platform team |
 | **This file** | §3.5 soak; §5–14 phases and checklist | RHEL admins |
 | [README.md](../../README.md) | Developer commands + admin pointer | Day-to-day |

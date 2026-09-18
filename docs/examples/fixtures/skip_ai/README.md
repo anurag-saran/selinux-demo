@@ -1,6 +1,6 @@
 # Offline fixtures (`--skip-ai`)
 
-Used by `scripts/lib/stage_skip_ai_fixture.sh` for offline generation without an API key. Prefer the default **deterministic** engine ([`DETERMINISTIC_POLICY.md`](../../../developers/DETERMINISTIC_POLICY.md)).
+Used by `scripts/lib/stage_skip_ai_fixture.sh` for offline generation without an API key. Prefer the default **deterministic** engine ([`204-DETERMINISTIC_POLICY.md`](../../../developers/204-DETERMINISTIC_POLICY.md)).
 
 | Path | Role |
 |------|------|

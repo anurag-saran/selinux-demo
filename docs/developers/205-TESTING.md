@@ -1,4 +1,4 @@
-# Testing Guide
+# 205 — Testing
 
 This document is the **single reference** for how this repository tests SELinux policy — from developer laptop checks through production enforce gates.
 
@@ -6,76 +6,54 @@ This document is the **single reference** for how this repository tests SELinux 
 |----------|------------|------|
 | **App developer** | §1 Integration endpoints | §1.5 App manifest, §2 Local smoke tests |
 | **Policy author opening a PR** | §4 CI on pull requests | §5 Shell gate scripts |
-| **Admin / SRE** | §6 Staging and production gates | [`RHEL_TWO_HOST.md`](../admin/RHEL_TWO_HOST.md), [`ANSIBLE_OPERATIONS.md`](../admin/ANSIBLE_OPERATIONS.md), [`PRODUCTION_READINESS.md`](../admin/PRODUCTION_READINESS.md) |
+| **Admin / SRE** | §6 Staging and production gates | [`203-RHEL_TWO_HOST.md`](../admin/203-RHEL_TWO_HOST.md), [`301-ANSIBLE_OPERATIONS.md`](../admin/301-ANSIBLE_OPERATIONS.md), [`302-PRODUCTION_READINESS.md`](../admin/302-PRODUCTION_READINESS.md) |
 
-Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](../policy/SELINUX_BASICS.md) §9; optional labs in [`SELINUX_TRAINING_LAB.md`](../training/SELINUX_TRAINING_LAB.md); paced walkthrough in [`DEMO_GUIDE.md`](../training/DEMO_GUIDE.md); **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](../training/CODE_WALKTHROUGH.md). **Doc index:** [`README.md`](../README.md).
+Related: endpoint SELinux concepts in **[102](../policy/102-SELINUX_BASICS.md)** §9; typed labs in **[101](../training/101-SELINUX.md)**; paced walkthrough in **[202](../training/202-DEMO_GUIDE.md)**; **file-by-file code tour** in **[201](../training/201-CODE_WALKTHROUGH.md)**. **Catalog:** [`README.md`](../README.md).
 
-**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Flask fixture curls and `setup_staging_env.sh` run on a **RHEL** box. The live two-host **shopapi** demo is [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md).
+**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Offline `make check` uses deterministic goldens (`selinux/myapp.te`, `config/myapp.manifest.yml`) plus shopapi/payments modules. Live probes run on **RHEL** against **shopapi** ([203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md)).
 
 ---
 
-## 1. Integration endpoints (the core test suite)
+## 1. Integration endpoints (shopapi)
 
-The Flask app exposes **six HTTP endpoints** on port **8888**. Each endpoint is a deliberate probe of one SELinux permission surface. They are exercised by:
+Spring Boot **shopapi** exposes first-ship HTTP probes on port **8091**. Each path is a SELinux surface. They are exercised by:
 
-- Developers during staging ([`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh) — all paths in one pass; then inspect **`policy_out/avc.log`**)
 - [`scripts/wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) (canary, enforce, rollback — batch readiness, no AVC narration)
-- [`scripts/smoke_test.py`](../../scripts/smoke_test.py) (`test_flask_endpoints`)
-- [`scripts/run_demo.sh`](../../scripts/run_demo.sh)
+- [`scripts/demo_present.sh`](../../scripts/demo_present.sh) / [`scripts/demo_bootstrap.sh`](../../scripts/demo_bootstrap.sh) on RHEL
+- Manifest `http.endpoints` in [`config/shopapi.manifest.yml`](../../config/shopapi.manifest.yml)
 
-**Requires:** `myapp-backend.service` running for `/probe-backend` and `/notify-socket` (Tier 6).
+Do **not** curl `/feature-spool` during first-ship. That path is the outage beat after enforce.
 
 | Endpoint | SELinux surface | Primary types / rules | Typical failure without policy |
 |----------|-----------------|----------------------|--------------------------------|
-| `GET /` | TCP bind + listen on **8888** | `myapp_port_t`, `corenet_tcp_bind_generic_node` | `name_bind` denial on port |
-| `GET /save-log` | Append to **`/var/log/myapp/data.log`** | `myapp_log_t`, `logging_log_filetrans`, path traversal | write to wrong log type or missing `search` on path |
-| `GET /run-script` | Execute **`/opt/myapp/bin/backup.sh`** | `myapp_script_exec_t`, `execute_no_trans` | exec on unlabeled script or `bin_t` if script calls `/usr/bin/*` |
-| `GET /rotate-log` | Rename + create log files | `myapp_log_t` rename/create | logrotate-style deny under enforce |
-| `GET /probe-backend` | Outbound TCP to **127.0.0.1:8889** | `myapp_backend_port_t` `name_connect`, `getopt` on `self:tcp_socket` | client connect denial |
-| `GET /notify-socket` | Unix stream to **`/run/myapp/notify.sock`** | `myapp_backend_t` `connectto`, `myapp_var_run_t` | socket path or `/run` sandbox deny |
+| `GET /health` | TCP bind + listen on **8091** | `shopapi_port_t`, `init_daemon_domain` | `name_bind` denial on port |
+| `GET /state` | Write under **`/var/lib/shopapi`** | `shopapi_var_lib_t` | write to `var_lib_t` / missing `search` |
+| `GET /log` | Append under **`/var/log/shopapi`** | `shopapi_log_t` | write to `var_log_t` |
 
-**Design constraints baked into the app:**
+**Design constraints:**
 
-- `backup.sh` uses **bash builtins only** — CI forbids `allow … bin_t:file execute`.
-- App listens on **8888** (non-default) — forces dedicated port type, not blanket `unreserved_port_t`.
-- Services start via **systemd** — domain transition matches production (`init_daemon_domain`).
+- Dedicated port type (`shopapi_port_t`), not blanket `unreserved_port_t`.
+- systemd starts a private JRE at `/opt/shopapi/bin/java` with **`SELinuxContext=shopapi_t`**.
+- Offline generator tests use committed **`selinux/myapp.te`** / **`config/myapp.manifest.yml`** — that module is not a live app.
 
-**Manual run (staging host):**
-
-| | |
-|--|--|
-| **Where** | On the **same Linux machine** where Flask listens on **8888** — **RHEL dev** after `setup_staging_env.sh` |
-| **Why** | Each URL is a deliberate SELinux probe; failures show up as HTTP errors or AVC lines |
-
-**Probe order (Lab 7 — one batch, then AVC file):**
+**Manual run (RHEL host after `make demo-bootstrap`):**
 
 ```bash
-for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
+for path in /health /state /log; do
   echo "=== GET $path ==="
-  curl -sf "http://127.0.0.1:8888${path}" | head -c 120
+  curl -sf "http://127.0.0.1:8091${path}" | head -c 120
   echo
 done
-curl -sf http://127.0.0.1:8889/health; echo
 
 # On rhel-qa: the generator exports AVCs from audit.log
-# sudo bash scripts/dev_generate_policy.sh --apply
-```
-
-**Batch loop (gates only — same paths):**
-
-```bash
-for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; do
-  curl -sf "http://127.0.0.1:8888${path}" | head -c 120
-  echo
-done
-curl -sf http://127.0.0.1:8889/health; echo
+# bash scripts/dev_generate_policy.sh --apply --app shopapi
 ```
 
 ---
 
 ## 1.5 App manifest (onboarding new apps)
 
-The demo’s six endpoints are **myapp-specific**. For a new application, copy [`config/payments.manifest.example.yml`](../../config/payments.manifest.example.yml) to `config/<app_name>.manifest.yml` and declare paths, systemd units, HTTP probes, and SELinux domains. See [`config/README.md`](../../config/README.md) for the full schema.
+`config/myapp.manifest.yml` is the **offline generator fixture**. For a new application, copy [`config/payments.manifest.example.yml`](../../config/payments.manifest.example.yml) to `config/<app_name>.manifest.yml` and declare paths, systemd units, HTTP probes, and SELinux domains. See [`config/README.md`](../../config/README.md) for the full schema.
 
 **Validate locally / in CI:**
 
@@ -84,7 +62,7 @@ bash scripts/validate_app_manifest.sh config/myapp.manifest.yml
 python3 scripts/lib/app_manifest.py shell-export config/myapp.manifest.yml
 ```
 
-**Consumers:** `wait_for_endpoints.sh`, `post_deploy_report.sh`, and `check_soak_ready.sh` accept `--manifest PATH` (or `APP_MANIFEST`). Ansible passes `app_manifest_path` from inventory. When no manifest is present, scripts fall back to built-in myapp defaults.
+**Consumers:** `wait_for_endpoints.sh`, `post_deploy_report.sh`, and `check_soak_ready.sh` accept `--manifest PATH` (or `APP_MANIFEST`). Ansible passes `app_manifest_path` from inventory. When no manifest file is present, `wait_for_endpoints.sh` falls back to shopapi first-ship paths (`/health` `/state` `/log` on :8091).
 
 **Production model:** keep real integration tests under permissive (`integration_tests.command` in the manifest); use manifest HTTP probes for deploy/canary smoke only — do not auto-generate business-logic tests from policy.
 
@@ -114,9 +92,9 @@ This runs the same fixture and validator scripts documented below (`make test-fi
 Runs offline — **no SELinux required** for most tests. Not a GitHub Actions job; PR CI is `forbidden-patterns` + `version-consistency`.
 
 ```bash
-make test-smoke   # recommended (sets SMOKE_SKIP_FLASK=1)
+make test-smoke
 # or:
-python3 scripts/smoke_test.py --no-require-backend
+python3 scripts/smoke_test.py
 ```
 
 | Test name | What it verifies |
@@ -134,12 +112,14 @@ python3 scripts/smoke_test.py --no-require-backend
 | `version_bump` | SemVer bump in `policy_version.txt` |
 | `version_consistency` | `validate_version_consistency.sh` passes on committed `selinux/` |
 | `classify_fail_closed_json` | Corrupt blast-radius input → JSON with `fail_closed: true` |
-| `flask_endpoints` | All six HTTP paths return 200 (`ok` in body); rewrites paths to temp dirs |
 | `assemble_pr_body` | `assemble_pr_body.sh` fills PR template (`--skip-policy-diff` in CI smoke) |
 | `verify_file_contexts_skip` | `--skip-if-unavailable` exits 0 without SELinux tools |
 | `check_soak_ready_gate` | Soak script fails on missing/recent marker, passes on 8-day-old marker |
 | `monitor_avc_skip` | `monitor_avc.sh --skip-if-unavailable` exits 0 |
-| `vendor_policy_check` | Mocked `semodule`/`rpm`/`dnf`: loaded module refuses, available-not-installed refuses, custom app proceeds; `--force` and missing-tools skip |
+| `vendor_policy_check` | Mocked `semodule`/`rpm`/`dnf`: loaded module refuses, available-not-installed refuses, custom app proceeds; `--force "reason"` required; missing-tools skip |
+| `tune_report` | Tomcat fixture: `--tune-report` emits fcontext / setsebool / semanage port commands and no `.te` |
+| `tune_report_skip_no_selinux` | `--tune-report` with no SELinux tools prints a skip notice and exits 0 |
+| `force_reason_recorded` | `--force` reason appears in `findings.json`, `pr_summary.md`, and the PR body banner |
 | `demo_present_dry_run` | `--dry-run --profile customer` prints the three-app narration on a machine with no SELinux |
 | `demo_present_preflight_names_bootstrap` | `--preflight` without `--dry-run` names `make demo-bootstrap` when App A is absent |
 | `app_manifest` | Validates demo + example manifests; `shell-export` emits expected keys |
@@ -154,15 +134,15 @@ python3 scripts/smoke_test.py --no-require-backend
 
 | Step | Command | Needs SELinux host? |
 |------|---------|---------------------|
-| CLI + flask smoke | `python3 scripts/smoke_test.py` | No |
+| CLI + smoke | `python3 scripts/smoke_test.py` | No |
 | Forbidden patterns | `bash scripts/validate_forbidden_patterns.sh selinux` | No |
 | Compile | `bash scripts/compile_and_validate.sh selinux` | Yes — `selinux-policy-devel` on **rhel-qa** |
 | Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Yes — rhel-qa |
-| Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes (RHEL **dev**) |
-| AI / deterministic generate | `bash scripts/dev_generate_policy.sh --apply` (default engine: deterministic) | Yes (RHEL **dev**) |
-| **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root on RHEL **dev**) |
+| Staging + AVC export | `make demo-bootstrap` + curl shopapi `/health` `/state` `/log` | Yes (RHEL **qa**) |
+| AI / deterministic generate | `bash scripts/dev_generate_policy.sh --apply --app shopapi` | Yes (RHEL **qa**) |
+| **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check --app shopapi` | Yes (root on RHEL **qa**) |
 
-**`--enforce-check`** compiles the candidate `.pp`, removes permissive on `myapp_t`, runs `wait_for_endpoints.sh` (including domain-context verification), and prints recent AVCs on failure.
+**`--enforce-check`** compiles the candidate `.pp`, removes permissive on `shopapi_t`, runs `wait_for_endpoints.sh` (including domain-context verification), and prints recent AVCs on failure.
 
 ### 3.1 Compile on RHEL
 
@@ -192,7 +172,7 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 | Script | When | Pass criteria |
 |--------|------|---------------|
 | [`verify_file_contexts.sh`](../../scripts/verify_file_contexts.sh) | Before service restart after `semodule -i` | `matchpathcon -V`; `restorecon -Rv -n` shows no changes under data/log paths |
-| [`wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) | After canary / enforce / rollback restart | systemd active; **MainPID domain** matches manifest; HTTP probes from manifest (demo: six paths + backend health) |
+| [`wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) | After canary / enforce / rollback restart | systemd active; **MainPID domain** matches manifest; HTTP probes from manifest (demo: shopapi `/health` `/state` `/log` on :8091) |
 | [`monitor_avc.sh`](../../scripts/monitor_avc.sh) | Daily during soak (`soak_monitor.yml`); canary post-deploy window | **Net-new** access needs ≤ `soak_max_net_new` (default **0**); raw count informational unless `sesearch` missing |
 | [`check_soak_ready.sh`](../../scripts/check_soak_ready.sh) | Manual pre-enforce on host (Ansible: **`collect_soak_facts.sh`** / **`soak_status.yml`**) | Marker age ≥ min days; net-new or AVC count ≤ max; deploy report pass + **domain_context_verified**. Optional **`--auto-tier --base-policy PATH --candidate-policy PATH`** sets min days from blast-radius classifier (fail-closed → `soak_min_days`) |
 | [`cli/soak_net_new.py`](../../cli/soak_net_new.py) | Soak exception JSON vs **installed** policy | `sesearch --allow`; `net_new_count` + `exceptions[]`; `fail_closed` without toolchain |
@@ -208,7 +188,7 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 
 ## 6. Staging and production gates
 
-Production control plane is **Ansible Automation Platform (AAP)** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)). The three-app customer talk is [DEMO_GUIDE.md](../training/DEMO_GUIDE.md); the two-host pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) runs the same playbooks from the Mac.
+Production control plane is **Ansible Automation Platform (AAP)** ([301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md)). The three-app customer talk is [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md); the two-host pipeline ([203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md)) runs the same playbooks from the Mac.
 
 | Phase | Playbook | Key tests embedded |
 |-------|----------|-------------------|
@@ -220,7 +200,7 @@ Production control plane is **Ansible Automation Platform (AAP)** ([ANSIBLE_OPER
 
 Full Ansible task order and variables: [`ansible/README.md`](../../ansible/README.md).
 
-Admin runbook with pass/fail examples: [`PRODUCTION_READINESS.md`](../admin/PRODUCTION_READINESS.md) §5–12.
+Admin runbook with pass/fail examples: [`302-PRODUCTION_READINESS.md`](../admin/302-PRODUCTION_READINESS.md) §5–12.
 
 ---
 
@@ -242,7 +222,7 @@ Layer 7  emergency_rollback                           outage response
 
 | Gap | Mitigation |
 |-----|------------|
-| Real **logrotate** cron as `logrotate_t` | Run system logrotate on staging during soak; `.fc` + `create` in `app/logrotate.d/myapp` |
+| Real **logrotate** cron as `logrotate_t` | Run system logrotate on staging during soak against the app log dir from the manifest |
 | **RPM upgrade** relabel path | Test `packaging/myapp-selinux.spec` on a throwaway VM |
 | Fleet-wide **serial enforce** | `enforce_production.yml` uses `serial: 1` — test on canary host first |
 | AVC **classification** under `semodule -DB` (noise vs real) | Manual review; optional **`check_soak_ready.sh --auto-tier`** on controller with policy pair paths |
@@ -254,6 +234,6 @@ Layer 7  emergency_rollback                           outage response
 | Check | Command |
 |-------|---------|
 | House-rule golden fixtures | `make test-fixtures` or `make test` |
-| Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
-| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) |
+| Explain a denial log | `python3 cli/deterministic_gen.py --explain …` — [204-DETERMINISTIC_POLICY.md](204-DETERMINISTIC_POLICY.md) |
+| Full dev path | `bash scripts/dev_generate_policy.sh --skip-export` — [204-DETERMINISTIC_POLICY.md](204-DETERMINISTIC_POLICY.md) |
 | Coverage gate | `bash scripts/verify_avc_coverage.sh` after generation |

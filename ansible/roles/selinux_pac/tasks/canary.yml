@@ -133,25 +133,6 @@
         - { path: "{{ var_dir }}", mode: "0750" }
         - { path: "{{ log_dir }}", mode: "0750" }
 
-    - name: Install demo backend systemd unit
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../app/myapp-backend.service"
-        dest: /etc/systemd/system/myapp-backend.service
-        mode: "0644"
-      when: selinux_pac_install_demo_units | bool
-
-    - name: Install demo primary systemd unit
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../app/myapp.service"
-        dest: /etc/systemd/system/{{ service_name }}
-        mode: "0644"
-      when: selinux_pac_install_demo_units | bool
-
-    - name: Reload systemd after unit updates
-      ansible.builtin.systemd:
-        daemon_reload: true
-      when: selinux_pac_install_demo_units | bool
-
     - name: Restore file contexts on persistent application paths
       ansible.builtin.command: >-
         restorecon -Rv {{ install_root }} {{ var_dir }} {{ log_dir }}

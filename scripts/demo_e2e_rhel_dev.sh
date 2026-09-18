@@ -3,7 +3,7 @@
 # demo_e2e_rhel_dev.sh — Typewriter talk track for the QA VM (192.168.64.6).
 # Documented name: demo_e2e_rhel_qa.sh (wrapper).
 #
-# Run ON rhel-qa, not on the Mac. Demo app is Spring Boot shopapi (not Flask).
+# Run ON rhel-qa, not on the Mac. Demo app is Spring Boot shopapi.
 #
 #   bash scripts/demo_e2e_rhel_qa.sh --part app
 #   bash scripts/demo_e2e_rhel_qa.sh --part generate
@@ -42,7 +42,7 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Presenter script for the QA VM (${DEV_HOST}). Do not run this on the Mac.
-Demo application is shopapi (Spring Boot). Flask is tests only.
+Demo application is shopapi (Spring Boot).
 
   --part app              shopapi + types-only seed + first-ship curls
   --part generate         ausearch (or --skip-export) → policy
@@ -75,7 +75,7 @@ part_app() {
     e2e_sync_clock
     tlab_pause
 
-    tlab_print_section "Part 2 — Spring Boot shopapi (no Flask)"
+    tlab_print_section "Part 2 — Spring Boot shopapi"
     tlab_explain "git, Java, Maven, ausearch, sesearch, semanage."
     e2e_run "sudo dnf install -y git java-17-openjdk-headless maven policycoreutils policycoreutils-python-utils setools-console audit selinux-policy-devel"
     tlab_pause
@@ -91,7 +91,7 @@ part_app() {
     fi
     tlab_pause
 
-    tlab_explain "cd ~/selinux-pac. Policy we generate is selinux/shopapi/ in this repo — not a separate Flask app repo."
+    tlab_explain "cd ~/selinux-pac. Policy we generate is selinux/shopapi/ in this repo."
     e2e_run "cd ${HOME}/selinux-pac && pwd && ls demo/shopapi/pom.xml selinux/shopapi/shopapi.te"
     tlab_pause
 

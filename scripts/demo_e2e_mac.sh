@@ -2,7 +2,7 @@
 #
 # demo_e2e_mac.sh — Typewriter talk track for the Mac (Ansible controller).
 #
-# shopapi (Spring Boot) — not Flask: generate → PR → prod canary/soak →
+# shopapi (Spring Boot): generate → PR → prod canary/soak →
 # talk-only enforce → /feature-spool 500 → rollback → generate on rhel-qa →
 # second PR → recanary.
 #
@@ -27,7 +27,7 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Presenter script for THIS Mac. Demo application is shopapi (Spring Boot).
-Flask is the offline test fixture only — it is not installed on the VMs.
+The demo application is shopapi. Do not install a second app on the VMs.
 
 $(e2e_usage_common)
 
@@ -38,7 +38,7 @@ EOF
 }
 
 mac_copy_prod_bundle() {
-    tlab_explain "Prod gets shopapi and this talk track over scp — not a git clone, and not Flask."
+    tlab_explain "Prod gets shopapi and this talk track over scp — not a git clone."
     e2e_run "ssh ${E2E_SSH_USER}@${PROD_HOST} 'mkdir -p ~/e2e-demo/lib ~/e2e-demo/scripts/lib ~/e2e-demo/config ~/e2e-demo/demo/shopapi/target'"
     e2e_run "scp scripts/demo_e2e_rhel_prod.sh ${E2E_SSH_USER}@${PROD_HOST}:~/e2e-demo/"
     e2e_run "scp scripts/lib/e2e_demo.sh scripts/lib/training_lab_runner.sh ${E2E_SSH_USER}@${PROD_HOST}:~/e2e-demo/lib/"
@@ -155,7 +155,7 @@ cd "${PROJECT_ROOT}"
 e2e_banner "MAC — the remote control (no SELinux on this laptop)"
 tlab_why "macOS cannot enforce SELinux. This window talks to two RHEL VMs over SSH: QA ${DEV_HOST} and prod ${PROD_HOST}."
 tlab_explain "Look at the prompt. If it says rhel-qa or rhel-prod, you are in the wrong window."
-tlab_explain "Story: Spring Boot shopapi has no vendor module. Generate policy from AVCs on rhel-qa → PR on selinux-pac → prod canary/soak → treat soak as complete and enforce → /feature-spool fails → admin rollback → generate the fix on rhel-qa → second PR → recanary. Flask is not in this talk."
+tlab_explain "Story: Spring Boot shopapi has no vendor module. Generate policy from AVCs on rhel-qa → PR on selinux-pac → prod canary/soak → treat soak as complete and enforce → /feature-spool fails → admin rollback → generate the fix on rhel-qa → second PR → recanary."
 tlab_pause
 
 tlab_print_section "Part 1 — Can the Mac reach the VMs?"
@@ -171,7 +171,7 @@ e2e_run "bash scripts/setup_rhel_hosts.sh doctor"
 tlab_checkpoint "Each host prints Enforcing, then paths to ausearch and sesearch."
 tlab_pause
 
-tlab_explain "rsync copies this tool checkout onto rhel-qa (shopapi lives here). Prod gets the shopapi bundle — no git clone, no Flask."
+tlab_explain "rsync copies this tool checkout onto rhel-qa (shopapi lives here). Prod gets the shopapi bundle — no git clone."
 e2e_run "bash scripts/sync_rhel_dev.sh"
 mac_copy_prod_bundle
 tlab_pause
@@ -254,5 +254,5 @@ curl /feature-spool should return 200 under the new module." \
     "ssh ${E2E_SSH_USER}@${PROD_HOST} 'bash ~/e2e-demo/demo_e2e_rhel_prod.sh --part retest $(e2e_auto_flags)'"
 
 echo
-echo -e "${TLAB_BOLD}End of the Mac talk track.${TLAB_NC} Full script: docs/admin/RHEL_TWO_HOST.md"
+echo -e "${TLAB_BOLD}End of the Mac talk track.${TLAB_NC} Full script: docs/admin/203-RHEL_TWO_HOST.md"
 echo

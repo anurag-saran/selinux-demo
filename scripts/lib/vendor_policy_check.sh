@@ -10,7 +10,7 @@
 #
 # Source from other scripts:
 #   source "${SCRIPT_DIR}/lib/vendor_policy_check.sh"
-#   vendor_policy_preflight --app-name NAME [--unit UNIT] [--pid PID] [--force]
+#   vendor_policy_preflight --app-name NAME [--unit UNIT] [--pid PID] [--force "reason"] [--report]
 #
 # When executed: same argv, exit status of the check.
 #
@@ -194,12 +194,98 @@ vendor_match_loaded_modules() {
     printf '%s\n' "${names}" | grep -E "${pattern}" || true
 }
 
+_vpc_domain() {
+    local class="$1"
+    local module="$2"
+    case "${module}" in
+        jws6_tomcat) echo jws6_tomcat_t; return ;;
+        tomcat) echo tomcat_t; return ;;
+        httpd) echo httpd_t; return ;;
+        named) echo named_t; return ;;
+        postgresql) echo postgresql_t; return ;;
+        jboss|eap7|eap8) echo jboss_t; return ;;
+    esac
+    case "${class}" in
+        tomcat) echo tomcat_t ;;
+        eap) echo jboss_t ;;
+        httpd) echo httpd_t ;;
+        named) echo named_t ;;
+        postgresql) echo postgresql_t ;;
+        *)
+            if [[ -n "${module}" ]]; then
+                echo "${module}_t"
+            else
+                echo ""
+            fi
+            ;;
+    esac
+}
+
+_vpc_fc_type() {
+    local domain="$1"
+    case "${domain}" in
+        jws6_tomcat_t) echo jws6_tomcat_var_lib_t ;;
+        tomcat_t) echo tomcat_var_lib_t ;;
+        httpd_t) echo httpd_sys_content_t ;;
+        postgresql_t) echo postgresql_db_t ;;
+        named_t) echo named_zone_t ;;
+        jboss_t) echo jboss_var_lib_t ;;
+        "") echo "" ;;
+        *) echo "${domain%_t}_var_lib_t" ;;
+    esac
+}
+
+_vpc_port_type() {
+    local class="$1"
+    case "${class}" in
+        postgresql) echo postgresql_port_t ;;
+        named) echo dns_port_t ;;
+        *) echo http_port_t ;;
+    esac
+}
+
+_vpc_emit_triage() {
+    local situation="$1" app="$2" module="$3" pkg="$4" cls="$5" action="$6" domain="${7:-}"
+    local fc_type port_type
+    if [[ -z "${domain}" ]]; then
+        domain="$(_vpc_domain "${cls}" "${module}")"
+    fi
+    fc_type="$(_vpc_fc_type "${domain}")"
+    port_type="$(_vpc_port_type "${cls}")"
+    _vpc_info "TRIAGE situation=${situation} app=${app} module=${module} package=${pkg} class=${cls} action=${action} domain=${domain} fc_type=${fc_type} port_type=${port_type}"
+}
+
+_vpc_write_override() {
+    local situation="$1" module="$2" pkg="$3" cls="$4" reason="$5"
+    [[ -n "${VENDOR_OVERRIDE_OUT:-}" ]] || return 0
+    mkdir -p "$(dirname "${VENDOR_OVERRIDE_OUT}")"
+    FORCE_REASON="${reason}" python3 - "${situation}" "${module}" "${pkg}" "${cls}" <<'PY'
+import json
+import os
+import sys
+
+situation, module, pkg, cls = sys.argv[1:5]
+path = os.environ["VENDOR_OVERRIDE_OUT"]
+payload = {
+    "reason": os.environ.get("FORCE_REASON", ""),
+    "situation": situation,
+    "module": module,
+    "package": pkg,
+    "class": cls,
+}
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(payload, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+PY
+}
+
 _vpc_refuse_loaded() {
     local module="$1"
     local class="$2"
     _vpc_error "vendor policy already loaded: module '${module}' covers this app (class ${class})."
     _vpc_error "Tune booleans and file contexts for the vendor domain; do not generate a duplicate module."
-    _vpc_error "Escape hatch: re-run with --force if this app genuinely differs from the vendor policy."
+    _vpc_error "Re-run with --tune-report for concrete host commands (fcontext, setsebool, semanage port). That mode does not write a policy module."
+    _vpc_error "Escape hatch: re-run with --force \"reason\" if this app genuinely differs from the vendor policy."
     return 1
 }
 
@@ -209,7 +295,7 @@ _vpc_refuse_package() {
     _vpc_error "vendor SELinux package ${detail}: ${pkg}"
     _vpc_error "Install or enable the vendor package; do not generate a duplicate module."
     _vpc_error "Until that RPM is installed, Tomcat/EAP often runs as unconfined_java_t — that is not confinement."
-    _vpc_error "Escape hatch: re-run with --force if this app genuinely differs from the vendor policy."
+    _vpc_error "Escape hatch: re-run with --force \"reason\" if this app genuinely differs from the vendor policy."
     return 1
 }
 
@@ -218,7 +304,7 @@ _vpc_refuse_unconfined() {
     _vpc_error "process domain is ${domain} (looks like Tomcat/EAP); vendor policy exists but is not enabled."
     _vpc_error "Install jws6-tomcat-selinux or eap7-selinux/eap8-selinux, then confirm the process runs in jws*_tomcat_t / jboss_t."
     _vpc_error "Do not generate a duplicate module."
-    _vpc_error "Escape hatch: re-run with --force if this app genuinely differs from the vendor policy."
+    _vpc_error "Escape hatch: re-run with --force \"reason\" if this app genuinely differs from the vendor policy."
     return 1
 }
 
@@ -226,14 +312,15 @@ _vpc_refuse_base() {
     local class="$1"
     _vpc_error "vendor/base policy already covers this app class (${class} via selinux-policy-targeted)."
     _vpc_error "Tune booleans and file contexts for the vendor domain; do not generate a duplicate module."
-    _vpc_error "Escape hatch: re-run with --force if this app genuinely differs from the vendor policy."
+    _vpc_error "Re-run with --tune-report for concrete host commands (fcontext, setsebool, semanage port). That mode does not write a policy module."
+    _vpc_error "Escape hatch: re-run with --force \"reason\" if this app genuinely differs from the vendor policy."
     return 1
 }
 
 vendor_policy_preflight() {
-    local app_name="" unit="" pid="" force=0 report=0
+    local app_name="" unit="" pid="" force=0 report=0 force_reason=""
     local class="none" listing="" rpm_qa="" loaded="" pkg="" installed="" available=""
-    local ctx="" domain=""
+    local ctx="" domain="" situation="none" action="generate" module="" package=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -250,8 +337,13 @@ vendor_policy_preflight() {
                 shift 2
                 ;;
             --force)
+                if [[ $# -lt 2 || -z "${2:-}" || "${2}" == -* ]]; then
+                    _vpc_error "bare --force is rejected. Pass --force \"reason\" so reviewers can see why a vendor policy was overridden."
+                    return 2
+                fi
                 force=1
-                shift
+                force_reason="$2"
+                shift 2
                 ;;
             --report)
                 report=1
@@ -269,102 +361,128 @@ vendor_policy_preflight() {
         return 1
     fi
 
-    if [[ "${force}" -eq 1 && "${report}" -eq 0 ]]; then
-        _vpc_warn "vendor policy check bypassed (--force)"
-        return 0
-    fi
-
     if vendor_check_tools_missing; then
         _vpc_warn "vendor policy check skipped: semodule and rpm not found; continuing"
+        _vpc_emit_triage "skipped" "${app_name}" "" "" "none" "skip"
         return 0
     fi
 
     class="$(vendor_policy_classify "${app_name} ${unit}")"
 
-    # Custom apps (myapp, node, Spring Boot, …) are not vendor-covered.
-    # Do not treat a loaded module named after the app as vendor — that is
-    # our own seed/module from a previous generate.
     if [[ "${class}" == "none" ]]; then
-        _vpc_info "TRIAGE situation=none app=${app_name} action=generate"
-        _vpc_info "vendor policy check: no vendor or base module covers '${app_name}'; continuing"
+        situation="none"
+        action="generate"
+    else
+        listing="$(vendor_check_semodule_l)"
+        loaded="$(vendor_match_loaded_modules "${class}" "${listing}")"
+        if [[ -n "${loaded}" ]]; then
+            loaded="$(printf '%s\n' "${loaded}" | head -n 1)"
+            situation="loaded"
+            action="tune"
+            module="${loaded}"
+        else
+            rpm_qa="$(vendor_check_rpm_qa)"
+            while IFS= read -r pkg; do
+                [[ -n "${pkg}" ]] || continue
+                if vendor_rpm_has_pkg "${pkg}" "${rpm_qa}"; then
+                    installed="${pkg}"
+                    break
+                fi
+            done < <(vendor_pkgs_for_class "${class}")
+
+            if [[ -n "${installed}" ]]; then
+                situation="package_installed"
+                action="enable"
+                package="${installed}"
+            else
+                while IFS= read -r pkg; do
+                    [[ -n "${pkg}" ]] || continue
+                    if vendor_check_pkg_available "${pkg}"; then
+                        available="${pkg}"
+                        break
+                    fi
+                done < <(vendor_pkgs_for_class "${class}")
+
+                if [[ -n "${available}" ]]; then
+                    situation="package_available"
+                    action="install"
+                    package="${available}"
+                elif [[ "${class}" == "tomcat" || "${class}" == "eap" ]]; then
+                    ctx="$(vendor_check_ps_context "${pid}" "${unit}")"
+                    if printf '%s\n' "${ctx}" | grep -Eq 'unconfined_java_t|unconfined_service_t'; then
+                        domain="$(printf '%s\n' "${ctx}" | grep -Eo 'unconfined_java_t|unconfined_service_t' | head -n 1 || true)"
+                        situation="unconfined"
+                        action="install"
+                    elif [[ "${class}" == "httpd" || "${class}" == "named" || "${class}" == "postgresql" ]] \
+                        && vendor_rpm_has_pkg "selinux-policy-targeted" "${rpm_qa}"; then
+                        situation="base_policy"
+                        action="tune"
+                    else
+                        situation="none"
+                        action="generate"
+                    fi
+                elif [[ "${class}" == "httpd" || "${class}" == "named" || "${class}" == "postgresql" ]]; then
+                    if vendor_rpm_has_pkg "selinux-policy-targeted" "${rpm_qa}"; then
+                        situation="base_policy"
+                        action="tune"
+                    else
+                        situation="none"
+                        action="generate"
+                    fi
+                else
+                    situation="none"
+                    action="generate"
+                fi
+            fi
+        fi
+    fi
+
+    _vpc_emit_triage "${situation}" "${app_name}" "${module}" "${package}" "${class}" "${action}" "${domain}"
+
+    if [[ "${force}" -eq 1 ]]; then
+        if [[ "${situation}" == "none" || "${situation}" == "skipped" ]]; then
+            _vpc_warn "vendor policy check: --force given but nothing to override (situation=${situation})"
+            return 0
+        fi
+        _vpc_warn "vendor policy check bypassed (--force): ${force_reason}"
+        echo "FORCE_REASON ${force_reason}"
+        _vpc_write_override "${situation}" "${module}" "${package}" "${class}" "${force_reason}"
         return 0
     fi
 
-    listing="$(vendor_check_semodule_l)"
-    loaded="$(vendor_match_loaded_modules "${class}" "${listing}")"
-    if [[ -n "${loaded}" ]]; then
-        loaded="$(printf '%s\n' "${loaded}" | head -n 1)"
-        if [[ "${report}" -eq 1 ]]; then
-            _vpc_info "TRIAGE situation=loaded app=${app_name} module=${loaded} class=${class} action=tune"
-            return 0
-        fi
-        _vpc_refuse_loaded "${loaded}" "${class}"
-        return 1
+    if [[ "${report}" -eq 1 ]]; then
+        return 0
     fi
 
-    rpm_qa="$(vendor_check_rpm_qa)"
-
-    while IFS= read -r pkg; do
-        [[ -n "${pkg}" ]] || continue
-        if vendor_rpm_has_pkg "${pkg}" "${rpm_qa}"; then
-            installed="${pkg}"
-            break
-        fi
-    done < <(vendor_pkgs_for_class "${class}")
-
-    if [[ -n "${installed}" ]]; then
-        if [[ "${report}" -eq 1 ]]; then
-            _vpc_info "TRIAGE situation=package_installed app=${app_name} package=${installed} class=${class} action=enable"
+    case "${situation}" in
+        none)
+            _vpc_info "vendor policy check: no vendor or base module covers '${app_name}'; continuing"
             return 0
-        fi
-        _vpc_refuse_package "${installed}" "installed but module not loaded"
-        return 1
-    fi
-
-    while IFS= read -r pkg; do
-        [[ -n "${pkg}" ]] || continue
-        if vendor_check_pkg_available "${pkg}"; then
-            available="${pkg}"
-            break
-        fi
-    done < <(vendor_pkgs_for_class "${class}")
-
-    if [[ -n "${available}" ]]; then
-        if [[ "${report}" -eq 1 ]]; then
-            _vpc_info "TRIAGE situation=package_available app=${app_name} package=${available} class=${class} action=install"
-            return 0
-        fi
-        _vpc_refuse_package "${available}" "available but not installed"
-        return 1
-    fi
-
-    if [[ "${class}" == "tomcat" || "${class}" == "eap" ]]; then
-        ctx="$(vendor_check_ps_context "${pid}" "${unit}")"
-        if printf '%s\n' "${ctx}" | grep -Eq 'unconfined_java_t|unconfined_service_t'; then
-            domain="$(printf '%s\n' "${ctx}" | grep -Eo 'unconfined_java_t|unconfined_service_t' | head -n 1 || true)"
-            if [[ "${report}" -eq 1 ]]; then
-                _vpc_info "TRIAGE situation=unconfined app=${app_name} domain=${domain} class=${class} action=install"
-                return 0
-            fi
+            ;;
+        loaded)
+            _vpc_refuse_loaded "${module}" "${class}"
+            return 1
+            ;;
+        package_installed)
+            _vpc_refuse_package "${package}" "installed but module not loaded"
+            return 1
+            ;;
+        package_available)
+            _vpc_refuse_package "${package}" "available but not installed"
+            return 1
+            ;;
+        unconfined)
             _vpc_refuse_unconfined "${domain}"
             return 1
-        fi
-    fi
-
-    if [[ "${class}" == "httpd" || "${class}" == "named" || "${class}" == "postgresql" ]]; then
-        if vendor_rpm_has_pkg "selinux-policy-targeted" "${rpm_qa}"; then
-            if [[ "${report}" -eq 1 ]]; then
-                _vpc_info "TRIAGE situation=base_policy app=${app_name} class=${class} action=tune"
-                return 0
-            fi
+            ;;
+        base_policy)
             _vpc_refuse_base "${class}"
             return 1
-        fi
-    fi
-
-    _vpc_info "TRIAGE situation=none app=${app_name} class=${class} action=generate"
-    _vpc_info "vendor policy check: no vendor or base module covers '${app_name}' (class ${class}); continuing"
-    return 0
+            ;;
+        *)
+            return 0
+            ;;
+    esac
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

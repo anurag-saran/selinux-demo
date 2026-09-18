@@ -2,7 +2,7 @@
 
 **Ansible Automation Platform (AAP)** / Automation Controller is the production control plane. These files are the click-create spec. They are **not** playbooks. Do not add `ansible.controller` to host `requirements.yml`.
 
-When a file or port is denied after ship: [DENIAL_RESPONSE.md](../../docs/admin/DENIAL_RESPONSE.md). Soak-monitor failure is investigate-without-mutate — attach a Controller **notification template** to **SELinux – Soak monitor** (job failed). Do not auto-install policy.
+When a file or port is denied after ship: [303-DENIAL_RESPONSE.md](../../docs/admin/303-DENIAL_RESPONSE.md). Soak-monitor failure is investigate-without-mutate — attach a Controller **notification template** to **SELinux – Soak monitor** (job failed). Do not auto-install policy.
 
 ## Create in Automation Controller
 
@@ -16,4 +16,4 @@ When a file or port is denied after ship: [DENIAL_RESPONSE.md](../../docs/admin/
    - **SELinux – Promote to enforce** — Soak status → approval → Enforce.
 7. **SELinux – Rollback** stays a standalone template. Never add it to the promote graph.
 
-Laptop equivalent (same YAML): `ansible-playbook -i ansible/inventory.production.yml ansible/<playbook>.yml`. Extra-vars: [ANSIBLE_OPERATIONS.md](../../docs/admin/ANSIBLE_OPERATIONS.md).
+Laptop equivalent (same YAML): `ansible-playbook -i ansible/inventory.production.yml ansible/<playbook>.yml`. Extra-vars: [301-ANSIBLE_OPERATIONS.md](../../docs/admin/301-ANSIBLE_OPERATIONS.md).

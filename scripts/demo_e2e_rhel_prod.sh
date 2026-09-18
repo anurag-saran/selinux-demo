@@ -3,7 +3,7 @@
 # demo_e2e_rhel_prod.sh — Typewriter talk track for the PROD VM (192.168.64.5).
 #
 # Run ON rhel-prod, not on the Mac. Do not git clone this repo onto prod.
-# Demo app is Spring Boot shopapi (not Flask).
+# Demo app is Spring Boot shopapi.
 #
 #   bash ~/e2e-demo/demo_e2e_rhel_prod.sh --part app
 #   bash ~/e2e-demo/demo_e2e_rhel_prod.sh --part rpms
@@ -67,7 +67,7 @@ e2e_require_rhel "the PROD VM (${PROD_HOST})"
 
 part_app() {
     e2e_banner "PROD VM — install shopapi (no git, no policy module)"
-    tlab_why "The JVM must be running here before we ship SELinux RPMs. We copy files from the Mac. We do not clone selinux-pac. We do not install Flask."
+    tlab_why "The JVM must be running here before we ship SELinux RPMs. We copy files from the Mac. We do not clone selinux-pac."
     e2e_run "hostname"
     e2e_ensure_hostname rhel-prod
     e2e_sync_clock

@@ -39,7 +39,7 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Three situations, one talk: vendor already enforcing (App A) → tune inherited
-Tomcat (App B, no .te) → generate for Spring Boot (shopapi). Flask is not used.
+Tomcat (App B, no .te) → generate for Spring Boot (shopapi).
 
 Options:
   --profile customer|technical   Short path (~20 min) or full pipeline
@@ -63,7 +63,7 @@ while [[ $# -gt 0 ]]; do
         --acts) ACTS="$2"; shift 2 ;;
         --app)
             if [[ "$2" != "shopapi" ]]; then
-                echo "This demo is shopapi only (Flask is the offline test fixture). Ignoring --app $2" >&2
+                echo "This demo is shopapi only. Ignoring --app $2" >&2
             fi
             shift 2
             ;;
@@ -347,6 +347,18 @@ act2_app_b() {
     fi
     e2e_run "curl -sS http://127.0.0.1:${APP_B_PORT}/inherited/gateway.jsp || true"
 
+    tlab_explain "Optional beat: --tune-report classifies the same App B denials and prints the commands we just ran. It does not write a .te."
+    demo_expect "semanage fcontext / setsebool / semanage port — zero policy module"
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        echo "bash scripts/dev_generate_policy.sh --tune-report --app-name tomcat --unit $(demo_tomcat_service)"
+        echo "semanage fcontext -a -t ${fctx} \"${APP_B_DATA}(/.*)?\"  &&  restorecon -Rv ${APP_B_DATA}"
+        echo "setsebool -P tomcat_can_network_connect on"
+        echo "semanage port -a -t http_port_t -p tcp ${APP_B_PORT}"
+        echo "(dry-run — live: policy_out/tune_report.md; still no .te)"
+    else
+        e2e_run "bash scripts/dev_generate_policy.sh --tune-report --app-name tomcat --unit $(demo_tomcat_service)" || true
+    fi
+
     tlab_checkpoint "Three one-line fixes, zero policy authored. If you were about to write a .te for App B, the app was configured wrong."
     tlab_pause
 }
@@ -385,7 +397,7 @@ act4_pr() {
 
 act5_pipeline() {
     e2e_banner "Act 5 — Canary / soak / fail (technical)"
-    tlab_explain "Two-host pipeline for shopapi: canary, soak, talk-only enforce, /feature-spool outage, rollback, recanary. Not Flask."
+    tlab_explain "Two-host pipeline for shopapi: canary, soak, talk-only enforce, /feature-spool outage, rollback, recanary."
     echo "Mac: bash scripts/demo_e2e_mac.sh"
     echo "QA:  bash scripts/demo_e2e_rhel_qa.sh"
     echo "Prod: bash ~/e2e-demo/demo_e2e_rhel_prod.sh"

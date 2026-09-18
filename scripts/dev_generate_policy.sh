@@ -21,7 +21,11 @@ ENFORCE_CHECK=0
 SKIP_EXPORT=0
 OPEN_PR=0
 FORCE=0
+FORCE_REASON=""
+TUNE_REPORT=0
 ALLOW_NEEDS_REVIEW=0
+OUT_DIR_ARG=""
+AVC_LOG_ARG=""
 STAGING_HOST="${STAGING_HOST:-rhel-qa}"
 TEST_SUITE="${TEST_SUITE:-Integration tests (curl endpoints)}"
 ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
@@ -55,11 +59,14 @@ Options:
   --apply          Copy policy_out/{app}.te/.fc into selinux/ after generation
   --enforce-check  Load candidate policy enforcing and run endpoint + domain checks
   --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
-  --skip-export    Use existing policy_out/avc.log (must be non-empty)
-  --force          Bypass the vendor-policy pre-flight (app genuinely differs)
+  --skip-export    Use existing policy_out/avc.log (must be non-empty for generate)
+  --tune-report    Read-only vendor-domain analysis (commands only; no policy module)
+  --force REASON   Bypass vendor-policy pre-flight; REASON is required and recorded
   --allow-needs-review  Write domain-weakening allows (execmem, dac_override, …) after review
   --app-name NAME  Module name (default: myapp)
   --app-root DIR   Application tree (selinux/ + config/). Default: sibling/~/myapp
+  --out-dir DIR    Artifact directory (default: APP_ROOT/policy_out)
+  --avc-log PATH   AVC log for --skip-export / --tune-report (default: OUT_DIR/avc.log)
   --staging-host   Staging environment label for PR body
   --test-suite     Test suite description for PR body
   -h, --help       Show this help
@@ -76,7 +83,8 @@ Environment:
 Example:
   sudo bash scripts/dev_generate_policy.sh --apply
   bash scripts/dev_generate_policy.sh --llm-summary --skip-export   # optional admin prose
-  bash scripts/dev_generate_policy.sh --force --apply              # app genuinely differs from vendor policy
+  bash scripts/dev_generate_policy.sh --tune-report --app-name tomcat
+  bash scripts/dev_generate_policy.sh --force "non-standard layout vs jws6_tomcat" --apply
   git checkout -b policy/update && git add selinux/ && gh pr create --body-file policy_out/pr_body.md
 EOF
 }
@@ -87,12 +95,24 @@ while [[ $# -gt 0 ]]; do
         --enforce-check) ENFORCE_CHECK=1; shift ;;
         --open-pr) OPEN_PR=1; APPLY=1; shift ;;
         --skip-export) SKIP_EXPORT=1; shift ;;
-        --force) FORCE=1; shift ;;
+        --tune-report) TUNE_REPORT=1; shift ;;
+        --force)
+            if [[ $# -lt 2 || -z "${2:-}" || "${2}" == -* ]]; then
+                log_error "bare --force is rejected. A generated module that overrides vendor policy needs a recorded reason for reviewers."
+                log_error "Usage: --force \"why this app genuinely differs from the vendor module\""
+                exit 2
+            fi
+            FORCE=1
+            FORCE_REASON="$2"
+            shift 2
+            ;;
         --allow-needs-review) ALLOW_NEEDS_REVIEW=1; shift ;;
         --engine) ENGINE="$2"; shift 2 ;;
         --llm-summary) LLM_SUMMARY=1; shift ;;
         --app-name) APP_NAME="$2"; DOMAIN="${APP_NAME}_t"; shift 2 ;;
         --app-root) APP_ROOT="$2"; shift 2 ;;
+        --out-dir) OUT_DIR_ARG="$2"; shift 2 ;;
+        --avc-log) AVC_LOG_ARG="$2"; shift 2 ;;
         --staging-host) STAGING_HOST="$2"; shift 2 ;;
         --test-suite) TEST_SUITE="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -104,8 +124,8 @@ done
 source "${SCRIPT_DIR}/lib/app_root.sh"
 bind_app_tree "${PROJECT_ROOT}"
 SELINUX_DIR="${APP_ROOT}/selinux"
-POLICY_OUT="${APP_ROOT}/policy_out"
-AVC_LOG="${POLICY_OUT}/avc.log"
+POLICY_OUT="${OUT_DIR_ARG:-${APP_ROOT}/policy_out}"
+AVC_LOG="${AVC_LOG_ARG:-${POLICY_OUT}/avc.log}"
 if [[ -n "${APP_MANIFEST:-}" ]]; then
     MANIFEST="${APP_MANIFEST}"
 else
@@ -128,13 +148,115 @@ sync_identity_from_manifest() {
 # Missing semodule+rpm: one skip line and continue (laptop / fixture hosts).
 check_vendor_policy() {
     local args=(--app-name "${APP_NAME}")
+    mkdir -p "${POLICY_OUT}"
+    export VENDOR_OVERRIDE_OUT="${POLICY_OUT}/vendor_override.json"
+    rm -f "${VENDOR_OVERRIDE_OUT}"
     if [[ "${FORCE}" -eq 1 ]]; then
-        args+=(--force)
+        args+=(--force "${FORCE_REASON}")
     fi
     if [[ -n "${PRIMARY_SERVICE:-}" ]]; then
         args+=(--unit "${PRIMARY_SERVICE}")
     fi
     vendor_policy_preflight "${args[@]}"
+}
+
+triage_field() {
+    local line="$1"
+    local key="$2"
+    local value=""
+    value="$(printf '%s\n' "${line}" | grep -oE "${key}=[^ ]*" | head -n 1 | cut -d= -f2- || true)"
+    printf '%s\n' "${value}"
+}
+
+run_tune_report() {
+    local triage="" situation="" action="" module="" package="" cls="" domain="" fc_type="" port_type=""
+    local report_args=(--report --app-name "${APP_NAME}")
+    local skip_notice="tune-report skipped: no SELinux tooling (ausearch/audit.log) and no AVC log to classify"
+
+    if [[ "${APPLY}" -eq 1 ]]; then
+        log_error "--tune-report does not write policy; do not combine it with --apply"
+        exit 2
+    fi
+
+    mkdir -p "${POLICY_OUT}"
+    if [[ -n "${PRIMARY_SERVICE:-}" ]]; then
+        report_args+=(--unit "${PRIMARY_SERVICE}")
+    fi
+    triage="$(vendor_policy_preflight "${report_args[@]}" 2>&1 || true)"
+    printf '%s\n' "${triage}"
+    situation="$(triage_field "${triage}" situation)"
+    action="$(triage_field "${triage}" action)"
+    module="$(triage_field "${triage}" module)"
+    package="$(triage_field "${triage}" package)"
+    cls="$(triage_field "${triage}" class)"
+    domain="$(triage_field "${triage}" domain)"
+    fc_type="$(triage_field "${triage}" fc_type)"
+    port_type="$(triage_field "${triage}" port_type)"
+    domain="${domain:-${APP_NAME}_t}"
+    fc_type="${fc_type:-${APP_NAME}_var_lib_t}"
+    port_type="${port_type:-http_port_t}"
+    cls="${cls:-none}"
+    situation="${situation:-skipped}"
+
+    if [[ "${action}" != "tune" && "${situation}" != "skipped" && "${situation}" != "loaded" && "${situation}" != "base_policy" ]]; then
+        case "${situation}" in
+            none)
+                log_info "situation=none — this app is a generate candidate, not a vendor tune. No module written."
+                ;;
+            package_installed|package_available|unconfined)
+                log_info "situation=${situation} — install or enable the vendor RPM first. --tune-report is for loaded/base_policy."
+                ;;
+            *)
+                log_info "situation=${situation:-unknown} — not a tune case. No module written."
+                ;;
+        esac
+        printf '%s\n' "# Vendor policy tune report" "" \
+            "Not a tune situation (\`${situation}\` / \`${action}\`). No policy module written." \
+            > "${POLICY_OUT}/tune_report.md"
+        cat "${POLICY_OUT}/tune_report.md"
+        return 0
+    fi
+
+    if [[ "${SKIP_EXPORT}" -eq 0 && -z "${AVC_LOG_ARG:-}" ]]; then
+        # shellcheck source=lib/avc_query.sh
+        source "${SCRIPT_DIR}/lib/avc_query.sh"
+        if command -v ausearch >/dev/null 2>&1 || [[ -f /var/log/audit/audit.log ]]; then
+            log_info "Collecting denials for vendor domain ${domain} (read-only)..."
+            export_vendor_domain_avcs_to_file "${AVC_LOG}" "${domain}" boot || true
+        elif [[ ! -s "${AVC_LOG}" ]]; then
+            log_info "${skip_notice}"
+            printf '%s\n' "# Vendor policy tune report" "" "${skip_notice}." \
+                > "${POLICY_OUT}/tune_report.md"
+            cat "${POLICY_OUT}/tune_report.md"
+            return 0
+        fi
+    elif [[ ! -s "${AVC_LOG}" ]]; then
+        if command -v ausearch >/dev/null 2>&1 || [[ -f /var/log/audit/audit.log ]]; then
+            :
+        else
+            log_info "${skip_notice}"
+            printf '%s\n' "# Vendor policy tune report" "" "${skip_notice}." \
+                > "${POLICY_OUT}/tune_report.md"
+            cat "${POLICY_OUT}/tune_report.md"
+            return 0
+        fi
+    fi
+
+    if [[ ! -s "${AVC_LOG}" ]]; then
+        log_info "No vendor-domain denials found for ${domain}. Writing an empty tune report."
+    fi
+
+    python3 "${PROJECT_ROOT}/cli/tune_report.py" \
+        --avc-log "${AVC_LOG}" \
+        --out-dir "${POLICY_OUT}" \
+        --app-name "${APP_NAME}" \
+        --domain "${domain}" \
+        --module "${module}" \
+        --package "${package}" \
+        --vendor-class "${cls}" \
+        --situation "${situation}" \
+        --fc-type "${fc_type}" \
+        --port-type "${port_type}"
 }
 
 require_api_key() {
@@ -201,7 +323,7 @@ require_local_export_privileges() {
     fi
     [[ "${need_sudo}" -eq 0 ]] && return 0
     log_error "This step must run with sudo."
-    log_error "It reads the audit log and writes policy_out/ (that folder is often owned by root after setup_staging_env.sh)."
+    log_error "It reads the audit log and writes policy_out/ (that folder is often owned by root after generate)."
     echo "  cd ~/selinux-pac"
     echo "  sudo bash scripts/dev_generate_policy.sh --apply --app-name shopapi --app-root ~/selinux-pac"
     exit 1
@@ -411,6 +533,12 @@ EOF
 }
 
 main() {
+    if [[ "${TUNE_REPORT}" -eq 1 ]]; then
+        run_tune_report
+        restore_repo_ownership
+        return 0
+    fi
+
     require_api_key
     sync_identity_from_manifest
     check_vendor_policy

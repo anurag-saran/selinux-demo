@@ -17,7 +17,7 @@ log_ok() { echo -e "${GREEN}[PASS]${NC} $*"; }
 log_fail() { echo -e "${RED}[FAIL]${NC} $*"; fail=1; }
 
 log_ok "smoke_test.py"
-SMOKE_SKIP_FLASK=1 python3 scripts/smoke_test.py --no-require-backend || log_fail "smoke_test.py"
+python3 scripts/smoke_test.py || log_fail "smoke_test.py"
 
 log_ok "validate_rpm_ops_parity"
 bash scripts/validate_rpm_ops_parity.sh || log_fail "rpm parity"

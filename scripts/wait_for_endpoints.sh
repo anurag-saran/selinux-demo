@@ -8,28 +8,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 HOST="127.0.0.1"
-HTTP_PORT=8888
+HTTP_PORT=8091
 RETRIES=15
 DELAY=2
 JSON=0
 CHECK_SYSTEMD=1
 CHECK_DOMAIN=1
 MANIFEST=""
-APP_NAME="myapp"
-APP_DOMAIN="${SELINUX_APP_DOMAIN:-myapp_t}"
-BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-myapp_backend_t}"
-PRIMARY_SERVICE="myapp.service"
-BACKEND_SERVICE="myapp-backend.service"
-HAS_BACKEND=1
-BACKEND_HTTP_PORT=8889
+APP_NAME="shopapi"
+APP_DOMAIN="${SELINUX_APP_DOMAIN:-shopapi_t}"
+BACKEND_DOMAIN="${SELINUX_BACKEND_DOMAIN:-}"
+PRIMARY_SERVICE="shopapi.service"
+BACKEND_SERVICE=""
+HAS_BACKEND=0
+BACKEND_HTTP_PORT=0
 BACKEND_HEALTH_PATH="/health"
 ENDPOINTS=(
-    /
-    /save-log
-    /run-script
-    /rotate-log
-    /probe-backend
-    /notify-socket
+    /health
+    /state
+    /log
 )
 
 RED='\033[0;31m'
@@ -74,7 +71,7 @@ EOF
 load_manifest_config() {
     local manifest_path="$1"
     if [[ ! -f "${manifest_path}" ]]; then
-        log_info "Manifest not found (${manifest_path}) — using built-in myapp defaults"
+        log_info "Manifest not found (${manifest_path}) — using built-in shopapi defaults"
         return 0
     fi
     log_info "Loading app manifest: ${manifest_path}"
