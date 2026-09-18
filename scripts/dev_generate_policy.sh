@@ -12,20 +12,15 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 GEN="${PROJECT_ROOT}/cli/selinux_gen.py"
 DETERMINISTIC="${PROJECT_ROOT}/cli/deterministic_gen.py"
 VERIFY_AVC="${PROJECT_ROOT}/cli/verify_avc_coverage.py"
-SELINUX_DIR="${PROJECT_ROOT}/selinux"
-POLICY_OUT="${PROJECT_ROOT}/policy_out"
-AVC_LOG="${POLICY_OUT}/avc.log"
 APP_NAME="${POLICY_APP:-myapp}"
 DOMAIN="${SELINUX_DOMAIN:-myapp_t}"
 ENGINE="${POLICY_ENGINE:-deterministic}"
 LLM_SUMMARY="${POLICY_SUMMARY_LLM:-0}"
-MANIFEST="${PROJECT_ROOT}/config/${APP_NAME}.manifest.yml"
-[[ -f "${MANIFEST}" ]] || MANIFEST="${PROJECT_ROOT}/config/myapp.manifest.yml"
 APPLY=0
 ENFORCE_CHECK=0
 SKIP_EXPORT=0
 OPEN_PR=0
-STAGING_HOST="${STAGING_HOST:-rhel-dev}"
+STAGING_HOST="${STAGING_HOST:-rhel-qa}"
 TEST_SUITE="${TEST_SUITE:-Integration tests (curl endpoints)}"
 ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
 # shellcheck source=lib/version.sh
@@ -58,6 +53,7 @@ Options:
   --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
   --skip-export    Use existing policy_out/avc.log (must be non-empty)
   --app-name NAME  Module name (default: myapp)
+  --app-root DIR   Application tree (selinux/ + config/). Default: sibling/~/myapp
   --staging-host   Staging environment label for PR body
   --test-suite     Test suite description for PR body
   -h, --help       Show this help
@@ -86,12 +82,27 @@ while [[ $# -gt 0 ]]; do
         --engine) ENGINE="$2"; shift 2 ;;
         --llm-summary) LLM_SUMMARY=1; shift ;;
         --app-name) APP_NAME="$2"; DOMAIN="${APP_NAME}_t"; shift 2 ;;
+        --app-root) APP_ROOT="$2"; shift 2 ;;
         --staging-host) STAGING_HOST="$2"; shift 2 ;;
         --test-suite) TEST_SUITE="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) log_error "Unknown option: $1"; usage; exit 1 ;;
     esac
 done
+
+# shellcheck source=lib/app_root.sh
+source "${SCRIPT_DIR}/lib/app_root.sh"
+bind_app_tree "${PROJECT_ROOT}"
+SELINUX_DIR="${APP_ROOT}/selinux"
+POLICY_OUT="${APP_ROOT}/policy_out"
+AVC_LOG="${POLICY_OUT}/avc.log"
+if [[ -n "${APP_MANIFEST:-}" ]]; then
+    MANIFEST="${APP_MANIFEST}"
+else
+    MANIFEST="${APP_ROOT}/config/${APP_NAME}.manifest.yml"
+    [[ -f "${MANIFEST}" ]] || MANIFEST="${APP_ROOT}/config/myapp.manifest.yml"
+fi
+log_info "App tree ${APP_ROOT} (tool ${PROJECT_ROOT})"
 
 sync_identity_from_manifest() {
     [[ -f "${MANIFEST}" ]] || {
@@ -112,11 +123,11 @@ require_api_key() {
 }
 
 resolve_manifest_policy_paths() {
-    python3 - "${MANIFEST}" "${PROJECT_ROOT}" <<'PY'
+    python3 - "${MANIFEST}" "${APP_ROOT}" "${PROJECT_ROOT}" <<'PY'
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(sys.argv[2]) / "scripts" / "lib"))
+sys.path.insert(0, str(Path(sys.argv[3]) / "scripts" / "lib"))
 from app_manifest import load_manifest, policy_source_paths
 
 root = Path(sys.argv[2])
@@ -169,7 +180,7 @@ require_local_export_privileges() {
     log_error "This step must run with sudo."
     log_error "It reads the audit log and writes policy_out/ (that folder is often owned by root after setup_staging_env.sh)."
     echo "  cd ~/selinux-pac"
-    echo "  sudo bash scripts/dev_generate_policy.sh --apply"
+    echo "  sudo bash scripts/dev_generate_policy.sh --apply --app-root ~/myapp"
     exit 1
 }
 
@@ -190,7 +201,7 @@ export_avcs() {
     # shellcheck source=lib/avc_query.sh
     source "${SCRIPT_DIR}/lib/avc_query.sh"
     if ! command -v ausearch >/dev/null 2>&1 && [[ ! -f /var/log/audit/audit.log ]]; then
-        log_error "No ausearch on host; run this on a SELinux Linux host (rhel-dev)"
+        log_error "No ausearch on host; run this on a SELinux Linux host (rhel-qa)"
         exit 1
     fi
     log_info "Exporting AVCs from local audit log (avc_query pipeline)..."
@@ -286,29 +297,32 @@ open_pr() {
     fi
     local branch="policy/${APP_NAME}-update"
     log_info "Creating branch ${branch}, committing, pushing, and opening PR..."
-    git -C "${PROJECT_ROOT}" checkout -b "${branch}" 2>/dev/null || \
-        git -C "${PROJECT_ROOT}" checkout "${branch}"
-    git -C "${PROJECT_ROOT}" add \
+    git -C "${APP_ROOT}" checkout -b "${branch}" 2>/dev/null || \
+        git -C "${APP_ROOT}" checkout "${branch}"
+    git -C "${APP_ROOT}" add \
         "selinux/${APP_NAME}.te" \
         "selinux/${APP_NAME}.fc" \
         "selinux/policy_version.txt"
-    if git -C "${PROJECT_ROOT}" diff --cached --quiet; then
+    if git -C "${APP_ROOT}" diff --cached --quiet; then
         log_error "Nothing to commit — run with --apply after generation"
         return 1
     fi
-    git -C "${PROJECT_ROOT}" commit -m "$(cat <<EOF
+    git -C "${APP_ROOT}" commit -m "$(cat <<EOF
 security(selinux): Update policy module for ${APP_NAME}
 
 Generated via dev_generate_policy.sh
 EOF
 )"
-    git -C "${PROJECT_ROOT}" push -u origin "${branch}"
-    gh pr create \
-        --title "security(selinux): Update policy module for ${APP_NAME}" \
-        --body-file "${POLICY_OUT}/pr_body.md" \
-        --label security \
-        --label selinux \
-        --label pending-admin-review
+    git -C "${APP_ROOT}" push -u origin "${branch}"
+    (
+        cd "${APP_ROOT}"
+        gh pr create \
+            --title "security(selinux): Update policy module for ${APP_NAME}" \
+            --body-file "${POLICY_OUT}/pr_body.md" \
+            --label security \
+            --label selinux \
+            --label pending-admin-review
+    )
 }
 
 run_enforce_check() {

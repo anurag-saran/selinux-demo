@@ -1,14 +1,42 @@
-# Onboarding a second application (payments example)
+# Onboarding an application
 
-The repo ships **`myapp`** as the **reference application** and **`payments`** as a second onboarded module: manifest template, policy under **`selinux/payments/`**, and a published **`.if`** interface for dependent modules.
+**Customer layout:** policy lives in **the application GitHub repo**, not in selinux-pac. Generate and compile on a **QA** RHEL box (`rhel-qa`). Admins ship a signed RPM and promote with AAP. **Prod never clones git.**
 
-**Prerequisites:** read [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). **Doc index:** [README.md](../README.md). Deploy: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) (`ansible/aap/`). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).
+This repository is the **platform** (generator, forbidden-pattern CI, Ansible/AAP, ops RPM). The live two-host demo application is **[anurag-saran/myapp](https://github.com/anurag-saran/myapp)** — policy PRs land there. A copy of `selinux/myapp.te` remains here as a **fixture** for tests and training labs.
 
-**Fast path:**
+**Prerequisites:** [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). Deploy: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md). Two-host lab: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). Org checklist: [ADOPTION_CHECKLIST.md](../admin/ADOPTION_CHECKLIST.md).
+
+---
+
+## Where things live
+
+| In the **app** GitHub repo | In **selinux-pac** / AAP |
+|----------------------------|--------------------------|
+| `selinux/*.te` `.fc` `policy_version.txt` | Generator (`dev_generate_policy.sh`), reusable Policy CI |
+| `config/<app>.manifest.yml` (ports, units, probes) | `deploy_canary.yml` / soak / enforce / rollback |
+| App binaries and systemd units | `selinux-policy-ops` RPM (scripts on prod) |
+| Policy PR + CODEOWNERS (app + platform on `selinux/`) | Change ticket, 7-day soak, **no git on prod** |
+
+```text
+app repo  --deploy build-->  rhel-qa  --AVCs, generate-->  PR on app repo
+app repo  --merged policy-->  RPM build  --AAP canary-->  rhel-prod
+```
+
+On **rhel-qa** (first confine or a new feature):
+
+1. Deploy **this** app build (no module, or last shipped module).
+2. First confine: run unconfined, show the AVC log is empty / not `app_t`, then create the domain (types + labels). Later features: old module + new endpoint → net-new AVCs.
+3. Generate, open a PR **on the app repo**. CI must run `forbidden-patterns` (copy [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) or call it as a reusable workflow).
+4. After merge: build `<app>-selinux` from **that** commit (`policy_version.txt` is the app’s policy NVR, not selinux-pac’s tag). AAP canary on prod.
+
+Do not copy Ansible playbooks into every app repo. Do not keep a second “live” `.te` in selinux-pac for a customer app; this repo’s `selinux/myapp.te` is the **fixture** for tests. The demo’s live allow list is [anurag-saran/myapp](https://github.com/anurag-saran/myapp).
+
+**Fast path (still on this clone, for the payments example below):**
 
 ```bash
-bash scripts/setup_rhel_hosts.sh write --dev-host DEV --prod-host PROD
-bash scripts/selinux_pac_adopt.sh doctor          # on the RHEL host
+bash scripts/setup_rhel_hosts.sh write --qa-host QA --prod-host PROD
+# --dev-host is the same flag (legacy name)
+bash scripts/selinux_pac_adopt.sh doctor          # on rhel-qa
 bash scripts/selinux_pac_adopt.sh init payments
 ```
 
@@ -16,11 +44,15 @@ bash scripts/selinux_pac_adopt.sh init payments
 
 | Step | Where |
 |------|--------|
-| Copy manifest, `validate_app_manifest.sh`, compile | **rhel-dev** (`selinux-policy-devel`) |
-| `scaffold_sepolicy_module.sh`, `semodule -i`, `restorecon` | **RHEL dev** box |
-| `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` (AAP **Release canary** / **Soak monitor**) | **Controller** SSH to **RHEL prod** ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) |
+| Copy manifest, `validate_app_manifest.sh`, compile | **rhel-qa** (`selinux-policy-devel`) |
+| `scaffold_sepolicy_module.sh`, `semodule -i`, `restorecon` | **rhel-qa** |
+| `ansible-playbook deploy_canary.yml` / `soak_monitor.yml` (AAP **Release canary** / **Soak monitor**) | **Controller** SSH to **rhel-prod** ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) |
 
 ---
+
+## Payments example (second module in *this* repo)
+
+The reference tree also ships **`payments`**: manifest template, policy under **`selinux/payments/`**, and a published **`.if`** interface. Use it to practice a second app **without** a separate GitHub repo. A customer’s second app would use the table above in **their** repo instead.
 
 ## Manifest
 
@@ -77,7 +109,7 @@ Compile like `myapp` on a host with `selinux-policy-devel`:
 
 | | |
 |--|--|
-| **Where** | **rhel-dev** repo root |
+| **Where** | **rhel-qa** repo root (app checkout or this reference tree) |
 | **Why** | Produces `payments.pp` for install (`compile_and_validate.sh` also runs forbidden-patterns) |
 
 ```bash
@@ -85,7 +117,7 @@ POLICY_MODULE=payments SELINUX_DOMAIN=payments_t \
   bash scripts/compile_and_validate.sh selinux/payments
 ```
 
-PR CI (`forbidden-patterns`, `version-consistency`) runs on `selinux/` including `payments/` when those paths change. Compile stays on rhel-dev.
+PR CI (`forbidden-patterns`, `version-consistency`) runs on `selinux/` including `payments/` when those paths change. Compile stays on rhel-qa (or the app’s QA box).
 
 ## Install
 
@@ -101,7 +133,7 @@ sudo restorecon -Rv /opt/payments /var/lib/payments /var/log/payments /run/payme
 
 ## Related
 
-- [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — two RHEL boxes, inventories
+- [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — Mac + rhel-qa + rhel-prod
 - [config/README.md](../../config/README.md) — manifest schema (ports vs probe host)
 - [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) — canary / soak / enforce
 - [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) — AVC → policy with `--manifest config/payments.manifest.yml`

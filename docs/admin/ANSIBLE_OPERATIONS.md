@@ -9,7 +9,7 @@ The same playbooks run under `ansible-playbook` on a laptop until the project is
 Playbook task order and variables: [`ansible/README.md`](../../ansible/README.md). **AAP objects:** [`ansible/aap/`](../../ansible/aap/). **Two RHEL boxes:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Admin runbook: [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). Denied file/port after ship: [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md). Fork wiring: [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md).
 
 ```text
-CLI (rhel-dev)  →  RPM repo (.pp + selinux-policy-ops + <app>-selinux)
+CLI (rhel-qa)  →  RPM repo (.pp + selinux-policy-ops + <app>-selinux)
                       │
                       ▼
               AAP (Automation Controller)
@@ -103,7 +103,7 @@ Lab / checkout: [`ansible/inventory.dev.example.yml`](../../ansible/inventory.de
 
 ## GitHub Actions (PR review)
 
-[`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) runs **`forbidden-patterns`** and **`version-consistency`** on PRs that touch `selinux/`. The deterministic generator already ran `validate_forbidden_patterns.sh`, so those jobs are expected to **pass**. Compile and canary stay on rhel-dev / AAP (`compile_and_validate.sh`, `packaging/build_rpms.sh`, playbooks above). There is no GitHub deploy or staging-canary workflow.
+[`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) runs **`forbidden-patterns`** and **`version-consistency`** on PRs that touch `selinux/`. The deterministic generator already ran `validate_forbidden_patterns.sh`, so those jobs are expected to **pass**. Compile and canary stay on rhel-qa / AAP (`compile_and_validate.sh`, `packaging/build_rpms.sh`, playbooks above). There is no GitHub deploy or staging-canary workflow.
 
 ## First-time admin
 

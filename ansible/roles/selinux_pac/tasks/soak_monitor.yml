@@ -24,7 +24,7 @@
     msg: >-
       Soak monitor failed: raw={{ soak_monitor.count }} net_new={{ soak_monitor.net_new_count }}
       (max_avc={{ soak_max_avc | default(0) }} max_net_new={{ soak_max_net_new | default(0) }}).
-      {{ soak_monitor.next_step | default('Copy ' ~ var_dir ~ '/selinux_soak_last_fail.json to rhel-dev, run dev_generate_policy.sh, open a PR. Do not semodule -i.') }}
+      {{ soak_monitor.next_step | default('Copy ' ~ var_dir ~ '/selinux_soak_last_fail.json to rhel-qa, run dev_generate_policy.sh, open a PR. Do not semodule -i.') }}
   when: soak_monitor.status == 'fail'
 
 - name: Fail when sesearch was unavailable (raw AVC fallback is not allowed)

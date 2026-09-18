@@ -125,7 +125,7 @@ if ! compile_toolchain_available; then
         echo "blast-radius: integration required but compile toolchain unavailable" >&2
         exit 1
     fi
-    echo "SKIP blast-radius integration fixtures: install selinux-policy-devel (run on rhel-dev)"
+    echo "SKIP blast-radius integration fixtures: install selinux-policy-devel (run on rhel-qa)"
     integration_ok=0
 fi
 

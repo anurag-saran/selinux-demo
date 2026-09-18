@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# sync_rhel_dev.sh — Copy this checkout to the DEV VM over SSH (rsync).
+# sync_rhel_dev.sh — Copy this checkout to the QA VM over SSH (rsync).
 #
-# rhel-dev often has a tree that is not a git clone. The Mac talk track uses
+# rhel-qa often has a tree that is not a git clone. The Mac talk track uses
 # this instead of `git pull`. Does not copy gitignored inventories or sudo-owned
 # policy_out/dist build dirs.
 #
@@ -20,7 +20,7 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [--dest PATH] [user@host]
 
-Sync repo root to PATH on the DEV VM (default: ~/selinux-pac on ${DEV_USER}@${DEV_HOST}).
+Sync repo root to PATH on the QA VM (default: ~/selinux-pac on ${DEV_USER}@${DEV_HOST}).
 --dest may be a home-relative path (selinux-pac) or an absolute path (/tmp/selinux-pac-rpm).
 EOF
 }

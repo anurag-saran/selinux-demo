@@ -67,7 +67,7 @@ labels:
 - [ ] `forbidden-patterns` — generator already ran `validate_forbidden_patterns.sh`; this job should be green
 - [ ] `version-consistency`
 
-Compile and semantics are on **rhel-dev** (`compile_and_validate.sh`, `validate_policy_semantics.sh`), not GitHub.
+Compile and semantics are on **rhel-qa** (`compile_and_validate.sh`, `validate_policy_semantics.sh`), not GitHub.
 
 ---
 
@@ -80,7 +80,7 @@ Compile and semantics are on **rhel-dev** (`compile_and_validate.sh`, `validate_
 | **No Over-Permissive Grants** | ⬜ Pass / ⬜ Reject | CI `forbidden-patterns`; no `shadow_t`, `unconfined_t`, `sysadm_t`, or broad `var_t:file write` |
 | **Custom Labels Enforced** | ⬜ Pass / ⬜ Reject | FHS paths `/var/lib/myapp`, `/var/log/myapp`, `/run/myapp`; dedicated types; `.fc` without `--` on dirs |
 | **Port Assignments Validated** | ⬜ Pass / ⬜ Reject | `myapp_port_t` TCP 8888, `myapp_backend_port_t` TCP 8889 (not blanket `unreserved_port_t`) |
-| **Compilation Test** | ⬜ Pass / ⬜ Reject | `compile_and_validate.sh` on rhel-dev |
+| **Compilation Test** | ⬜ Pass / ⬜ Reject | `compile_and_validate.sh` on rhel-qa |
 | **Path Labeling (restorecon -n)** | ⬜ Pass / ⬜ Reject | `scripts/verify_file_contexts.sh` passes after canary deploy (includes `/var/log/myapp`) |
 | **Domain Context Verified** | ⬜ Pass / ⬜ Reject | Deploy report shows `myapp.service` → `myapp_t`, backend → `myapp_backend_t` |
 | **Soak Period (7–14 days)** | ⬜ Pass / ⬜ Reject | AAP **Soak monitor** (`soak_monitor.yml`) daily — net-new vs installed policy; **Soak status** (`soak_status.yml`) before enforce |

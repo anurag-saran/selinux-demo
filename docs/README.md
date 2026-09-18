@@ -28,7 +28,7 @@
 | 5 | [ONBOARDING.md](developers/ONBOARDING.md) | Point a developer at a new app |
 | 6 | [ADOPTION_CHECKLIST.md](admin/ADOPTION_CHECKLIST.md) | CODEOWNERS, RPM repo, branch protection |
 | 7 | [SELINUX_BASICS.md](policy/SELINUX_BASICS.md) §1–7 | Optional — SELinux concepts |
-| 8 | [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) / [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional labs (lab soak is `soak_min_days: 0` on **dev** only) |
+| 8 | [SELINUX_TRAINING_LAB.md](training/SELINUX_TRAINING_LAB.md) / [DEMO_GUIDE.md](training/DEMO_GUIDE.md) | Optional labs (lab soak is `soak_min_days: 0` on **QA** only) |
 
 **Contributors (no SELinux on laptop):** from repo root run `make check` — see [TESTING.md](developers/TESTING.md) §1.6.
 
@@ -38,7 +38,7 @@
 
 | Document | Best for |
 |----------|----------|
-| [RHEL_TWO_HOST.md](admin/RHEL_TWO_HOST.md) | **Two RHEL boxes** (dev + prod) |
+| [RHEL_TWO_HOST.md](admin/RHEL_TWO_HOST.md) | **Two RHEL boxes** (QA + prod) |
 | [ANSIBLE_OPERATIONS.md](admin/ANSIBLE_OPERATIONS.md) | **AAP hub** — `ansible/aap/` workflows, soak, enforce |
 | [DENIAL_RESPONSE.md](admin/DENIAL_RESPONSE.md) | Prod AVC: rollback or soak-fail → PR, not live patch |
 | [PRODUCTION_READINESS.md](admin/PRODUCTION_READINESS.md) | Canary → soak (net-new) → enforce on real servers |

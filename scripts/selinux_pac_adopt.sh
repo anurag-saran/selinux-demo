@@ -19,7 +19,7 @@ Subcommands:
   init APP_NAME       Print manifest + Ansible onboarding steps
 
 Two-host RHEL lab (preferred):
-  bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …
+  bash scripts/setup_rhel_hosts.sh write --qa-host … --prod-host …
   See docs/admin/RHEL_TWO_HOST.md.
 
 Options (init):
@@ -43,8 +43,8 @@ init_app() {
     echo "2. Scaffold policy: bash scripts/scaffold_sepolicy_module.sh ${APP_NAME} ${APP_NAME}_t"
     echo "3. Validate: bash scripts/validate_app_manifest.sh ${MANIFEST}"
     echo "4. Compile: POLICY_MODULE=${APP_NAME} bash scripts/compile_and_validate.sh selinux/${APP_NAME}"
-    echo "5. Two-host lab: bash scripts/setup_rhel_hosts.sh write --dev-host DEV --prod-host PROD"
-    echo "6. Canary on DEV:"
+    echo "5. Two-host lab: bash scripts/setup_rhel_hosts.sh write --qa-host QA --prod-host PROD"
+    echo "6. Canary on QA:"
     cat <<EOF
 ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml \\
   -e app_name=${APP_NAME} \\

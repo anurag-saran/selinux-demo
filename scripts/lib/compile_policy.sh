@@ -60,11 +60,11 @@ compile_policy_module() {
 
     if ! has_selinux_devel; then
         if [[ "$(uname -s)" == Darwin ]]; then
-            echo "[ERROR] macOS has no selinux-policy-devel. Compile on rhel-dev, then copy the .pp here:" >&2
+            echo "[ERROR] macOS has no selinux-policy-devel. Compile on rhel-qa, then copy the .pp here:" >&2
             echo "  ssh ansible@192.168.64.6 'cd ~/selinux-pac && bash scripts/compile_and_validate.sh selinux'" >&2
             echo "  scp ansible@192.168.64.6:~/selinux-pac/selinux/${module_name}.pp ${policy_dir}/" >&2
         else
-            echo "[ERROR] Install selinux-policy-devel (dnf install selinux-policy-devel). Compile on rhel-dev, not a non-SELinux host." >&2
+            echo "[ERROR] Install selinux-policy-devel (dnf install selinux-policy-devel). Compile on rhel-qa, not a non-SELinux host." >&2
         fi
         return 1
     fi

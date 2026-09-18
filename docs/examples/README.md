@@ -2,7 +2,7 @@
 
 Static copies of CLI output for reviews when you cannot run staging or `assemble_pr_body.sh` live.
 
-**Where to regenerate live output:** SELinux **Linux host** (rhel-dev) at **repo root**. Offline-only: use [`fixtures/skip_ai/`](fixtures/skip_ai/).
+**Where to regenerate live output:** SELinux **Linux host** (rhel-qa) at **repo root**. Offline-only: use [`fixtures/skip_ai/`](fixtures/skip_ai/).
 
 | File | Live equivalent | Use in demo |
 |------|-----------------|-------------|
@@ -13,7 +13,7 @@ Live policy in `selinux/` is **v1.1.3**. [`pr_body.example.md`](pr_body.example.
 
 | | |
 |--|--|
-| **Where** | **Repo root** on rhel-dev (`sudo` staging) |
+| **Where** | **Repo root** on rhel-qa (`sudo` staging) |
 | **Why** | Refreshes `policy_out/pr_summary.md` and `pr_body.md` to match current `selinux/` |
 
 ```bash
@@ -23,6 +23,6 @@ bash scripts/assemble_pr_body.sh
 # → policy_out/pr_summary.md and policy_out/pr_body.md
 ```
 
-Deterministic verdict fixtures: [`fixtures/deterministic/`](fixtures/deterministic/). Compile on rhel-dev with `selinux-policy-devel`.
+Deterministic verdict fixtures: [`fixtures/deterministic/`](fixtures/deterministic/). Compile on rhel-qa with `selinux-policy-devel`.
 
 Do not edit `policy_out/` in Git — `.te`, `.fc`, and `policy_version.txt` there are local build output (gitignored). Offline demos use [`fixtures/skip_ai/`](fixtures/skip_ai/) via `--skip-ai`; refresh with `bash scripts/refresh_skip_ai_fixture.sh` when `selinux/` bumps.

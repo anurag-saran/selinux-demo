@@ -39,7 +39,7 @@ Lab **6** installs the **reference app** and **stub** policy. **Labs 2–5 and 7
 
 | Platform | One-time prep | Then do labs in this order |
 |----------|---------------|----------------------------|
-| **RHEL two-host (preferred)** | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — `setup_rhel_hosts.sh`; clone + `setup_staging_env.sh` on **dev** | **1 → 6 → 2 → 3 → 4 → 5 → 7 → 8 → 9** (10 optional). Lab **6** includes **`sudo bash scripts/setup_staging_env.sh`**. |
+| **RHEL two-host (preferred)** | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — `setup_rhel_hosts.sh`; clone + `setup_staging_env.sh` on **QA** | **1 → 6 → 2 → 3 → 4 → 5 → 7 → 8 → 9** (10 optional). Lab **6** includes **`sudo bash scripts/setup_staging_env.sh`**. |
 | **Native Linux** (single RHEL/Fedora/Stream) | Clone repo; `cd` to repo root | Same lab order as the RHEL two-host row. |
 | **Demo prep (short)** | Same as your platform row above | **1 → Lab 6 (install or verify) → 7 → Finish** |
 
@@ -61,7 +61,7 @@ Lab **6** installs the **reference app** and **stub** policy. **Labs 2–5 and 7
 
 macOS has **no SELinux**. The Mac is the Ansible controller; labs and policy run on **Linux**.
 
-Use two RHEL 9 aarch64 VMs (Boot ISO in UTM) and the admin scripts — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) and [README — Try it on a Mac](../../README.md#try-it-on-a-mac). Then SSH to **rhel-dev** and run the labs **there** (not in macOS Terminal).
+Use two RHEL 9 aarch64 VMs (Boot ISO in UTM) and the admin scripts — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) and [README — Try it on a Mac](../../README.md#try-it-on-a-mac). Then SSH to the discovery VM (`192.168.64.6`; the customer talk calls it **rhel-qa**) and run the labs **there** (not in macOS Terminal). These labs still say **rhel-dev** in command text; it is the same box if you have not renamed the guest hostname.
 
 **Why a Linux host?** The labs need a kernel with SELinux, the **audit** subsystem, and **`semanage`**. That tool talks to the kernel’s policy database so you can list or change **per-domain permissive** mode (Lab 5) without turning off enforcement for the whole OS.
 

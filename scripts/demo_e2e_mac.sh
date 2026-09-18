@@ -2,9 +2,9 @@
 #
 # demo_e2e_mac.sh — Typewriter talk track for the Mac (Ansible controller).
 #
-# Two-act lab: types-only seed → generate → PR (CI best-practices) → prod
-# canary/soak (app up, AVC file clean) → talk-only enforce (soak complete) →
-# /feature-spool 500 → emergency rollback → generate on rhel-dev → second PR →
+# Two-act lab: unconfined app → live domain → AVCs → generate → PR
+# (CI best-practices) → prod canary/soak → talk-only enforce →
+# /feature-spool 500 → emergency rollback → generate on rhel-qa → second PR →
 # recanary prod.
 #
 #   bash scripts/demo_e2e_mac.sh
@@ -33,32 +33,36 @@ commands from docs/admin/RHEL_TWO_HOST.md.
 $(e2e_usage_common)
 
 Other windows (do not run those scripts here unless using --auto):
-  ssh ${E2E_SSH_USER}@${DEV_HOST}   →  bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh
+  ssh ${E2E_SSH_USER}@${DEV_HOST}   →  bash ~/selinux-pac/scripts/demo_e2e_rhel_qa.sh
   ssh ${E2E_SSH_USER}@${PROD_HOST}  →  bash ~/e2e-demo/demo_e2e_rhel_prod.sh
 EOF
 }
 
 mac_copy_prod_bundle() {
-    tlab_explain "Prod gets the Flask app and this talk track over scp — not a git clone of selinux-pac."
-    e2e_run "ssh ${E2E_SSH_USER}@${PROD_HOST} 'mkdir -p ~/e2e-demo/lib ~/e2e-demo/scripts ~/e2e-demo/app'"
+    tlab_explain "Prod gets the Flask app and this talk track over scp — not a git clone of selinux-pac or myapp."
+    e2e_run "ssh ${E2E_SSH_USER}@${PROD_HOST} 'mkdir -p ~/e2e-demo/lib ~/e2e-demo/scripts/lib ~/e2e-demo/app'"
     e2e_run "scp scripts/demo_e2e_rhel_prod.sh ${E2E_SSH_USER}@${PROD_HOST}:~/e2e-demo/"
     e2e_run "scp scripts/lib/e2e_demo.sh scripts/lib/training_lab_runner.sh ${E2E_SSH_USER}@${PROD_HOST}:~/e2e-demo/lib/"
     e2e_run "scp scripts/setup_staging_env.sh scripts/wait_for_endpoints.sh ${E2E_SSH_USER}@${PROD_HOST}:~/e2e-demo/scripts/"
+    e2e_run "scp scripts/lib/app_root.sh ${E2E_SSH_USER}@${PROD_HOST}:~/e2e-demo/scripts/lib/"
     e2e_run "scp -r app/. ${E2E_SSH_USER}@${PROD_HOST}:~/e2e-demo/app/"
 }
 
 mac_scp_generated_from_dev() {
-    tlab_explain "Copy the generated sources and compiled .pp onto this laptop. Ansible's policy_pp_src is a Mac path. GitHub PR is also opened from here."
-    e2e_run "mkdir -p policy_out"
-    e2e_run "scp ${E2E_SSH_USER}@${DEV_HOST}:~/selinux-pac/selinux/myapp.te ${E2E_SSH_USER}@${DEV_HOST}:~/selinux-pac/selinux/myapp.fc ${E2E_SSH_USER}@${DEV_HOST}:~/selinux-pac/selinux/policy_version.txt ${E2E_SSH_USER}@${DEV_HOST}:~/selinux-pac/selinux/myapp.pp selinux/"
-    e2e_run_allow_fail "scp ${E2E_SSH_USER}@${DEV_HOST}:~/selinux-pac/policy_out/pr_body.md policy_out/pr_body.md"
-    e2e_run "ls -l selinux/myapp.te selinux/myapp.fc selinux/policy_version.txt selinux/myapp.pp; echo '--- version ---'; cat selinux/policy_version.txt"
+    local myapp="${MYAPP_ROOT:-$(cd "${PROJECT_ROOT}/.." && pwd)/myapp}"
+    tlab_explain "Copy generated sources into the myapp GitHub checkout (the PR). Also copy the compiled .pp into this tool tree so Ansible can ship it."
+    e2e_run "mkdir -p policy_out '${myapp}/selinux' '${myapp}/policy_out'"
+    e2e_run "scp ${E2E_SSH_USER}@${DEV_HOST}:~/myapp/selinux/myapp.te ${E2E_SSH_USER}@${DEV_HOST}:~/myapp/selinux/myapp.fc ${E2E_SSH_USER}@${DEV_HOST}:~/myapp/selinux/policy_version.txt ${E2E_SSH_USER}@${DEV_HOST}:~/myapp/selinux/myapp.pp '${myapp}/selinux/'"
+    e2e_run_allow_fail "scp ${E2E_SSH_USER}@${DEV_HOST}:~/myapp/policy_out/pr_body.md '${myapp}/policy_out/pr_body.md'"
+    e2e_run "cp '${myapp}/selinux/myapp.te' '${myapp}/selinux/myapp.fc' '${myapp}/selinux/policy_version.txt' '${myapp}/selinux/myapp.pp' selinux/"
+    e2e_run_allow_fail "cp '${myapp}/policy_out/pr_body.md' policy_out/pr_body.md"
+    e2e_run "ls -l '${myapp}/selinux/myapp.te' selinux/myapp.pp; echo '--- version ---'; cat '${myapp}/selinux/policy_version.txt'"
 }
 
 mac_open_policy_pr() {
-    tlab_explain "Admin gate #1: a GitHub PR. CODEOWNERS must review selinux/. This is live generated policy, not a frozen demo snapshot."
+    tlab_explain "Admin gate #1: a GitHub PR on anurag-saran/myapp — the application repo, not this tool. CODEOWNERS review selinux/."
     e2e_run_allow_fail "bash scripts/demo_open_generated_pr.sh"
-    tlab_checkpoint "If gh is logged in, a PR URL printed. Merge is optional for the rest of this talk — we already have the .pp on this laptop."
+    tlab_checkpoint "If gh is logged in, a PR URL on github.com/anurag-saran/myapp printed. Merge is optional for the rest of this talk — we already have the .pp on this laptop."
     tlab_pause
     mac_policy_best_practices
 }
@@ -83,7 +87,7 @@ mac_canary_enforce_dev() {
 
 mac_ship_prod() {
     local mode="${1:-soak_demo}"
-    tlab_explain "Production must not git clone this repo. We ship installer files (RPMs). rpmbuild runs on rhel-dev; this laptop collects dist/*.rpm."
+    tlab_explain "Production must not git clone this repo. We ship installer files (RPMs). rpmbuild runs on rhel-qa; this laptop collects dist/*.rpm."
     e2e_run "bash packaging/build_rpms.sh"
     e2e_run "ls dist/*.rpm"
     tlab_pause
@@ -137,16 +141,16 @@ There should be no /var/lib/myapp/selinux_soak_last_fail.avc. Press Enter here w
     else
         tlab_explain "DEMO_PROD_FORCE_ENFORCE is false — enforce MUST fail until seven days have passed. That is the product, not a bug."
         e2e_run_expect_fail "ansible-playbook -i ansible/inventory.production.yml ansible/enforce_production.yml -e change_ticket=CHG123"
-        tlab_checkpoint "You already locked down the DEV VM. Prod waits."
+        tlab_checkpoint "You already locked down the QA VM. Prod waits."
     fi
 }
 
 mac_copy_prod_avc_to_dev() {
-    tlab_explain "Prod has no generator. Copy the AVC export to rhel-dev policy_out/avc.log, then generate there."
+    tlab_explain "Prod has no generator. Copy the AVC export to rhel-qa ~/myapp/policy_out/avc.log, then generate there."
     e2e_run "scp ${E2E_SSH_USER}@${PROD_HOST}:/tmp/prod-feature-spool.avc /tmp/prod-feature-spool.avc"
-    e2e_run "ssh ${E2E_SSH_USER}@${DEV_HOST} 'mkdir -p ~/selinux-pac/policy_out'"
-    e2e_run "scp /tmp/prod-feature-spool.avc ${E2E_SSH_USER}@${DEV_HOST}:~/selinux-pac/policy_out/avc.log"
-    e2e_run "ssh ${E2E_SSH_USER}@${DEV_HOST} 'wc -l ~/selinux-pac/policy_out/avc.log'"
+    e2e_run "ssh ${E2E_SSH_USER}@${DEV_HOST} 'mkdir -p ~/myapp/policy_out'"
+    e2e_run "scp /tmp/prod-feature-spool.avc ${E2E_SSH_USER}@${DEV_HOST}:~/myapp/policy_out/avc.log"
+    e2e_run "ssh ${E2E_SSH_USER}@${DEV_HOST} 'wc -l ~/myapp/policy_out/avc.log'"
 }
 
 e2e_parse_args "$@"
@@ -154,20 +158,20 @@ e2e_require_mac
 cd "${PROJECT_ROOT}"
 
 e2e_banner "MAC — the remote control (no SELinux on this laptop)"
-tlab_why "macOS cannot enforce SELinux. This window talks to two RHEL VMs over SSH: dev ${DEV_HOST} and prod ${PROD_HOST}."
-tlab_explain "Look at the prompt. If it says rhel-dev or rhel-prod, you are in the wrong window."
-tlab_explain "Story: generate first policy on rhel-dev → PR (CI best-practices, should pass) → prod canary/soak (app up, AVC file clean) → treat soak as complete and enforce → /feature-spool fails → admin rollback so the app is running → generate the fix on rhel-dev → second PR → recanary."
+tlab_why "macOS cannot enforce SELinux. This window talks to two RHEL VMs over SSH: QA ${DEV_HOST} and prod ${PROD_HOST}."
+tlab_explain "Look at the prompt. If it says rhel-qa or rhel-prod, you are in the wrong window."
+tlab_explain "Story: the app GitHub repo is myapp. Run it unconfined on rhel-qa (empty AVC log) → create the confined domain → generate first policy from those AVCs → PR on anurag-saran/myapp (CI best-practices, should pass) → prod canary/soak (app up, AVC file clean) → treat soak as complete and enforce → /feature-spool fails → admin rollback so the app is running → generate the fix on rhel-qa → second PR on myapp → recanary."
 tlab_pause
 
 tlab_print_section "Part 1 — Can the Mac reach the VMs?"
 tlab_explain "write saves the two IP addresses into gitignored inventory files on this laptop."
-e2e_run "bash scripts/setup_rhel_hosts.sh write --dev-host ${DEV_HOST} --prod-host ${PROD_HOST} --user ${E2E_SSH_USER}"
+e2e_run "bash scripts/setup_rhel_hosts.sh write --qa-host ${DEV_HOST} --prod-host ${PROD_HOST} --user ${E2E_SSH_USER}"
 tlab_checkpoint "You should see Wrote …inventory.dev.yml and …inventory.production.yml."
 tlab_pause
 
 tlab_explain "ping is Ansible asking: can I SSH and run Python on both boxes?"
 e2e_run "bash scripts/setup_rhel_hosts.sh ping"
-tlab_checkpoint "SUCCESS / pong for rhel-dev and rhel-prod. Ignore the python3.9 warning if you still see it."
+tlab_checkpoint "SUCCESS / pong for rhel-qa and rhel-prod. Ignore the python3.9 warning if you still see it."
 tlab_pause
 
 tlab_explain "doctor checks SELinux is Enforcing and that ausearch (the no-log) and sesearch (is this already allowed?) exist on each VM."
@@ -175,8 +179,9 @@ e2e_run "bash scripts/setup_rhel_hosts.sh doctor"
 tlab_checkpoint "Each host prints Enforcing, then paths to ausearch and sesearch."
 tlab_pause
 
-tlab_explain "rsync copies this laptop checkout onto rhel-dev. Prod gets the app bundle and talk track — no git clone."
+tlab_explain "rsync copies this tool checkout onto rhel-qa, then the myapp GitHub repo (Flask + selinux/). Prod gets the app bundle and talk track — no git clone."
 e2e_run "bash scripts/sync_rhel_dev.sh"
+e2e_run "bash scripts/sync_myapp.sh"
 mac_copy_prod_bundle
 tlab_pause
 
@@ -190,17 +195,17 @@ That installs the Flask app only (no policy module).
 Press Enter here when curl / returns 200." \
     "ssh ${E2E_SSH_USER}@${PROD_HOST} 'bash ~/e2e-demo/demo_e2e_rhel_prod.sh --part app $(e2e_auto_flags)'"
 
-e2e_handoff "On the DEV VM window run:
-  bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part app
-That installs the Flask app (no policy module), shows the git 1.1.3 myapp.te and overwrites it with a types-only 1.0.0 seed, then curls first-ship URLs (not /feature-spool).
-Press Enter here when the six probes succeed." \
-    "ssh ${E2E_SSH_USER}@${DEV_HOST} 'bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part app $(e2e_auto_flags)'"
+e2e_handoff "On the QA VM window run:
+  bash ~/selinux-pac/scripts/demo_e2e_rhel_qa.sh --part app
+That installs Flask with no policy, curls while unconfined (empty AVC log), then creates the domain and curls again so myapp_t AVCs exist (not /feature-spool).
+Press Enter here when the second ausearch shows myapp denials." \
+    "ssh ${E2E_SSH_USER}@${DEV_HOST} 'bash ~/selinux-pac/scripts/demo_e2e_rhel_qa.sh --part app $(e2e_auto_flags)'"
 
-e2e_handoff "On the DEV VM window run:
-  bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part generate
+e2e_handoff "On the QA VM window run:
+  bash ~/selinux-pac/scripts/demo_e2e_rhel_qa.sh --part generate
 That reads the audit log and writes the first real myapp.te from those AVCs.
 Press Enter here when compile_and_validate has built selinux/myapp.pp." \
-    "ssh ${E2E_SSH_USER}@${DEV_HOST} 'bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part generate $(e2e_auto_flags)'"
+    "ssh ${E2E_SSH_USER}@${DEV_HOST} 'bash ~/selinux-pac/scripts/demo_e2e_rhel_qa.sh --part generate $(e2e_auto_flags)'"
 
 tlab_print_section "Part 4 — Copy generated policy and open a GitHub PR"
 mac_scp_generated_from_dev
@@ -208,7 +213,7 @@ tlab_pause
 mac_open_policy_pr
 tlab_pause
 
-tlab_print_section "Part 5 — Canary + lab enforce on DEV"
+tlab_print_section "Part 5 — Canary + lab enforce on QA"
 mac_canary_enforce_dev
 tlab_pause
 
@@ -216,7 +221,7 @@ tlab_print_section "Part 6 — RPMs on prod, canary, clean soak, then enforce"
 mac_ship_prod soak_demo
 tlab_pause
 
-tlab_print_section "Part 7 — Fail on prod; admin restore; generate on dev; recanary"
+tlab_print_section "Part 7 — Fail on prod; admin restore; generate on QA; recanary"
 e2e_handoff "On the PROD VM window run:
   bash ~/e2e-demo/demo_e2e_rhel_prod.sh --part fail
 curl /feature-spool should return 500. Press Enter here when /tmp/prod-feature-spool.avc exists." \
@@ -234,17 +239,17 @@ curl / and /feature-spool should return 200 again. Press Enter here when the app
 mac_copy_prod_avc_to_dev
 tlab_pause
 
-e2e_handoff "On the DEV VM window generate from the prod log:
-  bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part generate --skip-export
+e2e_handoff "On the QA VM window generate from the prod log:
+  bash ~/selinux-pac/scripts/demo_e2e_rhel_qa.sh --part generate --skip-export
 Press Enter here when the second compile finishes." \
-    "ssh ${E2E_SSH_USER}@${DEV_HOST} 'bash ~/selinux-pac/scripts/demo_e2e_rhel_dev.sh --part generate --skip-export $(e2e_auto_flags)'"
+    "ssh ${E2E_SSH_USER}@${DEV_HOST} 'bash ~/selinux-pac/scripts/demo_e2e_rhel_qa.sh --part generate --skip-export $(e2e_auto_flags)'"
 
 mac_scp_generated_from_dev
 tlab_pause
 mac_open_policy_pr
 tlab_pause
 
-tlab_explain "Recanary the new module on DEV, then rebuild RPMs and ship prod. We still do not generate on prod."
+tlab_explain "Recanary the new module on QA, then rebuild RPMs and ship prod. We still do not generate on prod."
 mac_canary_enforce_dev
 tlab_pause
 mac_ship_prod recanary

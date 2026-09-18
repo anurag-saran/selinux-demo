@@ -57,7 +57,7 @@ for path in / /save-log /run-script /rotate-log /probe-backend /notify-socket; d
 done
 curl -sf http://127.0.0.1:8889/health; echo
 
-# On rhel-dev: the generator exports AVCs from audit.log
+# On rhel-qa: the generator exports AVCs from audit.log
 # sudo bash scripts/dev_generate_policy.sh --apply
 ```
 
@@ -152,8 +152,8 @@ python3 scripts/smoke_test.py --no-require-backend
 |------|---------|---------------------|
 | CLI + flask smoke | `python3 scripts/smoke_test.py` | No |
 | Forbidden patterns | `bash scripts/validate_forbidden_patterns.sh selinux` | No |
-| Compile | `bash scripts/compile_and_validate.sh selinux` | Yes — `selinux-policy-devel` on **rhel-dev** |
-| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Yes — rhel-dev |
+| Compile | `bash scripts/compile_and_validate.sh selinux` | Yes — `selinux-policy-devel` on **rhel-qa** |
+| Semantic assertions | `bash scripts/validate_policy_semantics.sh selinux` | Yes — rhel-qa |
 | Staging + AVC export | `sudo bash scripts/setup_staging_env.sh` + curl endpoints | Yes (RHEL **dev**) |
 | AI / deterministic generate | `bash scripts/dev_generate_policy.sh --apply` (default engine: deterministic) | Yes (RHEL **dev**) |
 | **Enforce-check** | `bash scripts/dev_generate_policy.sh --apply --enforce-check` | Yes (root on RHEL **dev**) |
@@ -162,7 +162,7 @@ python3 scripts/smoke_test.py --no-require-backend
 
 ### 3.1 Compile on RHEL
 
-Policy compile needs `selinux-policy-devel` (`/usr/share/selinux/devel/Makefile`). Run `bash scripts/compile_and_validate.sh selinux` on **rhel-dev**. That script also runs `validate_forbidden_patterns.sh` before compile.
+Policy compile needs `selinux-policy-devel` (`/usr/share/selinux/devel/Makefile`). Run `bash scripts/compile_and_validate.sh selinux` on **rhel-qa**. That script also runs `validate_forbidden_patterns.sh` before compile.
 
 ## 4. CI on pull requests
 
@@ -175,7 +175,7 @@ The generator already ran the same forbidden-pattern check, so these jobs are ex
 | `forbidden-patterns` | `scripts/validate_forbidden_patterns.sh selinux` | No wildcards, `shadow_t`, `bin_t` execute, etc. |
 | `version-consistency` | `scripts/validate_version_consistency.sh` | `policy_version.txt` matches `policy_module()` |
 
-Compile and semantics stay on **rhel-dev** (`compile_and_validate.sh`). Full offline suite: `make check`.
+Compile and semantics stay on **rhel-qa** (`compile_and_validate.sh`). Full offline suite: `make check`.
 
 Compiled `selinux/myapp.pp` is **not** committed to Git.
 
@@ -224,7 +224,7 @@ Admin runbook with pass/fail examples: [`PRODUCTION_READINESS.md`](../admin/PROD
 
 ```text
 Layer 1  forbidden-patterns + version-consistency     GHA PR (generator already ran forbidden-patterns)
-Layer 2  compile + policy-semantics + make check      rhel-dev / laptop
+Layer 2  compile + policy-semantics + make check      rhel-qa / laptop
 Layer 3  integration probes + policy_out/avc.log      staging discovery (permissive)
 Layer 4  deploy_canary + wait_for_endpoints           staging/prod canary host
 Layer 5  soak_monitor + soak_status                   soak period (net-new; talk shows clean first-ship)

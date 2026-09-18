@@ -1,7 +1,7 @@
 # Policy best-practices on every PR that touches selinux/.
 # The deterministic generator already ran validate_forbidden_patterns.sh, so
 # these jobs are expected to pass. They are a review gate, not a fail-on-purpose
-# demo step. Compile stays on rhel-dev (selinux-policy-devel).
+# demo step. Compile stays on rhel-qa (selinux-policy-devel).
 name: SELinux Policy CI
 
 on:

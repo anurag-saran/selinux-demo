@@ -28,7 +28,7 @@ if [[ "${EUID}" -ne 0 ]]; then
     exit 1
 fi
 if ! has_selinux_devel || ! command -v sesearch >/dev/null 2>&1 || [[ ! -d /var/lib/selinux/targeted ]]; then
-    log_error "Need selinux-policy-devel, setools-console, and selinux-policy-targeted (run on rhel-dev or CI Stream 9)"
+    log_error "Need selinux-policy-devel, setools-console, and selinux-policy-targeted (run on rhel-qa or CI Stream 9)"
     exit 1
 fi
 

@@ -17,7 +17,7 @@ This guide explains **SELinux from zero** using the `myapp` **reference applicat
 | What you are doing | Where |
 |--------------------|--------|
 | Reading sections 1–7 | Anywhere — no Linux required |
-| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, Labs in [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | **Linux with SELinux** (rhel-dev, cloud instance, or other RHEL/Fedora host) |
+| **`getenforce`**, **`ls -Z`**, **`semanage permissive`**, Labs in [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | **Linux with SELinux** (rhel-qa, cloud instance, or other RHEL/Fedora host) |
 | **`make check`**, reading `.te` files | **Repo root** on your laptop |
 
 macOS: you never run SELinux commands on the Mac itself — use [SELINUX_TRAINING_LAB.md — Running on macOS](../training/SELINUX_TRAINING_LAB.md#running-on-macos).
@@ -192,7 +192,7 @@ init_daemon_domain(myapp_t, myapp_exec_t);
 - **`init_daemon_domain`** — standard pattern for systemd services.
 - **`require { type ... }`** — types defined in the **base** RHEL policy that you reference but do not create.
 
-Optional training labs use a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;`. The customer two-host talk does **not** overlay that folder — it writes a types-only domain seed with `write_domain_seed.sh`, then generates the first real `.te` from AVCs.
+Optional training labs use a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;`. The customer two-host talk does **not** overlay that folder — it runs the app unconfined first, then `write_domain_seed.sh` so the next curls produce `myapp_t` AVCs, then generates the first real `.te`.
 
 ### File contexts (`.fc`) — path → label mapping
 
@@ -370,7 +370,7 @@ Enforce   semanage permissive -d myapp_t
 | Artifact | Purpose |
 |----------|---------|
 | `/var/lib/myapp/selinux_canary_deployed_at` | Epoch timestamp — soak clock starts here |
-| `/var/lib/myapp/selinux_soak_last_fail.json` | Last soak-monitor fail (copy to rhel-dev; see [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)) |
+| `/var/lib/myapp/selinux_soak_last_fail.json` | Last soak-monitor fail (copy to rhel-qa; see [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)) |
 | `ansible/soak_monitor.yml` | Daily AAP **Soak monitor** — fail if **net-new** needs remain |
 | `ansible/soak_status.yml` / `collect_soak_facts.sh` | First node of **Promote to enforce** |
 
@@ -609,7 +609,7 @@ Presenter steps: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md). Admin gates: [PRODU
 # Compile (this repo — refpolicy Makefile)
 bash scripts/compile_and_validate.sh selinux
 
-# Semantic checks on rhel-dev
+# Semantic checks on rhel-qa
 bash scripts/validate_policy_semantics.sh selinux
 
 # Install / upgrade on host (in-place — no semodule -r step)

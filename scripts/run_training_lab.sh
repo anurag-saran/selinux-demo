@@ -5,7 +5,7 @@
 # Runs labs 1 → 6 verify → 2–5 → 7–9 from docs/training/SELINUX_TRAINING_LAB.md
 # with Why/What text and simulated typing. Commands execute for real.
 #
-# Usage (from repo root on a SELinux Linux host, typically rhel-dev):
+# Usage (from repo root on a SELinux Linux host, typically rhel-qa / rhel-dev):
 #   bash scripts/run_training_lab.sh
 #   bash scripts/run_training_lab.sh --auto       # no pauses between steps
 #   bash scripts/run_training_lab.sh --no-type    # skip typewriter effect
@@ -34,7 +34,7 @@ Usage: $(basename "$0") [options]
 Runs the hands-on training lab with explanations and typed commands.
 See docs/training/SELINUX_TRAINING_LAB.md for the full course.
 
-Must run on a SELinux Linux host (rhel-dev). macOS has no SELinux —
+Must run on a SELinux Linux host (rhel-qa). macOS has no SELinux —
 see docs/admin/RHEL_TWO_HOST.md.
 
 Options:
@@ -62,12 +62,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$(uname -s)" == Darwin ]]; then
-    echo "This lab needs a SELinux Linux host. On a Mac, follow docs/admin/RHEL_TWO_HOST.md, then SSH to rhel-dev and run this script there." >&2
+    echo "This lab needs a SELinux Linux host. On a Mac, follow docs/admin/RHEL_TWO_HOST.md, then SSH to rhel-qa (192.168.64.6) and run this script there." >&2
     exit 1
 fi
 
 if ! tlab_detect_vm; then
-    echo "SELinux is not available on this host. Run on rhel-dev (see docs/admin/RHEL_TWO_HOST.md)." >&2
+    echo "SELinux is not available on this host. Run on rhel-qa (see docs/admin/RHEL_TWO_HOST.md)." >&2
     exit 1
 fi
 

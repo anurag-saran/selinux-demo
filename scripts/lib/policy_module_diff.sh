@@ -164,7 +164,7 @@ if has_selinux_devel && command -v sesearch >/dev/null 2>&1; then
     collect_side_native base "${run_dir}/base/${APP_NAME}.pp"
     collect_side_native cand "${run_dir}/cand/${APP_NAME}.pp"
 else
-    echo "policy_module_diff: need selinux-policy-devel + setools-console (run on rhel-dev or CI Stream 9)" >&2
+    echo "policy_module_diff: need selinux-policy-devel + setools-console (run on rhel-qa or CI Stream 9)" >&2
     exit 1
 fi
 

@@ -52,7 +52,7 @@ Do not confuse missing ifgen with “no interface matched” — the latter is l
 
 | | |
 |--|--|
-| **Where** | **rhel-dev** (or any host with `selinux-policy-devel`) |
+| **Where** | **rhel-qa** (or any host with `selinux-policy-devel`) |
 | **Why** | `checkmodule` / refpolicy Makefile need the devel package — not macOS |
 
 ```bash

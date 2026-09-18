@@ -3,8 +3,9 @@
 # write_domain_seed.sh — Types + file_contexts so systemd can start myapp_t.
 #
 # This is not a stub policy: no extra allows, no permissive in the .te.
-# Discovery uses `semanage permissive -a myapp_t`. The first real allow list
-# comes from scripts/dev_generate_policy.sh --apply after AVC collection.
+# Customer talk: run AFTER unconfined curls prove ausearch is empty, then collect
+# myapp_t AVCs. Discovery uses `semanage permissive -a myapp_t`. The first real
+# allow list comes from scripts/dev_generate_policy.sh --apply.
 #
 # Usage:
 #   bash scripts/write_domain_seed.sh           # write selinux/myapp.te .fc version
@@ -14,26 +15,33 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SELINUX_DIR="${PROJECT_ROOT}/selinux"
 LOAD=0
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--load]
+Usage: $(basename "$0") [--load] [--app-root DIR]
 
-Write a types-only myapp domain seed into selinux/ (not selinux/stub/).
+Write a types-only myapp domain seed into \$APP_ROOT/selinux/ (not selinux/stub/).
+Customer talk: --app-root ~/myapp so the seed lives in the application repo tree.
 
-  --load   Compile, replace any loaded myapp module, semanage permissive myapp_t
+  --load       Compile, replace any loaded myapp module, semanage permissive myapp_t
+  --app-root   Application tree (default: sibling/~/myapp if present, else this repo)
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --load) LOAD=1; shift ;;
+        --app-root) APP_ROOT="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
     esac
 done
+
+# shellcheck source=lib/app_root.sh
+source "${SCRIPT_DIR}/lib/app_root.sh"
+bind_app_tree "${PROJECT_ROOT}"
+SELINUX_DIR="${APP_ROOT}/selinux"
 
 mkdir -p "${SELINUX_DIR}"
 

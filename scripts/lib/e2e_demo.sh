@@ -14,7 +14,7 @@ Options:
   --auto       No Enter pauses. On the Mac script, also SSH and run the VM talk tracks.
   --no-type    Print commands instantly (no typewriter)
   --dry-run    Type and explain only — do not run commands
-  --skip-export  (rhel-dev --part generate) use existing policy_out/avc.log
+  --skip-export  (rhel-qa --part generate) use existing policy_out/avc.log
   -h, --help   Show help
 EOF
 }
@@ -147,7 +147,7 @@ e2e_handoff() {
 
 e2e_require_mac() {
     if [[ "$(uname -s)" != Darwin ]]; then
-        echo "This script is the Mac talk track. On a RHEL VM use demo_e2e_rhel_dev.sh or demo_e2e_rhel_prod.sh." >&2
+        echo "This script is the Mac talk track. On a RHEL VM use demo_e2e_rhel_qa.sh or demo_e2e_rhel_prod.sh." >&2
         exit 1
     fi
 }
@@ -165,18 +165,24 @@ e2e_require_rhel() {
     fi
 }
 
-# Talk-track legend for customer-visible files under selinux/ on rhel-dev.
+# Talk-track legend for customer-visible files under selinux/ on rhel-qa.
 # Do not mention or list selinux/stub/ — that path is training-labs only.
 e2e_explain_selinux_tree() {
     local root="${1:-.}"
-    tlab_explain "This folder is the policy product. Git reviews these files. Prod never clones them — it gets an RPM built from them. The 1.1.3 file that arrived from git was overwritten by write_domain_seed.sh; after generate --apply this is the first real allow list."
+    tlab_explain "This folder is the policy product in the myapp GitHub repo. Git reviews these files. Prod never clones them — it gets an RPM built from them. write_domain_seed.sh just created the 1.0.0 types-only file on this VM; after generate --apply this is the first real allow list."
     e2e_run "ls -la '${root}/selinux/myapp.te' '${root}/selinux/myapp.fc' '${root}/selinux/policy_version.txt'"
     tlab_explain "selinux/myapp.te — type enforcement. After write_domain_seed.sh this is types + systemd transition only. After generate --apply it is the first real allow list from AVCs."
     tlab_explain "selinux/myapp.fc — file_contexts: which path gets which type. restorecon applies this. The generator adds rows when AVCs show unlabeled or wrong-type files."
     tlab_explain "selinux/policy_version.txt — one line, kept in lockstep with policy_module(myapp, X.Y.Z) inside the .te. PRs and the myapp-selinux RPM bump this."
-    tlab_explain "selinux/myapp.pp — compiled binary (gitignored). Built on rhel-dev only. Copied to the Mac so Ansible can ship it. A Mac cannot compile SELinux."
-    tlab_explain "selinux/myapp_ports.cil — optional CIL portcon for hosts without semanage. On RHEL, canary uses Ansible seport instead."
-    tlab_explain "selinux/myapp_canary.te — optional overlay when semanage is missing. RHEL canary uses semanage permissive. Not loaded in this talk."
-    tlab_explain "selinux/payments/ — second sample app for onboarding. Not this talk."
+    tlab_explain "selinux/myapp.pp — compiled binary (gitignored). Built on rhel-qa only. Copied to the Mac so Ansible can ship it. A Mac cannot compile SELinux."
+    if [[ -f "${root}/selinux/myapp_ports.cil" ]]; then
+        tlab_explain "selinux/myapp_ports.cil — optional CIL portcon for hosts without semanage. On RHEL, canary uses Ansible seport instead."
+    fi
+    if [[ -f "${root}/selinux/myapp_canary.te" ]]; then
+        tlab_explain "selinux/myapp_canary.te — optional overlay when semanage is missing. RHEL canary uses semanage permissive. Not loaded in this talk."
+    fi
+    if [[ -d "${root}/selinux/payments" ]]; then
+        tlab_explain "selinux/payments/ — second sample app for onboarding. Not this talk."
+    fi
     tlab_explain "policy_out/ (created at generate) — avc.log is the denial export, generated .te/.fc live here before --apply copies them into selinux/, pr_body.md is the GitHub PR text."
 }

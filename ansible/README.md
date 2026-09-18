@@ -10,7 +10,7 @@ Ansible orchestrates the **admin deploy lifecycle** for SELinux policy on real R
 |------|--------|
 | `ansible-playbook …` | **Controller** (AAP execution node or laptop) with SSH to inventory hosts |
 | `semanage`, `semodule`, soak scripts on hosts | **Target RHEL/Stream machines** in inventory |
-| `compile_and_validate.sh` before deploy | **RHEL** with `selinux-policy-devel` (typically rhel-dev) |
+| `compile_and_validate.sh` before deploy | **RHEL** with `selinux-policy-devel` (typically rhel-qa) |
 
 **Doc index:** [docs/README.md](../docs/README.md).
 
@@ -52,7 +52,7 @@ Collections: `community.general` (`selinux_permissive`, `seport`), `ansible.posi
 
 | File | Use |
 |------|-----|
-| [`inventory.dev.example.yml`](inventory.dev.example.yml) | **RHEL dev box** (SSH from controller) — generate with `setup_rhel_hosts.sh` |
+| [`inventory.dev.example.yml`](inventory.dev.example.yml) | **RHEL QA box** (SSH from controller) — generate with `setup_rhel_hosts.sh` (filename `inventory.dev.yml` is legacy) |
 | [`inventory.production.example.yml`](inventory.production.example.yml) | **RHEL prod box** (canary + production groups) |
 | [`inventory.staging.example.yml`](inventory.staging.example.yml) | Ansible **on** the staging host (`connection: local`) |
 | [`inventory.example.yml`](inventory.example.yml) | Local / single-host **backup** (Ansible on the box) |
@@ -67,9 +67,9 @@ Build the module before deploy (`.pp` is not committed). RPM version is taken fr
 bash scripts/compile_and_validate.sh selinux
 ```
 
-**Two RHEL boxes (preferred):** [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md) — `bash scripts/setup_rhel_hosts.sh write --dev-host … --prod-host …`.
+**Two RHEL boxes (preferred):** [`docs/admin/RHEL_TWO_HOST.md`](../docs/admin/RHEL_TWO_HOST.md) — `bash scripts/setup_rhel_hosts.sh write --qa-host … --prod-host …`.
 
-**Laptop / AAP → rhel-dev:** `policy_artifact_dir` and `policy_pp_src` are the controller checkout (compiled `.pp` is copied over). `selinux_ops_dir` and `app_manifest_path` are paths **on rhel-dev** after you clone the repo (`/home/ansible/selinux-pac/...`). Do not set those two from `playbook_dir` — that expands to a Mac/AAP path the guest does not have.
+**Laptop / AAP → rhel-qa:** `policy_artifact_dir` and `policy_pp_src` are the controller checkout (compiled `.pp` is copied over). `selinux_ops_dir` and `app_manifest_path` are paths **on rhel-qa** after you clone the repo (`/home/ansible/selinux-pac/...`). Do not set those two from `playbook_dir` — that expands to a Mac/AAP path the guest does not have.
 
 ```bash
 ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
@@ -237,6 +237,8 @@ ansible-playbook -i ansible/inventory.production.yml ansible/emergency_rollback.
 ## `reset_host_state.yml`
 
 After an **interrupted canary** (host left on `semodule -DB` or permissive): `semodule -B` + clear permissive — **does not** change the installed policy module.
+
+To wipe leftover **demo** policy on both VMs and start [RHEL_TWO_HOST.md](../docs/admin/RHEL_TWO_HOST.md) over: `bash scripts/reset_demo_vms.sh` on the Mac (Flask stays).
 
 ---
 

@@ -2,7 +2,7 @@
 
 **The RHEL admin tool for shipping SELinux policy as code.** Developers open a PR, CI rejects dangerous allows (`forbidden-patterns`), admins compile and publish a signed RPM, **Ansible Automation Platform (AAP)** canaries, soaks, and enforces. The host stays **Enforcing**. Policy is a versioned product — not a one-off `audit2allow` on a box.
 
-`myapp` is the **reference application** that ships with the tool. Optional labs: [docs/README.md](docs/README.md).
+`myapp` is the **reference application**. In the two-host customer talk, Flask and policy live in **[anurag-saran/myapp](https://github.com/anurag-saran/myapp)** so the audience sees policy PRs on the app repo. This tool repo stays the generator, CI helpers, and AAP path. Optional labs: [docs/README.md](docs/README.md).
 
 | You are | Start here |
 |---------|------------|
@@ -21,7 +21,7 @@ This tool is the other path: **policy-as-code for admins and developers together
 
 | Without this tool | With this tool |
 |-------------------|----------------|
-| App team pastes AVCs into a ticket; admin writes `.te` by hand | Developer runs a **deterministic generator** on rhel-dev; humans merge |
+| App team pastes AVCs into a ticket; admin writes `.te` by hand | Developer runs a **deterministic generator** on rhel-qa; humans merge |
 | Bind ports and labels drift per environment | Ports live in the **committed manifest**; canary registers them with `seport` |
 | Duplicate cron AVCs look like a failed soak | Soak gates **net-new** access vs installed policy (`sesearch`) |
 | Prod is a git clone and a hope | **No git on prod** — signed RPMs + AAP playbooks only |
@@ -36,7 +36,7 @@ This tool is the other path: **policy-as-code for admins and developers together
 
 SELinux PaC was built after looking at [Ed Qual’s automate-selinux](https://github.com/stoleas/automate-selinux) (AAP + Event-Driven Ansible + Orchestrator). That project is strong at **unblocking a host that is already failing** in production: collect AVCs, route, approve, apply a local fix (`fcontext` / port / boolean, or a live module). It is an **ops response** loop.
 
-**SELinux PaC shifts policy creation left.** Developers generate policy from AVCs on rhel-dev, open a **PR**, CI and CODEOWNERS review it, admins ship a signed RPM, AAP **canaries**, **soaks** (net-new vs installed policy), then **enforces** with a change ticket. A denial after ship is another PR — not `semodule -i` on the box.
+**SELinux PaC shifts policy creation left.** Developers generate policy from AVCs on rhel-qa, open a **PR**, CI and CODEOWNERS review it, admins ship a signed RPM, AAP **canaries**, **soaks** (net-new vs installed policy), then **enforces** with a change ticket. A denial after ship is another PR — not `semodule -i` on the box.
 
 Those are complementary, not substitutes: his loop detects and routes; this tool authors and ships reviewed policy.
 
@@ -56,7 +56,7 @@ Those are complementary, not substitutes: his loop detects and routes; this tool
 
 ```mermaid
 flowchart TD
-  subgraph developer [Developer on rhel-dev]
+  subgraph developer [Developer on rhel-qa]
     avc[App hits a denial]
     gen[deterministic_gen.py]
     pr[PR: forbidden-patterns CI]
@@ -85,7 +85,7 @@ flowchart TD
 **Release canary** installs the module and puts **only** `myapp_t` (or your domain) in the permissive list. **Soak monitor** is a schedule, not a fake wait node. **Promote to enforce** is Soak status → human approval → Enforce. Objects: [ansible/aap/](ansible/aap/).
 
 ```text
-Dev      AVC → generator → PR (CI + CODEOWNERS)
+QA       AVC → generator → PR (CI + CODEOWNERS)
 Admin    compile_and_validate.sh → signed RPMs → internal yum/dnf
 Prod     Release canary → Soak monitor → Promote to enforce
 ```
@@ -99,7 +99,7 @@ Fork the repo and wire it to **two RHEL boxes** plus **AAP**. There is no one-cl
 | Follow | For |
 |--------|-----|
 | [docs/admin/ADOPTION_CHECKLIST.md](docs/admin/ADOPTION_CHECKLIST.md) | CODEOWNERS, CI, signed RPM repo, AAP objects |
-| [docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md) | Dev box + prod box; **no git clone on prod** |
+| [docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md) | QA box + prod box; **no git clone on prod** |
 | [docs/admin/ANSIBLE_OPERATIONS.md](docs/admin/ANSIBLE_OPERATIONS.md) | Playbooks and extra-vars |
 | [ansible/aap/README.md](ansible/aap/README.md) | Click-create job templates + **Release canary** / **Promote to enforce** |
 | [docs/admin/PRODUCTION_READINESS.md](docs/admin/PRODUCTION_READINESS.md) | Soak, enforce, rollback |
@@ -109,12 +109,12 @@ Fork the repo and wire it to **two RHEL boxes** plus **AAP**. There is no one-cl
 
 ```bash
 # write — create gitignored inventories (SSH host, soak days, RPM vs git checkout)
-bash scripts/setup_rhel_hosts.sh write --dev-host rhel-dev.example.com --prod-host rhel-prod.example.com
+bash scripts/setup_rhel_hosts.sh write --qa-host rhel-qa.example.com --prod-host rhel-prod.example.com
 # ping — Ansible SSH reachability to both boxes
 bash scripts/setup_rhel_hosts.sh ping
 # doctor — SELinux tools present (getenforce / ausearch / sesearch)
 bash scripts/setup_rhel_hosts.sh doctor
-# bootstrap — print (do not run) SSH steps for rhel-dev only
+# bootstrap — print (do not run) SSH steps for rhel-qa only
 bash scripts/setup_rhel_hosts.sh bootstrap
 # next app after myapp
 bash scripts/selinux_pac_adopt.sh init myapp        # next app: payments — see ONBOARDING.md
@@ -149,32 +149,34 @@ macOS has **no SELinux**. The Mac is the **Ansible controller**; policy still ru
 
 | Command | What it does | Good sign |
 |---------|----------------|-----------|
-| `bash scripts/setup_rhel_hosts.sh write --dev-host 192.168.64.6 --prod-host 192.168.64.5` | Writes gitignored `ansible/inventory.dev.yml` and `ansible/inventory.production.yml` with those SSH IPs. Dev gets `soak_min_days: 0` (lab). Prod gets `soak_min_days: 7` and **no git clone** (`selinux_ops_from_package: true`). | Prints `Wrote …/inventory.dev.yml` and `…/inventory.production.yml` |
-| `bash scripts/setup_rhel_hosts.sh ping` | Ansible `ping` module over SSH to both VMs (can the controller reach them?). | `SUCCESS` / `pong` for `rhel-dev` and `rhel-prod` |
+| `bash scripts/setup_rhel_hosts.sh write --qa-host 192.168.64.6 --prod-host 192.168.64.5` | Writes gitignored `ansible/inventory.dev.yml` and `ansible/inventory.production.yml` with those SSH IPs. QA gets `soak_min_days: 0` (lab). Prod gets `soak_min_days: 7` and **no git clone** (`selinux_ops_from_package: true`). | Prints `Wrote …/inventory.dev.yml` and `…/inventory.production.yml` |
+| `bash scripts/setup_rhel_hosts.sh ping` | Ansible `ping` module over SSH to both VMs (can the controller reach them?). | `SUCCESS` / `pong` for `rhel-qa` and `rhel-prod` |
 | `bash scripts/setup_rhel_hosts.sh doctor` | On each VM (as sudo): `getenforce`, `ausearch`, `sesearch`. Prod also `rpm -q selinux-policy-ops`. | `Enforcing`; paths to `ausearch` and `sesearch`. Prod may say the ops RPM is not installed yet |
-| `bash scripts/setup_rhel_hosts.sh bootstrap` | **Prints** the SSH/`dnf`/`setup_staging_env.sh` commands for **rhel-dev only**. It does not run them. | A block starting `=== Bootstrap the DEV RHEL box` |
+| `bash scripts/setup_rhel_hosts.sh bootstrap` | **Prints** the SSH/`dnf`/`setup_staging_env.sh` commands for **rhel-qa only**. It does not run them. | A block starting `=== Bootstrap the QA RHEL box` |
+| `bash scripts/sync_myapp.sh` | Clone [anurag-saran/myapp](https://github.com/anurag-saran/myapp) next to this repo if needed, rsync to `~/myapp` on rhel-qa. | `Synced … -> ansible@192.168.64.6:myapp/` |
+| `bash scripts/reset_demo_vms.sh` | Between rehearsals: unload leftover `myapp` modules and prod RPMs. Flask stays. Restore this repo’s fixture `selinux/myapp.te` and clear generated files in `../myapp`. | `Good: no myapp module loaded` on both VMs |
 
-Those IPs are this Mac’s UTM shared network (`rhel-dev` = `192.168.64.6`, `rhel-prod` = `192.168.64.5`). Re-check with `ping` if a VM was recreated.
+Those IPs are this Mac’s UTM shared network (`rhel-qa` = `192.168.64.6`, `rhel-prod` = `192.168.64.5`). Re-check with `ping` if a VM was recreated.
 
-**You are not done.** `bootstrap` only printed the next commands. Run the paced lab from **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)** (plain-language, one computer at a time), especially [Present this lab (three terminals)](docs/admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals).
+**You are not done.** `bootstrap` only printed the next commands. Run the paced lab from **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)** (plain-language, one computer at a time), especially [Present this lab (three terminals)](docs/admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals). Re-run on the same VMs: `bash scripts/reset_demo_vms.sh`, then Part 1.
 
 **End to end (customer talk):** three Terminal windows. The Mac script is the conductor; press Enter between steps.
 
 | Window | Start |
 |--------|--------|
 | Mac | `cd /Users/asaran/projects/selinux-pac` then `bash scripts/demo_e2e_mac.sh` |
-| rhel-dev | `ssh ansible@192.168.64.6` — run the `--part` the Mac prints (`app`, then `generate`, later `--skip-export`) |
+| rhel-qa | `ssh ansible@192.168.64.6` — run the `--part` the Mac prints (`app`, then `generate`, later `--skip-export`) |
 | rhel-prod | `ssh ansible@192.168.64.5` — run the `--part` the Mac prints (`app`, `rpms`, `soak`, `soak-avc`, `fail`, `restore`, `retest`) |
 
-Unattended rehearsal: `bash scripts/demo_e2e_mac.sh --auto --no-type`. Talk-only: `--dry-run`. PR checks: `gh auth login`; push [`.github/workflows/selinux-policy-ci.yml`](.github/workflows/selinux-policy-ci.yml) to `main` first so `forbidden-patterns` can go green (`validate_forbidden_patterns.sh` already ran at generate time).
+Unattended rehearsal: `bash scripts/demo_e2e_mac.sh --auto --no-type`. Talk-only: `--dry-run`. Policy PRs: `gh auth login` with push access to **anurag-saran/myapp**. CI `forbidden-patterns` on that repo should go green (`validate_forbidden_patterns.sh` already ran at generate time).
 
-Lab enforce uses `soak_min_days: 0` on **dev only** — never copy that onto prod. The paced talk uses `force_enforce=true` plus a change ticket on prod so a **clean** soak can be treated as complete; `inventory.production.yml` stays at 7 days. Do **not** overlay `selinux/stub/` in this talk.
+Lab enforce uses `soak_min_days: 0` on **QA only** — never copy that onto prod. The paced talk uses `force_enforce=true` plus a change ticket on prod so a **clean** soak can be treated as complete; `inventory.production.yml` stays at 7 days. Do **not** overlay `selinux/stub/` in this talk.
 
 ---
 
 ## Developers
 
-On **rhel-dev** (repo checkout, SELinux Enforcing):
+On **rhel-qa** (repo checkout, SELinux Enforcing):
 
 ```bash
 sudo bash scripts/setup_staging_env.sh          # reference app; skip for your own service
@@ -185,7 +187,7 @@ gh pr create --body-file policy_out/pr_body.md --label security --label selinux
 
 The generator classifies the denial: **file** → `.fc` + `restorecon`; **port** → `selinux_ports` in the manifest; **boolean** → host `setsebool` (not in the RPM); **new allow** → `.te` under CI forbidden-patterns. It does not auto-edit production.
 
-CI must pass `forbidden-patterns` and `version-consistency` (the generator already ran the same forbidden-pattern check). Compile on rhel-dev with `compile_and_validate.sh`. CODEOWNERS (`@anurag-saran`) review `selinux/` and `ansible/`.
+CI must pass `forbidden-patterns` and `version-consistency` (the generator already ran the same forbidden-pattern check). Compile on rhel-qa with `compile_and_validate.sh`. CODEOWNERS (`@anurag-saran`) review `selinux/` and `ansible/`.
 
 New app: `bash scripts/selinux_pac_adopt.sh init payments` — [docs/developers/ONBOARDING.md](docs/developers/ONBOARDING.md).
 
@@ -203,7 +205,7 @@ packaging/    selinux-policy-ops + <app>-selinux; publish_internal.sh
 scripts/      setup_rhel_hosts.sh (admins), demo_e2e_*.sh (three-window lab talk track)
 docs/admin/   Adoption, two-host, AAP, soak/enforce runbooks
 docs/developers/  Onboarding, generator, tests
-docs/training/    Optional labs (run on rhel-dev)
+docs/training/    Optional labs (same QA VM; lab text may still say rhel-dev)
 ```
 
 ---

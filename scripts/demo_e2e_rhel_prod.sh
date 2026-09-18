@@ -149,10 +149,10 @@ part_fail() {
     tlab_explain "/feature-spool writes /var/spool/myapp/feature.log. systemd allows the path; SELinux should not (yet)."
     e2e_run_expect_fail "curl -sf http://127.0.0.1:8888/feature-spool"
     e2e_run "curl -sS http://127.0.0.1:8888/feature-spool || true"
-    tlab_explain "ausearch is the no-log. Export it so the Mac can copy the file to rhel-dev. Generate happens there."
+    tlab_explain "ausearch is the no-log. Export it so the Mac can copy the file to rhel-qa. Generate happens there."
     e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | tee ${AVC_EXPORT} | grep -E 'myapp|spool|var_spool' | tail -20 || true"
     e2e_run "sudo chmod a+r ${AVC_EXPORT}; wc -l ${AVC_EXPORT}"
-    tlab_checkpoint "HTTP 500 + an AVC in ${AVC_EXPORT}. Go back to the Mac — admin rollback first so the app is running, then generate on rhel-dev."
+    tlab_checkpoint "HTTP 500 + an AVC in ${AVC_EXPORT}. Go back to the Mac — admin rollback first so the app is running, then generate on rhel-qa."
 }
 
 part_restore() {
@@ -162,7 +162,7 @@ part_restore() {
     e2e_run "systemctl is-active myapp.service myapp-backend.service"
     e2e_run "curl -sf -o /dev/null http://127.0.0.1:8888/ && echo 'HTTP 200 /'"
     e2e_run "curl -sf http://127.0.0.1:8888/feature-spool | head -c 120; echo"
-    tlab_checkpoint "Host is still Enforcing. App is up. Policy is not fixed. Next: copy the AVC log to rhel-dev and generate."
+    tlab_checkpoint "Host is still Enforcing. App is up. Policy is not fixed. Next: copy the AVC log to rhel-qa and generate."
 }
 
 part_retest() {

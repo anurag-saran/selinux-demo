@@ -1,6 +1,6 @@
 # Production Readiness Runbook (RHEL Admin)
 
-Day-to-day runbook for **shipping SELinux policy** with application teams. Ansible Automation Platform (AAP) is the control plane. Developers PR policy from a **dev** host; you compile, package, canary, soak, and enforce on **prod**.
+Day-to-day runbook for **shipping SELinux policy** with application teams. Ansible Automation Platform (AAP) is the control plane. Developers PR policy from a **QA** host; you compile, package, canary, soak, and enforce on **prod**.
 
 **How to read this guide:**
 
@@ -13,7 +13,7 @@ Day-to-day runbook for **shipping SELinux policy** with application teams. Ansib
 
 **Learning path:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) → **this guide**. Concepts: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
 
-**Where this guide applies:** two RHEL boxes (dev + prod) from a controller — [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **those servers**.
+**Where this guide applies:** two RHEL boxes (QA + prod) from a controller — [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md). Commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **those servers**.
 
 ---
 
@@ -21,9 +21,9 @@ Day-to-day runbook for **shipping SELinux policy** with application teams. Ansib
 
 High-blast-radius SELinux changes need **per-domain permissive soak**, **path labeling verification**, and **phased rollout** before you remove the permissive flag.
 
-| Topic | Lab (`soak_min_days: 0` on **rhel-dev**) | Production |
+| Topic | Lab (`soak_min_days: 0` on **rhel-qa**) | Production |
 |-------|------------------------------------------|------------|
-| Soak wait | Skipped for the lab enforce on **dev** | **7–14 real calendar days** |
+| Soak wait | Skipped for the lab enforce on **QA** | **7–14 real calendar days** |
 | Enforce | Lab inventory only — never copy onto prod | Enforce role **`collect_soak_facts.sh`** gate (or manual `check_soak_ready.sh` on host) |
 | Goal | Teach the pipeline | **No surprise outages** |
 | Rollback | Commands shown | Run `emergency_rollback.yml` if needed |
@@ -118,7 +118,7 @@ Full timeline for beginners: [SELINUX_BASICS.md §7.5](../policy/SELINUX_BASICS.
 | When | Who | How |
 |------|-----|-----|
 | **PR open** | CI (automatic) | `forbidden-patterns`, `version-consistency` ([`selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml); generator already ran the same check) |
-| **Merge / release** | Admin | `compile_and_validate.sh` + `packaging/build_rpms.sh` on rhel-dev |
+| **Merge / release** | Admin | `compile_and_validate.sh` + `packaging/build_rpms.sh` on rhel-qa |
 | **Production cutover** | Admin (manual) | AAP workflow **SELinux – Promote to enforce** (`enforce_production.yml`, `change_ticket` required) |
 
 Manual Ansible (`ansible-playbook` or AAP) uses the playbooks in [`ansible/`](../../ansible/) — see phases below.
@@ -134,7 +134,7 @@ See also: [`TESTING.md`](../developers/TESTING.md) (full endpoint → policy map
 | Phase | Goal | Command / playbook | **Pass looks like** |
 | --- | --- | --- | --- |
 | **Syntax and compilation** | `.te` / `.fc` compile without errors | `bash scripts/compile_and_validate.sh selinux` on a host with `selinux-policy-devel` | `myapp.pp` built, no errors |
-| **Semantic assertions** | Required allows present in compiled module | `bash scripts/validate_policy_semantics.sh selinux` on rhel-dev | `sesearch` checks pass |
+| **Semantic assertions** | Required allows present in compiled module | `bash scripts/validate_policy_semantics.sh selinux` on rhel-qa | `sesearch` checks pass |
 | **Forbidden patterns** | No wildcards or high-privilege allows | `bash scripts/validate_forbidden_patterns.sh selinux` | `Forbidden-pattern checks passed` |
 | **Path labeling** | On-disk contexts match `.fc` before restart | `bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp` | `File context verification passed` |
 | **Staging canary** | Permissive domain + integration smoke | `ansible-playbook ansible/deploy_canary.yml -i ansible/inventory.dev.yml` | All **six** endpoints return HTTP 200; services run as `myapp_t` / `myapp_backend_t`; deploy report `"status": "pass"` with `domain_context_verified: true` |
@@ -501,8 +501,8 @@ Before you enforce on production, confirm:
 | Admin PR table row | Where it runs |
 | --- | --- |
 | No over-permissive grants | GHA `forbidden-patterns` (`validate_forbidden_patterns.sh`; generator already ran this) |
-| Compilation test | `compile_and_validate.sh` on **rhel-dev** (not GitHub) |
-| Semantic policy checks | `validate_policy_semantics.sh` on **rhel-dev** |
+| Compilation test | `compile_and_validate.sh` on **rhel-qa** (not GitHub) |
+| Semantic policy checks | `validate_policy_semantics.sh` on **rhel-qa** |
 | Version SSOT | GHA `version-consistency` |
 | Policy access delta (review aid) | `assemble_pr_body.sh` locally |
 | Soak tier logic (do not change without fixtures) | `make test-fixtures` / `run_blast_radius_fixtures.sh` |

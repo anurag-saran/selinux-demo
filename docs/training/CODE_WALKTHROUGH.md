@@ -24,11 +24,11 @@ You do **not** need to know every script on day one. Read this in order, pause w
 | Environment | When to use it | Typical commands from this guide |
 |-------------|----------------|----------------------------------|
 | **Repo root on any OS** | Offline tests, Python CLI, reading git | `make check`, `python3 cli/deterministic_gen.py --explain …` |
-| **RHEL two-host lab** | Default: dev + prod boxes | `bash scripts/setup_rhel_hosts.sh write …` — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) |
-| **Native Linux with SELinux** (RHEL **dev**) | Staging, demo, soak, `semanage` | `sudo bash scripts/setup_staging_env.sh`, `curl 127.0.0.1:8888/…` |
+| **RHEL two-host lab** | Default: QA + prod boxes | `bash scripts/setup_rhel_hosts.sh write …` — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) |
+| **Native Linux with SELinux** (RHEL **QA**) | Staging, demo, soak, `semanage` | `sudo bash scripts/setup_staging_env.sh`, `curl 127.0.0.1:8888/…` |
 | **RHEL prod** | Ansible deploy lifecycle | Playbooks with `-i ansible/inventory.production.yml` |
 
-macOS has no SELinux — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) then SSH to **rhel-dev**.
+macOS has no SELinux — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) then SSH to **rhel-qa**.
 
 **Repo root** = directory containing `scripts/` and `docs/` (after `git clone`).
 
@@ -60,7 +60,7 @@ If any term is fuzzy, open [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). Qui
 1. A **reference Flask app** (`app/`) runs on a Linux host with SELinux on (`myapp`; swap in your service).
 2. While the app domain is **permissive**, the kernel **logs** denials (AVCs) instead of blocking everything.
 3. Scripts **collect** those logs and **generate** updates to `.te` / `.fc` (deterministic engine; optional LLM summary).
-4. **CI** checks forbidden patterns and version consistency (generator already ran the same forbidden-pattern script). Compile and semantics run on **rhel-dev**.
+4. **CI** checks forbidden patterns and version consistency (generator already ran the same forbidden-pattern script). Compile and semantics run on **rhel-qa**.
 5. **Ansible Automation Platform (AAP)** deploys a new module (**Release canary**), runs **Soak monitor** (net-new vs installed policy), then **Promote to enforce**. A denial after ship is a **PR**, not a live host patch ([DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md)).
 
 You are not expected to memorize every bash script. Most days you touch **`selinux/`**, **`config/*.manifest.yml`**, **`scripts/dev_generate_policy.sh`**, and AAP.
@@ -86,7 +86,7 @@ flowchart TD
   K --> L[Ansible enforce]
   L --> M[New URL denied]
   M --> N[emergency_rollback.yml]
-  N --> O[Generate on rhel-dev + second PR]
+  N --> O[Generate on rhel-qa + second PR]
 ```
 
 **Step by step:**
@@ -146,7 +146,7 @@ Think of the repo in **layers**: app → policy source → generators → automa
 | **`myapp.te`** | Human-readable rules: types, `allow` lines, and reusable **macros** from refpolicy. |
 | **`myapp.fc`** | “This path on disk should have type X.” Used by `restorecon`. |
 | **`policy_version.txt`** | Version number (must match the `policy_module(myapp, …)` line in `.te`; CI checks this). |
-| **`stub/`** | Smaller module for **optional training labs** only. The customer talk uses `write_domain_seed.sh`, not this folder. |
+| **`stub/`** | Smaller module for **optional training labs** only. The customer talk uses `write_domain_seed.sh` **after** unconfined curls, not this folder. |
 | **`payments/`** | Example second application module (see [ONBOARDING.md](../developers/ONBOARDING.md)). |
 
 **Review tip:** prefer **interface macros** (shared refpolicy helpers) over one-off allows copied from `audit2allow`. That matches what [`scripts/validate_forbidden_patterns.sh`](../../scripts/validate_forbidden_patterns.sh) enforces in CI.
@@ -225,9 +225,10 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`dev_generate_policy.sh`** | Main command: export AVCs → generate → diff → optional copy into `selinux/`. |
 | **`selinux_pac_adopt.sh`** | `doctor` + `init APP` — print manifest and **Ansible** next steps. |
 | **`setup_rhel_hosts.sh`** | Write `inventory.dev.yml` / `inventory.production.yml`; ping; doctor; bootstrap hints. |
-| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_dev.sh`** / **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (domain seed → generate → PR → clean soak → enforce; `/feature-spool` fails on prod; admin rollback). |
-| **`write_domain_seed.sh`** | Overwrites `selinux/myapp.te` with a types-only 1.0.0 seed (not the git 1.1.x product). `--load` compiles it and `semanage permissive`. First real allows come from `dev_generate_policy.sh --apply`. |
-| **`demo_open_generated_pr.sh`** | Open a GitHub PR from live generated `selinux/` (Mac, after scp from rhel-dev). Not the frozen `open_demo_policy_pr.sh`. |
+| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_qa.sh`** / **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (unconfined app → live domain → AVCs → generate → PR → clean soak → enforce; `/feature-spool` fails on prod; admin rollback). |
+| **`reset_demo_vms.sh`** | Between rehearsals: unload leftover `myapp` modules and prod RPMs. Flask stays. Then start Part 1. Not `reset_host_state.yml`. |
+| **`write_domain_seed.sh`** | Run **after** unconfined curls prove the AVC log is empty. Writes a types-only 1.0.0 seed and `--load` compiles it + `semanage permissive`. First real allows come from `dev_generate_policy.sh --apply`. |
+| **`demo_open_generated_pr.sh`** | Open a GitHub PR from live generated `selinux/` (Mac, after scp from rhel-qa). Not the frozen `open_demo_policy_pr.sh`. |
 | **`assemble_pr_body.sh`** | Builds GitHub PR description from template + summary + optional rule diff. |
 | **`setup_staging_env.sh`** | Prepare a Linux host for the demo (root). |
 | **`compile_and_validate.sh`** | Compile `.te`/`.fc` to `.pp` and run basic checks. |
@@ -270,9 +271,10 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 
 | Script | Role |
 |--------|------|
-| **`run_training_lab.sh`** | Guided lab talk track on **rhel-dev** (Lab 7 uses staged probes). |
-| **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_dev.sh`**, **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
-| **`write_domain_seed.sh`** | Overwrites git `myapp.te` with a types-only 1.0.0 seed; `--load` compiles it. |
+| **`run_training_lab.sh`** | Guided lab talk track on the QA/discovery VM (lab text may still say **rhel-dev**; Lab 7 uses staged probes). |
+| **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_qa.sh`**, **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
+| **`reset_demo_vms.sh`** | Wipe leftover demo policy on both VMs (Mac). Flask stays. |
+| **`write_domain_seed.sh`** | After unconfined curls: types-only 1.0.0 seed; `--load` compiles it. |
 | **`demo_open_generated_pr.sh`** | Live generate → GitHub PR (needs `gh`). |
 | **`run_demo.sh`** | Optional native-host walkthrough. |
 | **`lib/integration_probes.sh`** | All reference-app curls in one pass; optional AVC preview. |
@@ -290,7 +292,7 @@ Playbooks are short; behavior lives in the **`selinux_pac`** role (manifest-driv
 | **`soak_status.yml`** | Read-only soak facts before enforce. |
 | **`enforce_production.yml`** | Soak gates passed → enforcing mode. |
 | **`emergency_rollback.yml`** | Break-glass rollback steps. |
-| **`reset_host_state.yml`** | Clean lab state. |
+| **`reset_host_state.yml`** | Interrupted canary: `semodule -B` + clear permissive. Module stays. Demo wipe is `reset_demo_vms.sh`. |
 
 **Canary (simplified):** load manifest → validate artifact → optional `semodule -DB` → register **`selinux_ports`** → permissive domain → install `.pp` → `restorecon` → restart services → write marker + report.
 

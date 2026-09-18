@@ -50,7 +50,7 @@ bash scripts/compile_and_validate.sh selinux
 # Uses scripts/lib/compile_policy.sh → make -f /usr/share/selinux/devel/Makefile
 ```
 
-Build on **RHEL 9** with `selinux-policy-devel` (rhel-dev).
+Build on **RHEL 9** with `selinux-policy-devel` (rhel-qa).
 
 ---
 
@@ -92,8 +92,8 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 ```text
 1. grep forbidden patterns     →  validate_forbidden_patterns.sh (GHA `forbidden-patterns`; generator already ran this)
 2. version SSOT                →  validate_version_consistency.sh (GHA `version-consistency`)
-3. refpolicy Makefile compile  →  compile_and_validate.sh on rhel-dev
-4. semantic sesearch checks    →  validate_policy_semantics.sh on rhel-dev
+3. refpolicy Makefile compile  →  compile_and_validate.sh on rhel-qa
+4. semantic sesearch checks    →  validate_policy_semantics.sh on rhel-qa
 5. blast-radius fixtures       →  make test-fixtures (laptop; no SELinux)
 6. PR policy access delta      →  assemble_pr_body.sh + policy_module_diff.sh
 7. canary + soak + enforce     →  AAP (or ansible-playbook from the Mac)
@@ -103,8 +103,8 @@ bash scripts/verify_file_contexts.sh --log-dir /var/log/myapp   # uses matchpath
 
 | Practice | Script / job |
 |----------|--------------|
-| Rebuild `.pp` from `.te`/`.fc` on rhel-dev | `compile_and_validate.sh` (not committed) |
-| Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` on rhel-dev (`--direct`) |
+| Rebuild `.pp` from `.te`/`.fc` on rhel-qa | `compile_and_validate.sh` (not committed) |
+| Assert no shadow/unlabeled/foreign entrypoint | `validate_policy_semantics.sh` on rhel-qa (`--direct`) |
 | Verify service runs in expected domain | `wait_for_endpoints.sh` domain-context check |
 | Tier soak by blast radius | `classify_policy_blast_radius.sh` + fixtures in [`tests/fixtures/blast_radius/`](../../tests/fixtures/blast_radius/) (`make test-fixtures`); optional `check_soak_ready.sh --auto-tier` on controller (fail-closed) |
 | Include policy access delta in PR body | `assemble_pr_body.sh` + `policy_module_diff.sh` (sesearch / merge-base; not `sediff` on `.pp`) |
@@ -221,7 +221,7 @@ Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_re
 - [ ] Port 8888 / 8889 use `myapp_port_t` / `myapp_backend_port_t`, not `unreserved_port_t`
 - [ ] `.fc` uses FHS paths; no `--` on directory patterns; venv split exec/lib
 - [ ] CI: `forbidden-patterns` and `version-consistency` pass (generator already ran forbidden-patterns)
-- [ ] Compile on rhel-dev: `compile_and_validate.sh` + `validate_policy_semantics.sh`
+- [ ] Compile on rhel-qa: `compile_and_validate.sh` + `validate_policy_semantics.sh`
 - [ ] Version bump: `selinux/policy_version.txt` and matching `policy_module(myapp, …)` in `.te` only (no duplicate version in spec/inventory)
 - [ ] `verify_file_contexts.sh` passes after `restorecon` (includes `/var/log/myapp`)
 - [ ] Canary plan: `semodule -DB`, endpoint smoke, **domain context** in deploy report, soak marker

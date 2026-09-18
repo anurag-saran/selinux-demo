@@ -97,7 +97,7 @@ type=AVC msg=audit(1730000006.106:506): avc: denied { connectto } for pid=4421 c
 | **No Over-Permissive Grants** | ✅ Pass | CI `forbidden-patterns`; no `shadow_t`, `unconfined_t`, `sysadm_t` |
 | **Custom Labels Enforced** | ✅ Pass | FHS paths `/var/lib/myapp`, `/var/log/myapp`, `/run/myapp`; dedicated types |
 | **Port Assignments Validated** | ✅ Pass | `myapp_port_t` TCP 8888, `myapp_backend_port_t` TCP 8889 |
-| **Compilation Test** | ✅ Pass | `compile_and_validate.sh` on rhel-dev |
+| **Compilation Test** | ✅ Pass | `compile_and_validate.sh` on rhel-qa |
 | **Path Labeling (restorecon -n)** | ⬜ Pending | `verify_file_contexts.sh` after canary deploy on staging |
 | **Domain Context Verified** | ⬜ Pending | Deploy report: `myapp.service` → `myapp_t`, backend → `myapp_backend_t` |
 | **Soak Period (7–14 days)** | ⬜ Pending | AAP `soak_monitor.yml` daily (net-new vs installed policy); `soak_status.yml` before enforce |

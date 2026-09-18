@@ -8,7 +8,7 @@ RPMBUILD="${ROOT}/packaging/rpmbuild"
 
 if ! command -v rpmbuild >/dev/null 2>&1; then
     if [[ "$(uname -s)" == Darwin && "${BUILD_RPMS_LOCAL:-0}" != 1 ]]; then
-        echo "rpmbuild is not on macOS — compiling and packing on rhel-dev, then copying dist/*.rpm back here." >&2
+        echo "rpmbuild is not on macOS — compiling and packing on rhel-qa, then copying dist/*.rpm back here." >&2
         exec bash "${ROOT}/scripts/build_rpms_on_dev.sh"
     fi
     echo "Note: rpmbuild not found; validating spec parity only" >&2

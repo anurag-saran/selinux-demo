@@ -2,7 +2,7 @@
 #
 # setup_staging_env.sh
 # Prepares staging: reference app + systemd. Default also loads the training
-# stub module (labs). Customer demo uses --app-only and write_domain_seed.sh.
+# stub module (labs). Customer demo: --app-only first; write_domain_seed.sh after unconfined curls.
 #
 set -euo pipefail
 
@@ -10,12 +10,15 @@ APP_ONLY=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --app-only) APP_ONLY=1; shift ;;
+        --app-root) APP_ROOT="$2"; shift 2 ;;
         -h|--help)
             cat <<EOF
-Usage: $(basename "$0") [--app-only]
+Usage: $(basename "$0") [--app-only] [--app-root DIR]
 
   (default)  Install the Flask app, load selinux/stub/ (training labs), start units
   --app-only Install the Flask app and units only — no SELinux module
+  --app-root Application tree (Flask + systemd). Default: sibling/~/myapp if
+             present, else this selinux-pac checkout.
 EOF
             exit 0
             ;;
@@ -25,11 +28,14 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/app_root.sh
+source "${SCRIPT_DIR}/lib/app_root.sh"
+bind_app_tree "${PROJECT_ROOT}"
 if [[ "${APP_ONLY}" -eq 0 ]]; then
     # shellcheck source=lib/compile_policy.sh
     source "${SCRIPT_DIR}/lib/compile_policy.sh"
 fi
-APP_SRC="${PROJECT_ROOT}/app"
+APP_SRC="${APP_ROOT}/app"
 STUB_DIR="${PROJECT_ROOT}/selinux/stub"
 
 INSTALL_ROOT="/opt/myapp"
