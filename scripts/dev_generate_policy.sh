@@ -24,6 +24,7 @@ FORCE=0
 FORCE_REASON=""
 TUNE_REPORT=0
 ALLOW_NEEDS_REVIEW=0
+PRIMARY_SERVICE="${PRIMARY_SERVICE:-}"
 OUT_DIR_ARG=""
 AVC_LOG_ARG=""
 STAGING_HOST="${STAGING_HOST:-rhel-qa}"
@@ -64,6 +65,7 @@ Options:
   --force REASON   Bypass vendor-policy pre-flight; REASON is required and recorded
   --allow-needs-review  Write domain-weakening allows (execmem, dac_override, …) after review
   --app-name NAME  Module name (default: myapp)
+  --unit NAME      systemd unit for vendor triage / --tune-report (e.g. tomcat.service)
   --app-root DIR   Application tree (selinux/ + config/). Default: sibling/~/myapp
   --out-dir DIR    Artifact directory (default: APP_ROOT/policy_out)
   --avc-log PATH   AVC log for --skip-export / --tune-report (default: OUT_DIR/avc.log)
@@ -83,7 +85,7 @@ Environment:
 Example:
   sudo bash scripts/dev_generate_policy.sh --apply
   bash scripts/dev_generate_policy.sh --llm-summary --skip-export   # optional admin prose
-  bash scripts/dev_generate_policy.sh --tune-report --app-name tomcat
+  bash scripts/dev_generate_policy.sh --tune-report --app-name tomcat --unit tomcat.service
   bash scripts/dev_generate_policy.sh --force "non-standard layout vs jws6_tomcat" --apply
   git checkout -b policy/update && git add selinux/ && gh pr create --body-file policy_out/pr_body.md
 EOF
@@ -110,6 +112,7 @@ while [[ $# -gt 0 ]]; do
         --engine) ENGINE="$2"; shift 2 ;;
         --llm-summary) LLM_SUMMARY=1; shift ;;
         --app-name) APP_NAME="$2"; DOMAIN="${APP_NAME}_t"; shift 2 ;;
+        --unit) PRIMARY_SERVICE="$2"; shift 2 ;;
         --app-root) APP_ROOT="$2"; shift 2 ;;
         --out-dir) OUT_DIR_ARG="$2"; shift 2 ;;
         --avc-log) AVC_LOG_ARG="$2"; shift 2 ;;

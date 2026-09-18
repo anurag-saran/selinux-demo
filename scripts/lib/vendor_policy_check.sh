@@ -20,6 +20,7 @@
 #   VENDOR_CHECK_RPM_QA       rpm -qa text (vendor selinux NEVRAs)
 #   VENDOR_CHECK_DNF_AVAILABLE  newline-separated available package names
 #   VENDOR_CHECK_PS_EZ        ps -eZ / ps -o label=,comm= text
+#   VENDOR_CHECK_DOMAIN_UNCONFINED  1 = treat resolved domain as files_unconfined_type
 #
 set -euo pipefail
 
@@ -102,13 +103,59 @@ vendor_check_tools_missing() {
     return 0
 }
 
+# semodule -l needs the module store; unprivileged users get Permission denied.
+# Commands here are used in `cmd || true` / `if cmd` contexts so set -e is safe.
+vendor_check_run_privileged() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$@"
+        return $?
+    fi
+    if command -v sudo >/dev/null 2>&1 && sudo -n "$@"; then
+        return 0
+    fi
+    "$@"
+    return $?
+}
+
 vendor_check_semodule_l() {
     if [[ "${VENDOR_CHECK_MOCK:-}" == "1" ]]; then
         printf '%s\n' "${VENDOR_CHECK_SEMODULE_L:-}"
         return 0
     fi
     if command -v semodule >/dev/null 2>&1; then
-        semodule -l 2>/dev/null || true
+        vendor_check_run_privileged semodule -l 2>/dev/null || true
+    fi
+}
+
+# True when the type is files_unconfined_type / unconfined_domain_type.
+# RHEL distro tomcat_t is that way even with module "tomcat" loaded.
+vendor_domain_is_effectively_unconfined() {
+    local domain="${1:-}" out=""
+    [[ -n "${domain}" ]] || return 1
+    if [[ "${VENDOR_CHECK_MOCK:-}" == "1" ]]; then
+        [[ "${VENDOR_CHECK_DOMAIN_UNCONFINED:-}" == "1" ]]
+        return $?
+    fi
+    if ! command -v seinfo >/dev/null 2>&1; then
+        return 1
+    fi
+    out="$(seinfo -t "${domain}" -x 2>/dev/null || true)"
+    if [[ -z "${out}" ]]; then
+        out="$(vendor_check_run_privileged seinfo -t "${domain}" -x 2>/dev/null || true)"
+    fi
+    printf '%s\n' "${out}" | grep -Eq 'files_unconfined_type|unconfined_domain_type'
+}
+
+vendor_domain_confined_flag() {
+    local domain="${1:-}"
+    if [[ -z "${domain}" ]]; then
+        echo unknown
+        return 0
+    fi
+    if vendor_domain_is_effectively_unconfined "${domain}"; then
+        echo no
+    else
+        echo yes
     fi
 }
 
@@ -246,13 +293,17 @@ _vpc_port_type() {
 
 _vpc_emit_triage() {
     local situation="$1" app="$2" module="$3" pkg="$4" cls="$5" action="$6" domain="${7:-}"
-    local fc_type port_type
+    local fc_type port_type confined
     if [[ -z "${domain}" ]]; then
         domain="$(_vpc_domain "${cls}" "${module}")"
     fi
     fc_type="$(_vpc_fc_type "${domain}")"
     port_type="$(_vpc_port_type "${cls}")"
-    _vpc_info "TRIAGE situation=${situation} app=${app} module=${module} package=${pkg} class=${cls} action=${action} domain=${domain} fc_type=${fc_type} port_type=${port_type}"
+    confined="$(vendor_domain_confined_flag "${domain}")"
+    _vpc_info "TRIAGE situation=${situation} app=${app} module=${module} package=${pkg} class=${cls} action=${action} domain=${domain} fc_type=${fc_type} port_type=${port_type} domain_confined=${confined}"
+    if [[ "${confined}" == "no" ]]; then
+        _vpc_warn "domain ${domain} is files_unconfined_type / unconfined_domain_type — a loaded vendor module does not mean file or port denials will fire"
+    fi
 }
 
 _vpc_write_override() {

@@ -555,6 +555,20 @@ def test_vendor_policy_check() -> None:
     assert reported.returncode == 0, reported_out
     assert "TRIAGE situation=loaded" in reported_out
     assert "jws6_tomcat" in reported_out
+    assert "domain_confined=yes" in reported_out
+
+    unconfined_loaded = run(
+        ["--app-name", "tomcat", "--report"],
+        {
+            "VENDOR_CHECK_SEMODULE_L": "tomcat",
+            "VENDOR_CHECK_DOMAIN_UNCONFINED": "1",
+        },
+    )
+    unconfined_loaded_out = unconfined_loaded.stdout + unconfined_loaded.stderr
+    assert unconfined_loaded.returncode == 0, unconfined_loaded_out
+    assert "TRIAGE situation=loaded" in unconfined_loaded_out
+    assert "domain_confined=no" in unconfined_loaded_out
+    assert "does not mean file or port denials will fire" in unconfined_loaded_out
 
 
 def test_demo_present_dry_run() -> None:
@@ -586,6 +600,7 @@ def test_demo_present_dry_run() -> None:
     assert_mentions(out, "shopapi", "tomcat")
     assert "status --short selinux" in out
     assert "semodule -l" in out
+    assert "files_unconfined_type" in out
     help_run = subprocess.run(
         [BASH, str(script), "--help"],
         cwd=PROJECT_ROOT,
@@ -1528,6 +1543,7 @@ type=AVC msg=audit(1): avc:  denied  {{ read }} for  pid=1 comm="java" name="pas
 type=AVC msg=audit(1): avc:  denied  {{ append }} for  pid=1 comm="java" name="state.txt" scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:object_r:shopapi_var_lib_t:s0 tclass=file permissive=1
 type=AVC msg=audit(1): avc:  denied  {{ open }} for  pid=1 comm="java" path="/opt/shopapi/lib/libjli.so" scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:object_r:shopapi_exec_t:s0 tclass=file permissive=1
 type=AVC msg=audit(1): avc:  denied  {{ open }} for  pid=1 comm="java" path="/etc/passwd" scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:object_r:passwd_file_t:s0 tclass=file permissive=1
+type=AVC msg=audit(1): avc:  denied  {{ write }} for  pid=1 comm="http-nio-0.0.0." name="shopapi" scontext=system_u:system_r:shopapi_t:s0 tcontext=unconfined_u:object_r:var_spool_t:s0 tclass=dir permissive=0
 AVC
 """,
         ],
@@ -1542,6 +1558,7 @@ AVC
     assert "state.txt" in out
     assert "libjli.so" in out
     assert "passwd" not in out
+    assert "var_spool_t" in out
 
 
 def test_boolean_policy_render() -> None:
@@ -1687,6 +1704,8 @@ def test_tune_report() -> None:
                 "--skip-export",
                 "--app-name",
                 "tomcat",
+                "--unit",
+                "tomcat.service",
                 "--avc-log",
                 str(avc),
                 "--out-dir",

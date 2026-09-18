@@ -22,6 +22,7 @@ GENERIC_FILE_TYPES = frozenset(
         "var_lib_t",
         "var_log_t",
         "var_run_t",
+        "var_spool_t",
         "usr_t",
         "etc_t",
         "tmp_t",

@@ -237,6 +237,31 @@ def suggest_fc_type(path: str, manifest: dict) -> str | None:
     return None
 
 
+def fc_regex_for_app_path(path: str, manifest: dict) -> str:
+    """Data roots (var/log/run/extra_fc_roots) become recursive .fc regexes.
+
+    Nested files under those roots must match the directory regex so restorecon
+    labels the whole tree (shopapi /feature-spool → /var/spool/shopapi(/.*)?).
+    install_root is not recursive here: a cache file under /opt/app is a
+    specific .fc line, not a blanket exec_t tree.
+    """
+    paths = manifest.get("paths") or {}
+    recursive_roots: list[str] = []
+    for key in ("var_dir", "log_dir", "runtime_dir", "var_opt_dir"):
+        root = paths.get(key)
+        if root:
+            recursive_roots.append(str(root).rstrip("/"))
+    extras = paths.get("extra_fc_roots") or []
+    if isinstance(extras, str):
+        extras = [extras]
+    recursive_roots.extend(str(r).rstrip("/") for r in extras if r)
+    p = path.rstrip("/")
+    for root in recursive_roots:
+        if p == root or p.startswith(root + "/"):
+            return f"{re.escape(root)}(/.*)?"
+    return re.escape(path)
+
+
 def collapse_to_pattern(perms: frozenset[str]) -> str | None:
     perm_set = set(perms)
     for required, macro in PATTERN_MACROS:
@@ -368,7 +393,13 @@ def classify(
         )
 
     if tgt in GENERIC_FILE_TYPES:
-        for path in paths:
+        use_paths = paths
+        if not use_paths and tgt == "var_spool_t":
+            extras = manifest.get("paths", {}).get("extra_fc_roots") or []
+            if isinstance(extras, str):
+                extras = [extras]
+            use_paths = tuple(str(r) for r in extras if r)
+        for path in use_paths:
             want = suggest_fc_type(path, manifest)
             if want:
                 if existing_fc_covers(path, want, existing_fc):
@@ -382,7 +413,7 @@ def classify(
                         paths,
                         engine="house_rules",
                     )
-                fc = f"{re.escape(path)}    gen_context(system_u:object_r:{want},s0)"
+                fc = f"{fc_regex_for_app_path(path, manifest)}    gen_context(system_u:object_r:{want},s0)"
                 return Finding(
                     need,
                     VERDICT_FC,

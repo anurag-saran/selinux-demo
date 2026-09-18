@@ -72,6 +72,10 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
     log_dir = paths_in.get("log_dir", f"/var/log/{app_name}")
     runtime_dir = paths_in.get("runtime_dir", f"/run/{app_name}")
     var_opt_dir = paths_in.get("var_opt_dir")
+    extras_in = paths_in.get("extra_fc_roots") or []
+    if isinstance(extras_in, str):
+        extras_in = [extras_in]
+    extra_fc_roots = [str(x) for x in extras_in if x]
 
     services_in = raw.get("services") or {}
     if not isinstance(services_in, dict):
@@ -130,6 +134,7 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
             "log_dir": str(log_dir),
             "runtime_dir": str(runtime_dir),
             **({"var_opt_dir": str(var_opt_dir)} if var_opt_dir else {}),
+            **({"extra_fc_roots": extra_fc_roots} if extra_fc_roots else {}),
         },
         "services": {
             "primary": {"unit": str(primary_unit), "domain": str(primary_domain)},
@@ -205,6 +210,10 @@ def manifest_paths_csv(manifest: dict[str, Any]) -> str:
     paths = manifest["paths"]
     order = ("install_root", "var_dir", "log_dir", "runtime_dir", "var_opt_dir")
     parts = [str(paths[k]) for k in order if paths.get(k)]
+    extras = paths.get("extra_fc_roots") or []
+    if isinstance(extras, str):
+        extras = [extras]
+    parts.extend(str(x) for x in extras if x)
     if not parts:
         raise ValueError("manifest paths yield no AVC path filters")
     return ",".join(parts)

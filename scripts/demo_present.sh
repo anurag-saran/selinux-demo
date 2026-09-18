@@ -166,7 +166,7 @@ app_b_connect_boolean_on() {
     local b
     for b in tomcat_can_network_connect jws6_can_network_connect \
         jws_can_network_connect httpd_can_network_connect; do
-        if getsebool "${b}" 2>/dev/null | grep -q '--> on'; then
+        if getsebool "${b}" 2>/dev/null | grep -Fq -- '--> on'; then
             printf '%s' "${b}"
             return 0
         fi
@@ -259,10 +259,13 @@ run_preflight() {
         pf_row "FAIL" "port ${APP_B_PORT}" "already labelled — Act 2 will not produce a denial" \
             "semanage port -d -p tcp ${APP_B_PORT}   (or: $(app_b_reset_hint))"
     elif port_listening "${APP_B_PORT}"; then
-        pf_row "FAIL" "port ${APP_B_PORT}" "already listening — Act 2 will not produce a name_bind denial" \
-            "semanage port -d -p tcp ${APP_B_PORT}; restart Tomcat   (or: $(app_b_reset_hint))"
+        pf_row "WARN" "port ${APP_B_PORT}" "listening without a custom label — Act 2 name_bind may be silent (distro tomcat_t often may bind unreserved ports)"
     else
         pf_row "PASS" "port ${APP_B_PORT}" "unlabelled and not listening (name_bind still to show)"
+    fi
+
+    if demo_selinux_type_unconfined "$(demo_tomcat_domain)"; then
+        pf_row "WARN" "App A denials" "$(demo_tomcat_domain) is files_unconfined_type — Act 1/2 file and port denials will not fire (need JWS jws6_tomcat_t). Act 3 shopapi still confines."
     fi
 
     if app_b_fcontext_custom; then
@@ -318,11 +321,15 @@ act0_triage() {
         echo "[INFO] TRIAGE situation=loaded app=tomcat module=jws6_tomcat (or tomcat) class=tomcat action=tune"
         echo "[INFO] TRIAGE situation=none app=shopapi action=generate"
         echo "[INFO] variant would be jws (jws6_tomcat_t) or tomcat (tomcat_t) — bootstrap prints which"
+        echo "(live distro Tomcat: module tomcat is loaded, but seinfo may show files_unconfined_type — Act 1/2 denials will not fire)"
     else
         vendor_policy_preflight --report --app-name tomcat --unit "$(demo_tomcat_service)" || true
         vendor_policy_preflight --report --app-name shopapi --unit shopapi.service || true
         echo "variant=$(demo_variant) domain=$(demo_tomcat_domain)"
         ps -eo label,comm 2>/dev/null | grep -E 'tomcat|java|shopapi' | head -n 20 || true
+        if demo_selinux_type_unconfined "$(demo_tomcat_domain)"; then
+            tlab_explain "Loaded module tomcat is not confinement. Distro $(demo_tomcat_domain) is unconfined_domain_type — Act 1/2 denials will not fire. JWS jws6_tomcat_t would. This talk still generates only for shopapi."
+        fi
     fi
     tlab_explain "This demo will generate policy only for shopapi. Tomcat is vendor-covered."
     tlab_checkpoint "Audience can place their estate: covered / tune / generate."
@@ -330,20 +337,36 @@ act0_triage() {
 }
 
 act1_app_a() {
+    local domain unconfined=0
+    domain="$(demo_tomcat_domain)"
     e2e_banner "Act 1 — App A standard Tomcat (~1 min, no changes)"
     tlab_explain "Greenfield deploy on standard paths and port ${APP_A_PORT}. Already enforcing. Zero work from us. Both Tomcat apps share one domain — SELinux is not isolating A from B; that would be separate instances or containers."
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        tlab_explain "If live seinfo shows files_unconfined_type on ${domain} (RHEL distro tomcat_t), forbidden.jsp returns UNEXPECTED_READ and there is no AVC. That is the distro-Tomcat beat. JWS jws6_tomcat_t is confined and returns DENIED."
+    elif demo_selinux_type_unconfined "${domain}"; then
+        unconfined=1
+        tlab_explain "Distro ${domain} is files_unconfined_type. The forbidden-file read will succeed. JWS jws6_tomcat_t would deny. We still authored nothing."
+    fi
     e2e_run "getenforce"
     demo_expect "Enforcing"
-    e2e_run "ps -eo label,comm | grep -E 'tomcat|jsvc' | head"
-    demo_expect "scontext ... $(demo_tomcat_domain)  (jws6_tomcat_t if JWS, tomcat_t if distro Tomcat)"
+    e2e_run "ps -eo label,comm | grep -E 'tomcat|jsvc' | head || true"
+    demo_expect "scontext ... ${domain}  (jws6_tomcat_t if JWS, tomcat_t if distro Tomcat)"
     e2e_run "curl -sS http://127.0.0.1:${APP_A_PORT}/standard/"
     demo_expect "App A standard / OK"
-    tlab_explain "Now a request that must fail — reading ${APP_A_FORBIDDEN_PATH}, world-readable so DAC cannot hide the AVC."
+    tlab_explain "Now a request that must fail on a confined vendor domain — reading ${APP_A_FORBIDDEN_PATH}, world-readable so DAC cannot hide the AVC."
     e2e_run "curl -sS http://127.0.0.1:${APP_A_PORT}/standard/forbidden.jsp"
-    demo_expect "DENIED ... (not UNEXPECTED_READ)"
-    e2e_run "sudo ausearch -m avc -ts recent | grep -E 'out-of-scope|user_home_t|forbidden' | tail -n 5"
-    demo_expect "scontext=...:$(demo_tomcat_domain):s0  tclass=file  denied { read }"
-    tlab_checkpoint "Vendor policy, already enforcing, a real denial on demand. We authored nothing."
+    if [[ "${unconfined}" -eq 1 ]]; then
+        demo_expect "UNEXPECTED_READ ${APP_A_FORBIDDEN_PATH}  (distro ${domain} is files_unconfined_type)"
+        e2e_run "seinfo -t ${domain} -x | tr ',' '\n' | grep unconfined || true"
+        e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | grep -E 'out-of-scope|user_home_t|forbidden' | tail -n 5 || true"
+        demo_expect "no AVC — unconfined domains do not deny this read"
+        tlab_checkpoint "Vendor module is loaded, but distro tomcat_t is unconfined. JWS jws6-tomcat-selinux is the confined vendor domain. We authored nothing."
+    else
+        demo_expect "DENIED ... (not UNEXPECTED_READ)"
+        e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | grep -E 'out-of-scope|user_home_t|forbidden' | tail -n 5 || true"
+        demo_expect "scontext=...:${domain}:s0  tclass=file  denied { read }"
+        tlab_checkpoint "Vendor policy, already enforcing, a real denial on demand. We authored nothing."
+    fi
     tlab_pause
 }
 
@@ -377,7 +400,7 @@ act2_app_b() {
     if [[ "${E2E_DRY}" -eq 1 ]]; then
         modules_before="unchanged"
     else
-        modules_before="$(semodule -l 2>/dev/null | wc -l | tr -d ' ')"
+        modules_before="$(demo_semodule_l | wc -l | tr -d ' ')"
     fi
 
     e2e_banner "Act 2 — App B inherited Tomcat (~5 min, live tune)"
@@ -386,8 +409,8 @@ act2_app_b() {
 
     tlab_explain "Probe 1 — port: connector ${APP_B_PORT}"
     e2e_run "curl -sS -o /dev/null -w '%{http_code}\n' --connect-timeout 2 http://127.0.0.1:${APP_B_PORT}/inherited/ || true"
-    e2e_run "sudo ausearch -m avc -ts recent | grep name_bind | tail -n 10 || true"
-    e2e_run "sudo ausearch -m avc -ts recent | audit2why | tail -n 30"
+    e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | grep name_bind | tail -n 10 || true"
+    e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | audit2why | tail -n 30 || true"
     demo_expect "name_bind on unreserved_port_t → semanage port -a -t http_port_t -p tcp ${APP_B_PORT}"
     act2_fix_if_avc "port ${APP_B_PORT}" "name_bind" \
         "sudo semanage port -a -t http_port_t -p tcp ${APP_B_PORT} || sudo semanage port -m -t http_port_t -p tcp ${APP_B_PORT}"
@@ -398,8 +421,8 @@ act2_app_b() {
 
     tlab_explain "Probe 2 — label: ${APP_B_DATA} (user_home_t on purpose)"
     e2e_run "curl -sS http://127.0.0.1:${APP_B_PORT}/inherited/data.jsp || true"
-    e2e_run "sudo ausearch -m avc -ts recent | grep -E 'appdata|user_home_t' | tail -n 10 || true"
-    e2e_run "sudo ausearch -m avc -ts recent | audit2why | tail -n 30"
+    e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | grep -E 'appdata|user_home_t' | tail -n 10 || true"
+    e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | audit2why | tail -n 30 || true"
     demo_expect "mislabeled ${APP_B_DATA} → semanage fcontext + restorecon (no .te)"
     act2_fix_if_avc "label ${APP_B_DATA}" "appdata|user_home_t" \
         "sudo semanage fcontext -a -t ${fctx} '${APP_B_DATA}(/.*)?' || sudo semanage fcontext -a -t tomcat_var_lib_t '${APP_B_DATA}(/.*)?'"
@@ -410,8 +433,8 @@ act2_app_b() {
 
     tlab_explain "Probe 3 — boolean: outbound gateway"
     e2e_run "curl -sS http://127.0.0.1:${APP_B_PORT}/inherited/gateway.jsp || true"
-    e2e_run "sudo ausearch -m avc -ts recent | grep -E 'name_connect|network_connect' | tail -n 10 || true"
-    e2e_run "sudo ausearch -m avc -ts recent | audit2why | tail -n 30"
+    e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | grep -E 'name_connect|network_connect' | tail -n 10 || true"
+    e2e_run "sudo ausearch -m avc -ts recent 2>/dev/null | audit2why | tail -n 30 || true"
     demo_expect "Was caused by a boolean (tomcat_can_network_connect or jws equivalent) → setsebool -P … on"
     if [[ "${E2E_DRY}" -eq 1 ]]; then
         e2e_run "sudo setsebool -P tomcat_can_network_connect on"
@@ -446,11 +469,17 @@ act2_app_b() {
     fi
 
     tlab_explain "Proof: four denials, four one-line host fixes, zero policy authored."
-    e2e_run "git -C ${PROJECT_ROOT} status --short selinux/"
+    e2e_run "git -C ${PROJECT_ROOT} status --short selinux/ 2>/dev/null || echo '(no git metadata on this host — selinux/ still unauthored)'"
     demo_expect "empty — nothing under selinux/"
     e2e_run "sudo semodule -l | wc -l"
     demo_expect "${modules_before} — unchanged; we did not load a new module"
-    tlab_checkpoint "Four denials, four one-line fixes, zero .te. If you were about to write a module for App B, the app was configured wrong."
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        tlab_checkpoint "Four denials, four one-line fixes, zero .te. If you were about to write a module for App B, the app was configured wrong."
+    elif demo_selinux_type_unconfined "$(demo_tomcat_domain)"; then
+        tlab_checkpoint "Distro tomcat_t is unconfined — App B probes produced no AVC, so we skipped the tunings. Zero .te. JWS would have needed the three host commands. shopapi is still the generate target."
+    else
+        tlab_checkpoint "Four denials, four one-line fixes, zero .te. If you were about to write a module for App B, the app was configured wrong."
+    fi
     tlab_pause
 }
 

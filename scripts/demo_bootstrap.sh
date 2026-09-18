@@ -73,7 +73,7 @@ detect_and_persist_variant() {
         demo_write_variant jws
     else
         log "JWS repository NOT reachable — falling back to upstream Tomcat from distro repos"
-        log "Vendor domain will be tomcat_t, not jws6_tomcat_t. Narrative is the same: vendor policy, tune do not author."
+        log "Vendor domain will be tomcat_t, not jws6_tomcat_t. Distro tomcat_t is unconfined_domain_type — Act 1/2 denials will not fire. JWS is the confined vendor domain. Act 3 shopapi is still the generate path."
         demo_write_variant tomcat
     fi
 }
@@ -292,7 +292,7 @@ main() {
     echo "=== bootstrap complete ==="
     echo "variant:  $(demo_variant) (process domain $(demo_tomcat_domain))"
     if [[ "$(demo_variant)" == "tomcat" ]]; then
-        echo "note:     distro Tomcat fallback — you will see tomcat_t, not jws6_tomcat_t"
+        echo "note:     distro Tomcat fallback — tomcat_t, not jws6_tomcat_t; distro tomcat_t is unconfined (Act 1/2 denials will not fire)"
     fi
     echo "App A:    http://127.0.0.1:${APP_A_PORT}/standard/   (already confined; do not retune)"
     echo "App B:    http://127.0.0.1:${APP_B_PORT}/inherited/  (wrong label/port/boolean on purpose)"

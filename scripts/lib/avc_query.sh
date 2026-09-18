@@ -34,7 +34,9 @@ count_domain_events_since() {
 # Filter raw AVC lines for generate / soak.
 # Keep: manifest path hits; pathless non-file denials (name_bind, execmem);
 # pathless file denials whose tcontext type belongs to this module (shopapi_log_t).
-# Drop: /etc/passwd, /tmp, /usr/lib/jvm, /proc, /sys — those are not app trees.
+# Drop: /etc/passwd, /usr/lib/jvm, /proc, /sys — those are not app trees.
+# Keep var_spool_t: shopapi /feature-spool writes /var/spool/shopapi and the
+# kernel often logs name= without path=.
 avc_filter_lines_by_paths() {
     local paths_csv="$1"
     local domain="${2:-}"
@@ -70,7 +72,7 @@ avc_filter_lines_by_paths() {
         tctx="${tctx%% *}"
         ttype="$(cut -d: -f3 <<<"${tctx}")"
         case "${ttype}" in
-            random_device_t|tmp_t|proc_t|proc_net_t)
+            random_device_t|tmp_t|proc_t|proc_net_t|var_spool_t)
                 echo "${line}"
                 continue
                 ;;

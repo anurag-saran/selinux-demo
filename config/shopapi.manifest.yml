@@ -11,6 +11,9 @@ paths:
   var_dir: /var/lib/shopapi
   log_dir: /var/log/shopapi
   runtime_dir: /run/shopapi
+  # Outage path. Not in the types-only .fc; generate adds it from /feature-spool AVCs.
+  extra_fc_roots:
+    - /var/spool/shopapi
 
 services:
   primary:

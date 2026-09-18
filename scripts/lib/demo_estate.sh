@@ -50,6 +50,31 @@ demo_tomcat_domain() {
     esac
 }
 
+# True when TYPE is files_unconfined_type / unconfined_domain_type.
+# Distro tomcat_t on RHEL is that even with the tomcat module loaded.
+demo_selinux_type_unconfined() {
+    local t="${1:-}" out=""
+    [[ -n "${t}" ]] || return 1
+    command -v seinfo >/dev/null 2>&1 || return 1
+    out="$(seinfo -t "${t}" -x 2>/dev/null || true)"
+    if [[ -z "${out}" ]] && command -v sudo >/dev/null 2>&1; then
+        out="$(sudo -n seinfo -t "${t}" -x 2>/dev/null || true)"
+    fi
+    printf '%s\n' "${out}" | grep -Eq 'files_unconfined_type|unconfined_domain_type'
+}
+
+# semodule -l needs the module store (root or passwordless sudo).
+demo_semodule_l() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        semodule -l "$@" 2>/dev/null || true
+        return 0
+    fi
+    if command -v sudo >/dev/null 2>&1 && sudo -n semodule -l "$@" 2>/dev/null; then
+        return 0
+    fi
+    semodule -l "$@" 2>/dev/null || true
+}
+
 # File type used when retuning App B. JWS names differ; Act 2 tries this then tomcat_var_lib_t.
 demo_tomcat_fcontext_type() {
     case "$(demo_variant)" in
