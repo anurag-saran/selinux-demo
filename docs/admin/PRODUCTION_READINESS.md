@@ -72,7 +72,7 @@ ps -eZ | grep -E 'unconfined_java_t|unconfined_service_t'
 | `jws6_tomcat` / `jboss` / `httpd` in `semodule -l` | Tune booleans and `fcontext`. Do not generate. |
 | `jws6-tomcat-selinux` or `eap*-selinux` in `rpm -qa` / `dnf --cacheonly list available` but no module loaded | Install or enable that RPM. Do not generate. |
 | `unconfined_java_t` on a Tomcat/EAP process | Same — vendor policy exists and is not enabled. |
-| Custom app (Node, Spring Boot, the demo `myapp`) with no vendor hit | Generate is appropriate. |
+| Custom app (Node, Spring Boot, the demo `shopapi`) with no vendor hit | Generate is appropriate. |
 
 `--force` on `dev_generate_policy.sh` is the escape hatch only when the app is **not** the vendor one. Details: [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md).
 
@@ -364,7 +364,7 @@ Optional ops scripts (`wait_for_endpoints`, deploy report) run only when **`seli
 
 See [`ansible/emergency_rollback.yml`](../../ansible/emergency_rollback.yml), [`ansible/reset_host_state.yml`](../../ansible/reset_host_state.yml), and [`ansible/generate_emergency_patch.yml`](../../ansible/generate_emergency_patch.yml).
 
-The two-host talk track shows RPM install, **clean soak**, talk-only enforce, `/feature-spool` outage, and admin rollback in [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) Parts 6–7 and `scripts/demo_e2e_*.sh`. The recording may pass `force_enforce=true` plus a change ticket so prod enforce can finish after a clean soak; `soak_min_days: 7` on production inventory is unchanged.
+The two-host talk track shows RPM install, **clean soak**, talk-only enforce, `/feature-spool` outage, and admin rollback in [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) and `scripts/demo_e2e_*.sh` (shopapi on :8091). The recording may pass `force_enforce=true` plus a change ticket so prod enforce can finish after a clean soak; `soak_min_days: 7` on production inventory is unchanged.
 
 ---
 
@@ -373,13 +373,14 @@ The two-host talk track shows RPM install, **clean soak**, talk-only enforce, `/
 `enforce_production.yml` runs before removing permissive:
 
 1. **`collect_soak_facts.sh`** (role) — minimum soak days + **net-new** access needs (or raw AVC if `avc_fail_closed`) + passing deploy report with verified domain context (same checks as manual **`check_soak_ready.sh`** / **`soak_status.yml`**; optional **`--auto-tier`** with base/candidate policy paths on the controller)
-2. **`verify_file_contexts.sh`** — labeling dry-run (`restorecon` + `.fc` is source of truth; includes `/var/log/myapp`)
-3. **Remove stale `/run/myapp/notify.sock`** — avoids false-positive socket checks after restarts
-4. **`systemctl restart`** — `myapp-backend.service` then `myapp.service`
-5. **Unified readiness** — `bash scripts/wait_for_endpoints.sh` (systemd + domain context + all six HTTP endpoints)
-6. **Deploy report** — `bash scripts/post_deploy_report.sh` writes `/var/lib/myapp/selinux_deploy_report.json` including `domain_context`
+2. **`verify_file_contexts.sh`** — labeling dry-run (`restorecon` + `.fc` is source of truth)
+3. **Restart units from the app manifest** (demo: `shopapi.service`; Flask fixture: `myapp-backend.service` then `myapp.service`)
+4. **Unified readiness** — `wait_for_endpoints.sh --manifest …` (systemd + domain context + that app’s HTTP list)
+5. **Deploy report** — `post_deploy_report.sh` writes `/var/lib/<app>/selinux_deploy_report.json` including `domain_context`
 
-Enforce runs inside an Ansible **block/rescue**: if smoke tests or the deploy report fail, the playbook restores **`myapp_t` to permissive**, restarts services, re-checks endpoints, then fails with guidance to inspect AVCs and the deploy report.
+The two-host demo inventory uses **shopapi** (`/health` `/state` `/log` on :8091). The Flask six-endpoint list is the offline fixture.
+
+Enforce runs inside an Ansible **block/rescue**: if smoke tests or the deploy report fail, the playbook restores **the app domain** to permissive, restarts services, re-checks endpoints, then fails with guidance to inspect AVCs and the deploy report.
 
 ```bash
 bash scripts/wait_for_endpoints.sh --host 127.0.0.1 --retries 15 --delay 2

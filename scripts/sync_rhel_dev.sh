@@ -47,7 +47,7 @@ ssh "${SSH_OPTS[@]}" "${TARGET}" "mkdir -p $(printf '%q' "${REMOTE_DEST}")"
 # sudo generate/rpmbuild can leave root-owned dirs that block rsync
 if [[ "${REMOTE_DEST}" == selinux-pac || "${REMOTE_DEST}" == */selinux-pac ]]; then
     ssh "${SSH_OPTS[@]}" "${TARGET}" \
-        'sudo chown -R "$(id -un):$(id -gn)" ~/selinux-pac/selinux ~/selinux-pac/scripts ~/selinux-pac/packaging 2>/dev/null || true'
+        'sudo chown -R "$(id -un):$(id -gn)" ~/selinux-pac/selinux ~/selinux-pac/scripts ~/selinux-pac/packaging ~/selinux-pac/demo 2>/dev/null || true'
 fi
 
 rsync -az --delete \
@@ -59,6 +59,7 @@ rsync -az --delete \
     --exclude 'policy_out/' \
     --exclude 'dist/' \
     --exclude 'packaging/rpmbuild/' \
+    --exclude 'demo/shopapi/target/' \
     --exclude '__pycache__/' \
     --exclude '*.pyc' \
     --exclude '.DS_Store' \

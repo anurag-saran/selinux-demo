@@ -2,7 +2,7 @@
 
 Use this when rolling out **SELinux PaC** in your org. **Ansible Automation Platform (AAP) is the production control plane** ([ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md)).
 
-Trying it first on a laptop: [README — Try it on a Mac](../../README.md#try-it-on-a-mac) (two RHEL VMs + `setup_rhel_hosts.sh`). This checklist is the **customer** path. The two-host lab uses **[anurag-saran/myapp](https://github.com/anurag-saran/myapp)** as the application GitHub repo; selinux-pac is the tool.
+Trying it first on a laptop: [README — Try it on a Mac](../../README.md#try-it-on-a-mac) (two RHEL VMs + `setup_rhel_hosts.sh`). This checklist is the **customer** path. The two-host lab generates **shopapi** policy into `selinux/shopapi/` on this repo; Flask `myapp` is tests only.
 
 ## Where policy lives
 

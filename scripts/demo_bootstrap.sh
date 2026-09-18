@@ -7,6 +7,7 @@
 #
 # Usage:
 #   sudo bash scripts/demo_bootstrap.sh
+#   sudo bash scripts/demo_bootstrap.sh --shopapi-only --no-seed --unconfined
 #   make demo-bootstrap
 #
 set -euo pipefail
@@ -16,8 +17,26 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=lib/demo_estate.sh
 source "${SCRIPT_DIR}/lib/demo_estate.sh"
 
+SHOPAPI_ONLY=0
+LOAD_SEED=1
+DEMO_SHOPAPI_CONFINED="${DEMO_SHOPAPI_CONFINED:-1}"
+
 log() { echo "[bootstrap] $*"; }
 die() { echo "[bootstrap] ERROR: $*" >&2; exit 1; }
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --shopapi-only) SHOPAPI_ONLY=1; shift ;;
+        --no-seed) LOAD_SEED=0; shift ;;
+        --unconfined) DEMO_SHOPAPI_CONFINED=0; shift ;;
+        -h|--help)
+            echo "Usage: $(basename "$0") [--shopapi-only] [--no-seed] [--unconfined]"
+            exit 0
+            ;;
+        *) die "unknown option $1" ;;
+    esac
+done
+export DEMO_SHOPAPI_CONFINED
 
 require_linux_root() {
     if [[ "$(uname -s)" != "Linux" ]]; then
@@ -84,9 +103,9 @@ install_tomcat_stack() {
 }
 
 install_build_tools() {
-    dnf install -y maven java-17-openjdk-devel selinux-policy-devel \
-        || dnf install -y maven java-17-openjdk-devel \
-        || dnf install -y maven
+    dnf install -y maven java-17-openjdk-devel python3 python3-pyyaml selinux-policy-devel \
+        || dnf install -y maven java-17-openjdk-devel python3 \
+        || dnf install -y maven python3
 }
 
 install_app_a_forbidden_file() {
@@ -153,10 +172,14 @@ deploy_shopapi() {
 
     getent group shopapi >/dev/null || groupadd --system shopapi
     getent passwd shopapi >/dev/null || useradd --system --gid shopapi --home-dir "${install_root}" --shell /sbin/nologin shopapi
-    mkdir -p "${install_root}" "${var_dir}" "${log_dir}" "${runtime_dir}"
-    (cd "${PROJECT_ROOT}/demo/shopapi" && mvn -q -DskipTests package)
+    mkdir -p "${install_root}" "${var_dir}" "${log_dir}" "${runtime_dir}" /var/spool/shopapi
+    if [[ -f "${PROJECT_ROOT}/demo/shopapi/target/shopapi.jar" ]]; then
+        log "using prebuilt ${PROJECT_ROOT}/demo/shopapi/target/shopapi.jar"
+    else
+        (cd "${PROJECT_ROOT}/demo/shopapi" && mvn -q -DskipTests package)
+    fi
     cp -f "${PROJECT_ROOT}/demo/shopapi/target/shopapi.jar" "${install_root}/shopapi.jar"
-    chown -R shopapi:shopapi "${install_root}" "${var_dir}" "${log_dir}"
+    chown -R shopapi:shopapi "${install_root}" "${var_dir}" "${log_dir}" /var/spool/shopapi
     log "shopapi jar at ${install_root}/shopapi.jar port ${port} domain ${domain} unit ${unit}"
 }
 
@@ -197,12 +220,27 @@ PY
 }
 
 start_services() {
-    local svc
-    svc="$(demo_tomcat_service)"
     systemctl daemon-reload
-    systemctl enable --now "${svc}"
-    systemctl restart "${svc}" || true
+    if [[ "${SHOPAPI_ONLY}" -eq 0 ]]; then
+        local svc
+        svc="$(demo_tomcat_service)"
+        systemctl enable --now "${svc}"
+        systemctl restart "${svc}" || true
+    fi
     systemctl enable --now shopapi.service || systemctl restart shopapi.service
+}
+
+wait_shopapi() {
+    local port i
+    port="$(demo_manifest_http_port "${PROJECT_ROOT}/config/shopapi.manifest.yml")"
+    for i in $(seq 1 30); do
+        if curl -sf "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+            log "shopapi responding on :${port}"
+            return 0
+        fi
+        sleep 2
+    done
+    die "shopapi did not respond on :${port}. Check shopapi.service and journalctl."
 }
 
 wait_app_a() {
@@ -221,16 +259,34 @@ wait_app_a() {
 main() {
     require_linux_root
     mkdir -p "${DEMO_STATE_DIR}" "${DEMO_STAMP_DIR}"
+    if [[ "${SHOPAPI_ONLY}" -eq 1 ]]; then
+        run_step install_build install_build_tools
+        run_step deploy_shopapi deploy_shopapi
+        # Unit file depends on DEMO_SHOPAPI_CONFINED; never skip after --unconfined → confined.
+        demo_write_shopapi_runtime_files "${PROJECT_ROOT}" >/dev/null
+        if [[ "${LOAD_SEED}" -eq 1 ]]; then
+            run_step load_shopapi_seed load_shopapi_seed
+        fi
+        start_services
+        wait_shopapi
+        echo
+        echo "=== shopapi-only bootstrap complete (confined=${DEMO_SHOPAPI_CONFINED} seed=${LOAD_SEED}) ==="
+        return 0
+    fi
     run_step detect_variant detect_and_persist_variant
     run_step install_tomcat install_tomcat_stack
     run_step install_build install_build_tools
     run_step deploy_app_a deploy_app_a
     run_step configure_app_b configure_app_b
     run_step deploy_shopapi deploy_shopapi
-    run_step load_shopapi_seed load_shopapi_seed
+    demo_write_shopapi_runtime_files "${PROJECT_ROOT}" >/dev/null
+    if [[ "${LOAD_SEED}" -eq 1 ]]; then
+        run_step load_shopapi_seed load_shopapi_seed
+    fi
     # Always (re)start: stamped skip here would leave a half-booted host stopped.
     start_services
     wait_app_a
+    wait_shopapi || true
     echo
     echo "=== bootstrap complete ==="
     echo "variant:  $(demo_variant) (process domain $(demo_tomcat_domain))"

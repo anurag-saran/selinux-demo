@@ -22,16 +22,16 @@ all:
       ansible_become: true
       ansible_python_interpreter: /usr/bin/python3
   vars:
-    app_name: myapp
-    domain: myapp_t
-    install_root: /opt/myapp
-    var_dir: /var/lib/myapp
-    log_dir: /var/log/myapp
-    runtime_dir: /run/myapp
-    service_name: myapp.service
+    app_name: shopapi
+    domain: shopapi_t
+    install_root: /opt/shopapi
+    var_dir: /var/lib/shopapi
+    log_dir: /var/log/shopapi
+    runtime_dir: /run/shopapi
+    service_name: shopapi.service
     selinux_ops_from_package: true
     selinux_ops_dir: /usr/libexec/selinux-policy-ops
-    app_manifest_path: /etc/myapp/selinux-manifest.yml
+    app_manifest_path: /etc/shopapi/selinux-manifest.yml
     policy_artifact_dir: "{{ playbook_dir }}/.."
     policy_pp_src: ""
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

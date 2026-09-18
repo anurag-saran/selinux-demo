@@ -77,12 +77,10 @@ bash scripts/setup_rhel_hosts.sh write --dev-host DEV --prod-host PROD --user an
 bash scripts/setup_rhel_hosts.sh ping
 ```
 
-- **Dev** inventory: git checkout on the box + `setup_staging_env.sh`; `selinux_ops_dir` / `app_manifest_path` are **on the box** (not `playbook_dir` on the laptop); `soak_min_days: 0` is lab-only.
-- **Prod** inventory: RPMs only; `soak_min_days: 7`. Same host is `canary` and `production` until you add a fleet.
+- **QA** inventory: git checkout on the box + `demo_bootstrap.sh --shopapi-only`; `selinux_ops_dir` / `app_manifest_path` are **on the box** (not `playbook_dir` on the laptop); `soak_min_days: 0` is lab-only. `app_name: shopapi`, `policy_pp_src` → `selinux/shopapi/shopapi.pp`.
+- **Prod** inventory: RPMs only (`shopapi-selinux`); `soak_min_days: 7`. Same host is `canary` and `production` until you add a fleet.
 
-Customer talk: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`). Two-host generate/canary/soak: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) (`bash scripts/demo_e2e_mac.sh`) — clean soak, talk-only enforce, then `/feature-spool` outage and `emergency_rollback.yml`.
-
-## Production inventory
+Customer talk: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`). Two-host generate/canary/soak: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) (`bash scripts/demo_e2e_mac.sh`) — clean soak, talk-only enforce, then shopapi `/feature-spool` outage and `emergency_rollback.yml`. Flask is not installed on the VMs.
 
 ## Production inventory
 

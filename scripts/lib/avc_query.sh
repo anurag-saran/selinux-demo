@@ -31,10 +31,19 @@ count_domain_events_since() {
     echo "${count:-0}"
 }
 
-# Filter raw AVC lines by optional path substrings (comma-separated CSV).
+# Filter raw AVC lines for generate / soak.
+# Keep: manifest path hits; pathless non-file denials (name_bind, execmem);
+# pathless file denials whose tcontext type belongs to this module (shopapi_log_t).
+# Drop: /etc/passwd, /tmp, /usr/lib/jvm, /proc, /sys — those are not app trees.
 avc_filter_lines_by_paths() {
     local paths_csv="$1"
+    local domain="${2:-}"
+    local type_prefix=""
     local -a path_filters=()
+    local hit p tctx ttype
+    if [[ "${domain}" == *_t ]]; then
+        type_prefix="${domain%_t}_"
+    fi
     if [[ -n "${paths_csv}" ]]; then
         IFS=',' read -r -a path_filters <<< "${paths_csv}"
     fi
@@ -45,10 +54,34 @@ avc_filter_lines_by_paths() {
             echo "${line}"
             continue
         fi
+        local hit=0 p
         for p in "${path_filters[@]}"; do
             p="${p// /}"
-            [[ -n "${p}" && "${line}" == *"${p}"* ]] && echo "${line}" && break
+            if [[ -n "${p}" && "${line}" == *"${p}"* ]]; then
+                hit=1
+                break
+            fi
         done
+        if [[ "${hit}" -eq 1 ]]; then
+            echo "${line}"
+            continue
+        fi
+        # path= is a file-tree AVC outside the manifest — skip.
+        if [[ "${line}" == *" path="* ]]; then
+            continue
+        fi
+        if [[ "${line}" == *" tclass=file "* || "${line}" == *" tclass=dir "* \
+            || "${line}" == *" tclass=lnk_file "* || "${line}" == *" tclass=chr_file "* \
+            || "${line}" == *" tclass=fifo_file "* ]]; then
+            tctx="${line##* tcontext=}"
+            tctx="${tctx%% *}"
+            ttype="$(cut -d: -f3 <<<"${tctx}")"
+            if [[ -n "${type_prefix}" && "${ttype}" == "${type_prefix}"* ]]; then
+                echo "${line}"
+            fi
+            continue
+        fi
+        echo "${line}"
     done
 }
 
@@ -97,9 +130,25 @@ export_app_avcs_to_file() {
         raw+="$(fetch_domain_avc_raw "${backend_domain}" "${since_ts}")"
     fi
 
-    if [[ -z "${raw}" ]]; then
-        return 0
+    local tmp
+    tmp="$(mktemp)"
+    if [[ -n "${raw}" ]]; then
+        printf '%s\n' "${raw}" | avc_filter_lines_by_paths "${paths_csv}" "${primary_domain}" >> "${tmp}" || true
     fi
 
-    printf '%s\n' "${raw}" | avc_filter_lines_by_paths "${paths_csv}" >> "${outfile}" || true
+    # Always also read audit.log. UTM clock skew makes ausearch -ts boot empty
+    # or partial even when the file already has denials. Generate-only — soak
+    # counts still go through monitor_avc.sh + ausearch.
+    if [[ -f /var/log/audit/audit.log ]]; then
+        grep -E '^(type=AVC|type=SELINUX_ERR|type=USER_AVC|type=USER_SELINUX_ERR)' /var/log/audit/audit.log \
+            | grep "${primary_domain}" \
+            | avc_filter_lines_by_paths "${paths_csv}" "${primary_domain}" >> "${tmp}" || true
+        if [[ -n "${backend_domain}" && "${backend_domain}" != "${primary_domain}" ]]; then
+            grep -E '^(type=AVC|type=SELINUX_ERR|type=USER_AVC|type=USER_SELINUX_ERR)' /var/log/audit/audit.log \
+                | grep "${backend_domain}" \
+                | avc_filter_lines_by_paths "${paths_csv}" "${backend_domain}" >> "${tmp}" || true
+        fi
+    fi
+    sort -u "${tmp}" > "${outfile}"
+    rm -f "${tmp}"
 }

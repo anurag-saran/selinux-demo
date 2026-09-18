@@ -2,7 +2,7 @@
 
 **The RHEL admin tool for shipping SELinux policy as code.** Developers open a PR, CI rejects dangerous allows (`forbidden-patterns`), admins compile and publish a signed RPM, **Ansible Automation Platform (AAP)** canaries, soaks, and enforces. The host stays **Enforcing**. Policy is a versioned product — not a one-off `audit2allow` on a box.
 
-The **customer talk** is three applications — vendor Tomcat already enforcing, inherited Tomcat you tune, Spring Boot you generate — see [docs/training/DEMO_GUIDE.md](docs/training/DEMO_GUIDE.md). Flask `myapp` stays the **offline test** reference (`make check`). The two-host generate/canary/soak pipeline still uses **[anurag-saran/myapp](https://github.com/anurag-saran/myapp)** so policy PRs land on the app repo. This tool repo stays the generator, CI helpers, and AAP path. Optional labs: [docs/README.md](docs/README.md).
+The **customer talk** is three applications — vendor Tomcat already enforcing, inherited Tomcat you tune, Spring Boot you generate — see [docs/training/DEMO_GUIDE.md](docs/training/DEMO_GUIDE.md). The two-host generate/canary/soak pipeline is **shopapi** (`demo/shopapi/`, policy PRs on `selinux/shopapi/` in this repo). Flask `app/` stays the **offline test** fixture (`make check`). This tool repo is the generator, CI helpers, and AAP path. Optional labs: [docs/README.md](docs/README.md).
 
 | You are | Start here |
 |---------|------------|
@@ -116,16 +116,16 @@ bash scripts/setup_rhel_hosts.sh ping
 bash scripts/setup_rhel_hosts.sh doctor
 # bootstrap — print (do not run) SSH steps for rhel-qa only
 bash scripts/setup_rhel_hosts.sh bootstrap
-# next app after myapp
-bash scripts/selinux_pac_adopt.sh init myapp        # next app: payments — see ONBOARDING.md
+# next app after the shopapi demo
+bash scripts/selinux_pac_adopt.sh init payments     # see ONBOARDING.md
 
 # Package + publish (see packaging/internal.env.example)
-bash packaging/build_rpms.sh                        # build selinux-policy-ops + myapp-selinux RPMs
+bash packaging/build_rpms.sh                        # selinux-policy-ops + shopapi-selinux (demo) + myapp-selinux (test fixture)
 bash packaging/publish_internal.sh                  # copy into your internal yum/dnf repo
 
 # Same playbooks AAP workflows run
 ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
-#   install module, myapp_t permissive, HTTP probes, start soak clock
+#   install module, shopapi_t permissive, HTTP probes, start soak clock
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary
 #   schedule daily in AAP — fail if net-new AVCs vs installed policy
 ansible-playbook -i ansible/inventory.production.yml ansible/soak_status.yml --limit canary
@@ -151,14 +151,14 @@ macOS has **no SELinux**. The Mac is the **Ansible controller**; policy still ru
 |---------|----------------|-----------|
 | `bash scripts/setup_rhel_hosts.sh write --qa-host 192.168.64.6 --prod-host 192.168.64.5` | Writes gitignored `ansible/inventory.dev.yml` and `ansible/inventory.production.yml` with those SSH IPs. QA gets `soak_min_days: 0` (lab). Prod gets `soak_min_days: 7` and **no git clone** (`selinux_ops_from_package: true`). | Prints `Wrote …/inventory.dev.yml` and `…/inventory.production.yml` |
 | `bash scripts/setup_rhel_hosts.sh ping` | Ansible `ping` module over SSH to both VMs (can the controller reach them?). | `SUCCESS` / `pong` for `rhel-qa` and `rhel-prod` |
-| `bash scripts/setup_rhel_hosts.sh doctor` | On each VM (as sudo): `getenforce`, `ausearch`, `sesearch`. Prod also `rpm -q selinux-policy-ops`. | `Enforcing`; paths to `ausearch` and `sesearch`. Prod may say the ops RPM is not installed yet |
-| `bash scripts/setup_rhel_hosts.sh bootstrap` | **Prints** the SSH/`dnf`/`setup_staging_env.sh` commands for **rhel-qa only**. It does not run them. | A block starting `=== Bootstrap the QA RHEL box` |
-| `bash scripts/sync_myapp.sh` | Clone [anurag-saran/myapp](https://github.com/anurag-saran/myapp) next to this repo if needed, rsync to `~/myapp` on rhel-qa. | `Synced … -> ansible@192.168.64.6:myapp/` |
-| `bash scripts/reset_demo_vms.sh` | Between rehearsals: unload leftover `myapp` modules and prod RPMs. Flask stays. Restore this repo’s fixture `selinux/myapp.te` and clear generated files in `../myapp`. | `Good: no myapp module loaded` on both VMs |
+| `bash scripts/setup_rhel_hosts.sh doctor` | On each VM (as sudo): hostname, `getenforce`, `ausearch`, `sesearch`. Prod also checks `selinux-policy-ops` and **does not fail** if that RPM is not installed yet. | `Enforcing`; paths to `ausearch` and `sesearch`. Prod may print `selinux-policy-ops: not installed (expected before RPMs)` |
+| `bash scripts/setup_rhel_hosts.sh bootstrap` | **Prints** the SSH/`dnf`/`demo_bootstrap.sh --shopapi-only` commands for **rhel-qa only**. It does not run them. | A block starting `=== Bootstrap the QA RHEL box` |
+| `bash scripts/sync_rhel_dev.sh` | rsync this checkout to `~/selinux-pac` on rhel-qa (shopapi lives here). | `Synced … -> ansible@192.168.64.6:selinux-pac/` |
+| `bash scripts/reset_demo_vms.sh` | Between rehearsals: unload leftover `shopapi` modules and prod RPMs. JVM stays. Restore the types-only `selinux/shopapi/` seed. | `Good: no shopapi (or leftover myapp) module loaded` on both VMs |
 
 Those IPs are this Mac’s UTM shared network (`rhel-qa` = `192.168.64.6`, `rhel-prod` = `192.168.64.5`). Re-check with `ping` if a VM was recreated.
 
-**You are not done.** `bootstrap` only printed the next commands. Run the paced lab from **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)** (plain-language, one computer at a time), especially [Present this lab (three terminals)](docs/admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals). Re-run on the same VMs: `bash scripts/reset_demo_vms.sh`, then Part 1.
+**You are not done.** `bootstrap` only printed the next commands. Run the paced lab from **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)** (plain-language, one computer at a time), especially [Present this lab (three terminals)](docs/admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals). Re-run on the same VMs: `bash scripts/reset_demo_vms.sh`, then the Mac conductor.
 
 **Customer talk (three situations, then generate):**
 
@@ -179,7 +179,7 @@ See [docs/training/DEMO_GUIDE.md](docs/training/DEMO_GUIDE.md). Two-host generat
 | rhel-qa | `ssh ansible@192.168.64.6` — run the `--part` the Mac prints (`app`, then `generate`, later `--skip-export`) |
 | rhel-prod | `ssh ansible@192.168.64.5` — run the `--part` the Mac prints (`app`, `rpms`, `soak`, `soak-avc`, `fail`, `restore`, `retest`) |
 
-Unattended rehearsal: `bash scripts/demo_e2e_mac.sh --auto --no-type`. Talk-only: `--dry-run`. Policy PRs: `gh auth login` with push access to **anurag-saran/myapp**. CI `forbidden-patterns` on that repo should go green (`validate_forbidden_patterns.sh` already ran at generate time).
+Unattended rehearsal: `bash scripts/demo_e2e_mac.sh --auto --no-type`. Talk-only: `--dry-run`. Policy PRs: `gh auth login` with push access to **this** repo (`selinux/shopapi/`). CI `forbidden-patterns` should go green (`validate_forbidden_patterns.sh` already ran at generate time).
 
 Lab enforce uses `soak_min_days: 0` on **QA only** — never copy that onto prod. The paced talk uses `force_enforce=true` plus a change ticket on prod so a **clean** soak can be treated as complete; `inventory.production.yml` stays at 7 days. Do **not** overlay `selinux/stub/` in this talk.
 

@@ -192,7 +192,7 @@ init_daemon_domain(myapp_t, myapp_exec_t);
 - **`init_daemon_domain`** — standard pattern for systemd services.
 - **`require { type ... }`** — types defined in the **base** RHEL policy that you reference but do not create.
 
-Optional training labs use a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;`. The customer talk ([DEMO_GUIDE.md](../training/DEMO_GUIDE.md)) never overlays that folder. The two-host Flask pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) runs the app unconfined first, then `write_domain_seed.sh` so the next curls produce `myapp_t` AVCs, then generates the first real `.te`.
+Optional training labs use a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;`. The customer talk ([DEMO_GUIDE.md](../training/DEMO_GUIDE.md)) never overlays that folder. The two-host **shopapi** pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) installs Spring Boot with a types-only seed so first-ship curls produce `shopapi_t` AVCs, then generates the first real `.te`. This page still uses Flask `myapp` as the teaching example.
 
 ### File contexts (`.fc`) — path → label mapping
 

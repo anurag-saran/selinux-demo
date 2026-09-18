@@ -3,7 +3,7 @@
 #   bash scripts/setup_rhel_hosts.sh write --qa-host HOST --prod-host HOST
 #
 # Run Ansible from a controller (laptop or AAP). The demo app is installed
-# on the host with: sudo bash scripts/setup_staging_env.sh
+# on the host with: sudo bash scripts/demo_bootstrap.sh --shopapi-only
 #
 # Controller-only: policy_artifact_dir, policy_pp_src (compiled .pp on this machine).
 # On rhel-qa (clone path): selinux_ops_dir, app_manifest_path.
@@ -17,18 +17,18 @@ all:
       ansible_become: true
       ansible_python_interpreter: /usr/bin/python3
   vars:
-    app_name: myapp
-    domain: myapp_t
-    install_root: /opt/myapp
-    var_dir: /var/lib/myapp
-    log_dir: /var/log/myapp
-    runtime_dir: /run/myapp
-    service_name: myapp.service
+    app_name: shopapi
+    domain: shopapi_t
+    install_root: /opt/shopapi
+    var_dir: /var/lib/shopapi
+    log_dir: /var/log/shopapi
+    runtime_dir: /run/shopapi
+    service_name: shopapi.service
     selinux_ops_from_package: false
     selinux_ops_dir: /home/ansible/selinux-pac/scripts
     policy_artifact_dir: "{{ playbook_dir }}/.."
-    policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name }}.pp"
-    app_manifest_path: /home/ansible/selinux-pac/config/myapp.manifest.yml
+    policy_pp_src: "{{ policy_artifact_dir }}/selinux/shopapi/shopapi.pp"
+    app_manifest_path: /home/ansible/selinux-pac/config/shopapi.manifest.yml
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"
     soak_min_days: 0

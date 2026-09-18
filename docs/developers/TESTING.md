@@ -10,7 +10,7 @@ This document is the **single reference** for how this repository tests SELinux 
 
 Related: endpoint SELinux concepts in [`SELINUX_BASICS.md`](../policy/SELINUX_BASICS.md) §9; optional labs in [`SELINUX_TRAINING_LAB.md`](../training/SELINUX_TRAINING_LAB.md); paced walkthrough in [`DEMO_GUIDE.md`](../training/DEMO_GUIDE.md); **file-by-file code tour** in [`CODE_WALKTHROUGH.md`](../training/CODE_WALKTHROUGH.md). **Doc index:** [`README.md`](../README.md).
 
-**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Integration curls and `setup_staging_env.sh` run on the **RHEL dev** box ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)).
+**Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Flask fixture curls and `setup_staging_env.sh` run on a **RHEL** box. The live two-host **shopapi** demo is [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md).
 
 ---
 
@@ -215,7 +215,7 @@ Production control plane is **Ansible Automation Platform (AAP)** ([ANSIBLE_OPER
 | Canary | `deploy_canary.yml` | `verify_file_contexts`, `wait_for_endpoints`, `monitor_avc` (recent window), deploy report |
 | Soak | `soak_monitor.yml` / `soak_status.yml` | Daily net-new vs installed policy; read-only facts before enforce. Talk: first-ship URLs only — **clean** AVC file, then treat soak as complete |
 | Enforce | `enforce_production.yml` | `collect_soak_facts.sh` (`avc_net_new_count` when `soak_use_net_new`), `semodule -B`, enforce domain, `wait_for_endpoints`, deploy report |
-| Outage | `/feature-spool` under enforcing | HTTP 500 + AVC export (not in first-ship wait_for_endpoints list) |
+| Outage | shopapi `GET /feature-spool` on **:8091** under enforcing | HTTP 500 + AVC export (writes `/var/spool/shopapi/feature.log`; not in first-ship wait_for_endpoints) |
 | Rollback | `emergency_rollback.yml` | permissive relief, `wait_for_endpoints`, deploy report, AVC export |
 
 Full Ansible task order and variables: [`ansible/README.md`](../../ansible/README.md).

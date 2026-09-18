@@ -39,12 +39,11 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Three situations, one talk: vendor already enforcing (App A) → tune inherited
-Tomcat (App B, no .te) → generate for Spring Boot (shopapi).
+Tomcat (App B, no .te) → generate for Spring Boot (shopapi). Flask is not used.
 
 Options:
   --profile customer|technical   Short path (~20 min) or full pipeline
   --acts LIST                    Comma-separated act numbers (overrides --profile)
-  --app shopapi|flask            Pipeline acts 3+ target (default: shopapi)
   --preflight                    Check the host and exit (pass/fail table)
   --dry-run                      Print narration + commands; execute nothing
   --skip-ai                      Do not require OPENAI_API_KEY (default)
@@ -62,7 +61,12 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --profile) PROFILE="$2"; shift 2 ;;
         --acts) ACTS="$2"; shift 2 ;;
-        --app) DEMO_APP="$2"; shift 2 ;;
+        --app)
+            if [[ "$2" != "shopapi" ]]; then
+                echo "This demo is shopapi only (Flask is the offline test fixture). Ignoring --app $2" >&2
+            fi
+            shift 2
+            ;;
         --preflight) PREFLIGHT=1; shift ;;
         --dry-run|--say-only) E2E_DRY=1; shift ;;
         --skip-ai) SKIP_AI=1; shift ;;
@@ -75,9 +79,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "${DEMO_APP}" != "shopapi" && "${DEMO_APP}" != "flask" ]]; then
-    echo "Unknown --app ${DEMO_APP} (use shopapi|flask)" >&2
-    exit 2
+if [[ "${DEMO_APP}" != "shopapi" ]]; then
+    DEMO_APP="shopapi"
 fi
 
 if [[ -z "${ACTS}" ]]; then
@@ -129,7 +132,6 @@ run_preflight() {
         pf_row "WOULD" "getenforce" "Enforcing"
         pf_row "WOULD" "tomcat unit" "$(demo_tomcat_service 2>/dev/null || echo tomcat.service)"
         pf_row "WOULD" "shopapi unit" "shopapi.service"
-        pf_row "WOULD" "podman / ${DEMO_PODMAN_IMAGE}" "optional for flask venv; not required for shopapi"
         echo
         echo "On a missing or unconfined App A: run make demo-bootstrap"
         return 0
@@ -196,18 +198,6 @@ run_preflight() {
         pf_row "WARN" "port ${APP_B_PORT}" "already listening — Act 2 port probe may be already tuned"
     else
         pf_row "PASS" "port ${APP_B_PORT}" "free or unbound (inherited name_bind still to show)"
-    fi
-
-    if command -v podman >/dev/null 2>&1; then
-        pf_row "PASS" "podman" "$(command -v podman)"
-        if podman image exists "${DEMO_PODMAN_IMAGE}" >/dev/null 2>&1; then
-            pf_row "PASS" "build image" "${DEMO_PODMAN_IMAGE}"
-        else
-            pf_row "WARN" "build image" "${DEMO_PODMAN_IMAGE} not pulled" \
-                "podman pull ${DEMO_PODMAN_IMAGE} (flask venv path only)"
-        fi
-    else
-        pf_row "WARN" "podman" "not installed (optional for this talk)"
     fi
 
     if [[ "${OPEN_PR}" -eq 1 ]]; then
@@ -362,14 +352,8 @@ act2_app_b() {
 }
 
 act3_generate() {
-    e2e_banner "Act 3 — Spring Boot / ${DEMO_APP}: the generator is allowed"
-    if [[ "${DEMO_APP}" == "flask" ]]; then
-        tlab_explain "Flask myapp is the test reference. Hand off to the existing QA talk track."
-        echo "On rhel-qa: bash scripts/demo_e2e_rhel_qa.sh --part app && bash scripts/demo_e2e_rhel_qa.sh --part generate"
-        tlab_pause
-        return 0
-    fi
-    tlab_explain "No vendor module for Spring Boot. systemd SELinuxContext= sets shopapi_t because /usr/bin/java cannot carry this app's entrypoint label."
+    e2e_banner "Act 3 — Spring Boot shopapi: the generator is allowed"
+    tlab_explain "No vendor module for Spring Boot. ExecStart is a private copy of the JRE launcher at /opt/shopapi/bin/java (shopapi_exec_t). /usr/bin/java is shared bin_t and cannot be the entrypoint. SELinuxContext= still sets shopapi_t."
     e2e_run "systemctl cat shopapi.service | grep -E 'SELinuxContext|ExecStart'"
     demo_expect "SELinuxContext=system_u:system_r:shopapi_t:s0"
     e2e_run "ps -o label=,comm= -C java | head"
@@ -381,7 +365,7 @@ act3_generate() {
     e2e_run "curl -sS http://127.0.0.1:${shop_port}/state || true"
     e2e_run "curl -sS http://127.0.0.1:${shop_port}/log || true"
     e2e_run "sudo ausearch -m avc -ts recent | grep shopapi_t | tail -n 20 || true"
-    e2e_run "sudo bash scripts/dev_generate_policy.sh --apply --app-name shopapi --app-root ${PROJECT_ROOT}"
+    e2e_run "sudo bash scripts/dev_generate_policy.sh --apply --allow-needs-review --app-name shopapi --app-root ${PROJECT_ROOT}"
     demo_expect "generator runs; vendor preflight lets shopapi through; findings.json lists observed verdicts"
     tlab_checkpoint "This is the first time we authored policy. We declined twice first."
     tlab_pause
@@ -401,7 +385,7 @@ act4_pr() {
 
 act5_pipeline() {
     e2e_banner "Act 5 — Canary / soak / fail (technical)"
-    tlab_explain "Existing two-host pipeline is unchanged from here: canary, soak, talk-only enforce, /feature-spool outage, rollback, recanary."
+    tlab_explain "Two-host pipeline for shopapi: canary, soak, talk-only enforce, /feature-spool outage, rollback, recanary. Not Flask."
     echo "Mac: bash scripts/demo_e2e_mac.sh"
     echo "QA:  bash scripts/demo_e2e_rhel_qa.sh"
     echo "Prod: bash ~/e2e-demo/demo_e2e_rhel_prod.sh"

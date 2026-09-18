@@ -9,14 +9,11 @@ User=shopapi
 Group=shopapi
 EnvironmentFile=-/etc/shopapi.env
 WorkingDirectory=/opt/shopapi
-# /usr/bin/java is bin_t (or java_exec_t) and is shared by every JVM — it cannot
-# carry this app's entrypoint label. systemd sets the process domain directly.
+Environment=JAVA_HOME=/opt/shopapi
+# Private copy of the JRE launcher at /opt/shopapi/bin/java is labeled
+# shopapi_exec_t. /usr/bin/java is shared bin_t and 203/EXEC under enforcing.
 SELinuxContext=system_u:system_r:shopapi_t:s0
-ExecStart=/usr/bin/java -jar /opt/shopapi/shopapi.jar
-# Alternative (labelled wrapper, not used here):
-#   install a copy of the JRE launcher at ${install_root}/bin/java labeled
-#   shopapi_exec_t, then init_daemon_domain(shopapi_t, shopapi_exec_t) and omit
-#   SELinuxContext=. That is the classic type_transition path.
+ExecStart=/opt/shopapi/bin/java -jar /opt/shopapi/shopapi.jar
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=false

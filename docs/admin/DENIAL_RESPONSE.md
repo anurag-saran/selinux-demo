@@ -13,7 +13,7 @@ Host stays **Enforcing**. Only the app domain may be permissive (canary soak). D
 
 ## Already enforced (app is down)
 
-AAP **SELinux – Rollback** (`emergency_rollback.yml`): domain back to permissive, optional RPM downgrade. Then the same PR path. Never `setenforce 0`. The two-host talk ([RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) Part 7) shows this after a **clean** soak and talk-only enforce, then `/feature-spool` 500.
+AAP **SELinux – Rollback** (`emergency_rollback.yml`): domain back to permissive, optional RPM downgrade. Then the same PR path. Never `setenforce 0`. The two-host talk ([RHEL_TWO_HOST.md](RHEL_TWO_HOST.md)) shows this after a **clean** soak and talk-only enforce, then shopapi `/feature-spool` 500 on **:8091**.
 
 ## What to change in git
 

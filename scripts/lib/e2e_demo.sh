@@ -169,20 +169,36 @@ e2e_require_rhel() {
 # Do not mention or list selinux/stub/ — that path is training-labs only.
 e2e_explain_selinux_tree() {
     local root="${1:-.}"
-    tlab_explain "This folder is the policy product in the myapp GitHub repo. Git reviews these files. Prod never clones them — it gets an RPM built from them. write_domain_seed.sh just created the 1.0.0 types-only file on this VM; after generate --apply this is the first real allow list."
-    e2e_run "ls -la '${root}/selinux/myapp.te' '${root}/selinux/myapp.fc' '${root}/selinux/policy_version.txt'"
-    tlab_explain "selinux/myapp.te — type enforcement. After write_domain_seed.sh this is types + systemd transition only. After generate --apply it is the first real allow list from AVCs."
-    tlab_explain "selinux/myapp.fc — file_contexts: which path gets which type. restorecon applies this. The generator adds rows when AVCs show unlabeled or wrong-type files."
-    tlab_explain "selinux/policy_version.txt — one line, kept in lockstep with policy_module(myapp, X.Y.Z) inside the .te. PRs and the myapp-selinux RPM bump this."
-    tlab_explain "selinux/myapp.pp — compiled binary (gitignored). Built on rhel-qa only. Copied to the Mac so Ansible can ship it. A Mac cannot compile SELinux."
-    if [[ -f "${root}/selinux/myapp_ports.cil" ]]; then
-        tlab_explain "selinux/myapp_ports.cil — optional CIL portcon for hosts without semanage. On RHEL, canary uses Ansible seport instead."
-    fi
-    if [[ -f "${root}/selinux/myapp_canary.te" ]]; then
-        tlab_explain "selinux/myapp_canary.te — optional overlay when semanage is missing. RHEL canary uses semanage permissive. Not loaded in this talk."
-    fi
+    tlab_explain "This folder is the shopapi policy product in selinux-pac. Git reviews these files. Prod never clones them — it gets an RPM built from them. The types-only seed is committed; after generate --apply this is the first real allow list."
+    e2e_run "ls -la '${root}/selinux/shopapi/shopapi.te' '${root}/selinux/shopapi/shopapi.fc' '${root}/selinux/shopapi/policy_version.txt'"
+    tlab_explain "selinux/shopapi/shopapi.te — type enforcement. Seed is types + init_daemon_domain. After generate --apply it is the first real allow list from AVCs. No JVM cookbook; no execmem unless the log showed it."
+    tlab_explain "selinux/shopapi/shopapi.fc — file_contexts. restorecon applies this. The generator adds rows when AVCs show unlabeled or wrong-type files. /var/spool/shopapi is intentionally absent until the outage generate."
+    tlab_explain "selinux/shopapi/policy_version.txt — one line, kept in lockstep with policy_module(shopapi, X.Y.Z). PRs and the shopapi-selinux RPM bump this."
+    tlab_explain "selinux/shopapi/shopapi.pp — compiled binary (gitignored). Built on rhel-qa only. A Mac cannot compile SELinux."
     if [[ -d "${root}/selinux/payments" ]]; then
-        tlab_explain "selinux/payments/ — second sample app for onboarding. Not this talk."
+        tlab_explain "selinux/payments/ — CI multi-module fixture. Not this talk."
     fi
-    tlab_explain "policy_out/ (created at generate) — avc.log is the denial export, generated .te/.fc live here before --apply copies them into selinux/, pr_body.md is the GitHub PR text."
+    tlab_explain "policy_out/ (created at generate) — avc.log, generated .te/.fc before --apply copies them into selinux/shopapi/, pr_body.md is the GitHub PR text."
+}
+
+e2e_ensure_hostname() {
+    local want="${1:?}"
+    tlab_explain "Guest hostname ${want} so the prompt matches the talk track (not a leftover rhel-dev image name)."
+    e2e_run "sudo hostnamectl set-hostname ${want}"
+    e2e_run "hostname"
+}
+
+# UTM VMs often have RTC drift. ausearch -ts recent/boot then looks at the wrong
+# window even when /var/log/audit/audit.log already has the denials.
+e2e_sync_clock() {
+    tlab_explain "If the VM clock is skewed, ausearch -ts recent is empty. NTP first, then collect AVCs."
+    e2e_run "timedatectl status | sed -n '1,8p'"
+    e2e_run "sudo timedatectl set-ntp true"
+    e2e_run "sudo chronyc makestep 2>/dev/null || sudo chronyc -a makestep 2>/dev/null || true"
+}
+
+e2e_shopapi_avcs() {
+    local extra="${1:-}"
+    tlab_explain "Read denials from audit.log (not ausearch -ts recent) so a skewed clock cannot hide them."
+    e2e_run "sudo grep 'avc:  denied' /var/log/audit/audit.log | grep -E 'shopapi_t${extra}' | tail -20 || echo 'WARN: no shopapi_t AVC in audit.log'"
 }

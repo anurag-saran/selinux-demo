@@ -1,6 +1,6 @@
 # SELinux PaC — optional hands-on labs
 
-Optional labs for teams adopting **SELinux PaC**. They are **not** the customer talk ([DEMO_GUIDE.md](DEMO_GUIDE.md) — `demo_present.sh`) or the two-host pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). Labs may still install [`selinux/stub/`](../../selinux/stub/); the customer talk never overlays that folder.
+Optional labs for teams adopting **SELinux PaC**. They are **not** the customer talk ([DEMO_GUIDE.md](DEMO_GUIDE.md) — `demo_present.sh`) or the two-host **shopapi** pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). Labs still install the Flask fixture under `/opt/myapp` and may overlay [`selinux/stub/`](../../selinux/stub/); the customer talk never overlays that folder and never installs Flask.
 
 Each lab follows the same pattern:
 
@@ -39,7 +39,7 @@ Lab **6** installs the **reference app** and **stub** policy. **Labs 2–5 and 7
 
 | Platform | One-time prep | Then do labs in this order |
 |----------|---------------|----------------------------|
-| **RHEL two-host (preferred)** | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — `setup_rhel_hosts.sh`; clone + `setup_staging_env.sh` on **QA** | **1 → 6 → 2 → 3 → 4 → 5 → 7 → 8 → 9** (10 optional). Lab **6** includes **`sudo bash scripts/setup_staging_env.sh`**. |
+| **RHEL two-host (preferred)** | Live **shopapi** demo: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (`demo_e2e_*.sh`). These labs still use the Flask fixture: clone + `setup_staging_env.sh` on **QA**. | **1 → 6 → 2 → 3 → 4 → 5 → 7 → 8 → 9** (10 optional). Lab **6** includes **`sudo bash scripts/setup_staging_env.sh`**. |
 | **Native Linux** (single RHEL/Fedora/Stream) | Clone repo; `cd` to repo root | Same lab order as the RHEL two-host row. |
 | **Demo prep (short)** | Same as your platform row above | **1 → Lab 6 (install or verify) → 7 → Finish** |
 

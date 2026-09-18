@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 #
-# demo_open_generated_pr.sh — Open a GitHub PR on the myapp application repo.
+# demo_open_generated_pr.sh — Open a GitHub PR on selinux-pac for selinux/shopapi/.
 #
-# Run on the Mac after scp of myapp.te / myapp.fc / policy_version.txt (and
-# optional policy_out/pr_body.md) from rhel-qa into MYAPP_ROOT.
+# Run on the Mac after scp of shopapi.te / shopapi.fc / policy_version.txt from rhel-qa.
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-if [[ -z "${MYAPP_ROOT:-}" ]]; then
-    MYAPP_ROOT="$(cd "${PROJECT_ROOT}/.." && pwd)/myapp"
-fi
+REPO_ROOT="${POLICY_PR_ROOT:-${PROJECT_ROOT}}"
+MODULE_DIR="${REPO_ROOT}/selinux/shopapi"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -26,19 +24,11 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [options]
 
-Open a GitHub PR on https://github.com/anurag-saran/myapp from live generated
-selinux/ sources copied off rhel-qa. Not the frozen open_demo_policy_pr.sh.
+Open a GitHub PR on selinux-pac for live generated selinux/shopapi/ sources.
 
 Options:
   -h, --help     Show this help
   --push-only    Commit and push the branch; do not run gh pr create
-
-Environment:
-  MYAPP_ROOT             App git checkout (default: ../myapp next to selinux-pac)
-  DEMO_POLICY_BRANCH     Branch name (default: policy/myapp-from-avc-<timestamp>)
-  DEMO_POLICY_BASE       PR base (default: main)
-  DEMO_POLICY_PR_TITLE   PR title
-  DEMO_POLICY_PUSH       Set to 0 to commit locally only
 EOF
 }
 
@@ -47,49 +37,39 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
         --push-only) PUSH_ONLY=1; shift ;;
-        *) log_error "Unknown option: $1"; usage; exit 2 ;;
+        *) log_error "Unknown option $1"; usage; exit 2 ;;
     esac
 done
 
-if [[ ! -d "${MYAPP_ROOT}/.git" ]]; then
-    log_error "Need a git clone of https://github.com/anurag-saran/myapp at ${MYAPP_ROOT}"
-    log_error "Run: bash scripts/sync_myapp.sh   (clones if missing)  or set MYAPP_ROOT"
+if [[ ! -d "${REPO_ROOT}/.git" ]]; then
+    log_error "Need a git clone at ${REPO_ROOT}"
     exit 1
 fi
 
-cd "${MYAPP_ROOT}"
+cd "${REPO_ROOT}"
 
-VERSION="$(tr -d '[:space:]' < selinux/policy_version.txt 2>/dev/null || echo unknown)"
+VERSION="$(tr -d '[:space:]' < "${MODULE_DIR}/policy_version.txt" 2>/dev/null || echo unknown)"
 STAMP="$(date +%Y%m%d%H%M%S)"
-BRANCH="${DEMO_POLICY_BRANCH:-policy/myapp-from-avc-${STAMP}}"
+BRANCH="${DEMO_POLICY_BRANCH:-policy/shopapi-from-avc-${STAMP}}"
 BASE_BRANCH="${DEMO_POLICY_BASE:-main}"
-TITLE="${DEMO_POLICY_PR_TITLE:-security(selinux): myapp ${VERSION} from rhel-qa AVCs}"
-PR_BODY="${MYAPP_ROOT}/policy_out/pr_body.md"
-if [[ ! -f "${PR_BODY}" && -f "${PROJECT_ROOT}/policy_out/pr_body.md" ]]; then
-    mkdir -p "${MYAPP_ROOT}/policy_out"
-    cp "${PROJECT_ROOT}/policy_out/pr_body.md" "${PR_BODY}"
-fi
+TITLE="${DEMO_POLICY_PR_TITLE:-security(selinux): shopapi ${VERSION} from rhel-qa AVCs}"
+PR_BODY="${REPO_ROOT}/policy_out/pr_body.md"
 
-if [[ ! -f selinux/myapp.te || ! -f selinux/myapp.fc || ! -f selinux/policy_version.txt ]]; then
-    log_error "Missing ${MYAPP_ROOT}/selinux/myapp.te, myapp.fc, or policy_version.txt — scp them from rhel-qa first"
-    exit 1
-fi
-
-if ! command -v git >/dev/null 2>&1; then
-    log_error "git not found"
+if [[ ! -f "${MODULE_DIR}/shopapi.te" || ! -f "${MODULE_DIR}/shopapi.fc" || ! -f "${MODULE_DIR}/policy_version.txt" ]]; then
+    log_error "Missing ${MODULE_DIR}/shopapi.te, shopapi.fc, or policy_version.txt — scp them from rhel-qa first"
     exit 1
 fi
 
 if [[ ! -f "${PR_BODY}" ]]; then
-    mkdir -p "${MYAPP_ROOT}/policy_out"
+    mkdir -p "${REPO_ROOT}/policy_out"
     cat >"${PR_BODY}" <<EOF
 ## Summary
 
-Generated \`myapp\` SELinux policy on **rhel-qa** from AVC denials (types-only domain seed → deterministic generator).
+Generated \`shopapi\` SELinux policy on **rhel-qa** from AVC denials (types-only domain seed → deterministic generator).
 
 - Module version: **${VERSION}**
-- Sources: \`selinux/myapp.te\`, \`selinux/myapp.fc\`, \`selinux/policy_version.txt\`
-- Application repo: https://github.com/anurag-saran/myapp
+- Sources: \`selinux/shopapi/shopapi.te\`, \`shopapi.fc\`, \`policy_version.txt\`
+- Demo app: Spring Boot (\`demo/shopapi/\`). Flask is not in this talk.
 
 ## Admin checklist
 
@@ -99,15 +79,15 @@ Generated \`myapp\` SELinux policy on **rhel-qa** from AVC denials (types-only d
 
 Label: \`pending-admin-review\`
 EOF
-    log_info "Wrote ${PR_BODY} (no assembled body was copied from rhel-qa)"
+    log_info "Wrote ${PR_BODY}"
 fi
 
-log_info "Creating branch ${BRANCH} in ${MYAPP_ROOT} (base ${BASE_BRANCH})"
+log_info "Creating branch ${BRANCH} in ${REPO_ROOT} (base ${BASE_BRANCH})"
 git checkout -B "${BRANCH}"
 
-git add selinux/myapp.te selinux/myapp.fc selinux/policy_version.txt
+git add selinux/shopapi/shopapi.te selinux/shopapi/shopapi.fc selinux/shopapi/policy_version.txt
 if git diff --cached --quiet; then
-    log_warn "No policy diff vs HEAD — nothing to commit. If the PR should exist already, show it in the browser."
+    log_warn "No policy diff vs HEAD — nothing to commit."
     if command -v gh >/dev/null 2>&1; then
         gh pr list --head "${BRANCH}" --state open || true
     fi
@@ -115,7 +95,7 @@ if git diff --cached --quiet; then
 fi
 
 git commit -m "$(cat <<EOF
-security(selinux): generate myapp ${VERSION} from rhel-qa AVCs
+security(selinux): generate shopapi ${VERSION} from rhel-qa AVCs
 
 Types-only domain seed plus ausearch → deterministic_gen --apply on rhel-qa.
 EOF
@@ -129,15 +109,13 @@ fi
 git push -u origin "HEAD:refs/heads/${BRANCH}"
 
 if [[ "${PUSH_ONLY}" -eq 1 ]]; then
-    log_info "Branch pushed. Open a PR with:"
+    log_info "Branch pushed."
     echo "  gh pr create --base ${BASE_BRANCH} --head ${BRANCH} --title $(printf '%q' "${TITLE}") --body-file ${PR_BODY}"
     exit 0
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
-    log_warn "GitHub CLI (gh) not found. Open a PR in the browser:"
-    echo "  Base: ${BASE_BRANCH}  Head: ${BRANCH}"
-    echo "  gh pr create --base ${BASE_BRANCH} --head ${BRANCH} --title $(printf '%q' "${TITLE}") --body-file ${PR_BODY}"
+    log_warn "GitHub CLI (gh) not found. Open a PR in the browser."
     exit 0
 fi
 
@@ -148,22 +126,13 @@ if [[ -n "${EXISTING}" && "${EXISTING}" != "null" ]]; then
     exit 0
 fi
 
-if gh pr create \
+gh pr create \
     --base "${BASE_BRANCH}" \
     --head "${BRANCH}" \
     --title "${TITLE}" \
     --body-file "${PR_BODY}" \
     --label security \
     --label selinux \
-    --label pending-admin-review; then
-    log_info "PR opened on anurag-saran/myapp (CODEOWNERS + pending-admin-review)"
-    exit 0
-fi
-
-log_warn "Create with labels failed (labels may be missing). Retrying without labels."
-gh pr create \
-    --base "${BASE_BRANCH}" \
-    --head "${BRANCH}" \
-    --title "${TITLE}" \
-    --body-file "${PR_BODY}"
-log_info "PR opened on anurag-saran/myapp (no labels)"
+    --label pending-admin-review \
+    || gh pr create --base "${BASE_BRANCH}" --head "${BRANCH}" --title "${TITLE}" --body-file "${PR_BODY}"
+log_info "PR opened on selinux-pac (selinux/shopapi)"

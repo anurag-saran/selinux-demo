@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# build_rpms_on_dev.sh — Build selinux-policy-ops + myapp-selinux on rhel-qa
+# build_rpms_on_dev.sh — Build selinux-policy-ops + myapp-selinux (fixture)
+# + shopapi-selinux (demo) on rhel-qa
 # and copy the RPMs back to dist/ on this controller (macOS has no rpmbuild).
 #
 set -euo pipefail

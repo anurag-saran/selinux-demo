@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build selinux-policy-ops and myapp-selinux RPMs into dist/
+# Build selinux-policy-ops, myapp-selinux (test fixture), and shopapi-selinux (demo).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,13 +41,20 @@ cp "${ROOT}/cli/soak_net_new.py" \
 
 bash "${ROOT}/scripts/validate_rpm_ops_parity.sh"
 bash "${ROOT}/scripts/compile_and_validate.sh" selinux
+POLICY_MODULE=shopapi SELINUX_DOMAIN=shopapi_t \
+    bash "${ROOT}/scripts/compile_and_validate.sh" "${ROOT}/selinux/shopapi"
+SHOPAPI_VERSION="$(policy_version "${ROOT}/selinux/shopapi/policy_version.txt")"
 
 cp "${ROOT}/packaging/selinux-policy-ops.spec" "${RPMBUILD}/SPECS/"
 cp "${ROOT}/packaging/myapp-selinux.spec" "${RPMBUILD}/SPECS/"
+cp "${ROOT}/packaging/shopapi-selinux.spec" "${RPMBUILD}/SPECS/"
 cp "${ROOT}/selinux/myapp.pp" "${RPMBUILD}/SOURCES/myapp.pp"
 cp "${ROOT}/selinux/myapp.te" "${RPMBUILD}/SOURCES/myapp.te"
 cp "${ROOT}/selinux/myapp.fc" "${RPMBUILD}/SOURCES/myapp.fc"
 cp "${ROOT}/config/myapp.manifest.yml" "${RPMBUILD}/SOURCES/selinux-manifest.yml"
+cp "${ROOT}/selinux/shopapi/shopapi.pp" "${RPMBUILD}/SOURCES/shopapi.pp"
+cp "${ROOT}/selinux/shopapi/shopapi.te" "${RPMBUILD}/SOURCES/shopapi.te"
+cp "${ROOT}/selinux/shopapi/shopapi.fc" "${RPMBUILD}/SOURCES/shopapi.fc"
 
 # Ops spec uses relative paths to scripts/ — patch SOURCEDIR via rpmbuild -D
 rpmbuild -ba \
@@ -60,6 +67,13 @@ rpmbuild -ba \
   --define "_sourcedir ${RPMBUILD}/SOURCES" \
   --define "modver ${VERSION}" \
   "${RPMBUILD}/SPECS/myapp-selinux.spec"
+
+cp "${ROOT}/config/shopapi.manifest.yml" "${RPMBUILD}/SOURCES/selinux-manifest.yml"
+rpmbuild -ba \
+  --define "_topdir ${RPMBUILD}" \
+  --define "_sourcedir ${RPMBUILD}/SOURCES" \
+  --define "modver ${SHOPAPI_VERSION}" \
+  "${RPMBUILD}/SPECS/shopapi-selinux.spec"
 
 rm -f "${DIST}"/*.rpm
 find "${RPMBUILD}/RPMS" -name '*.rpm' -exec cp {} "${DIST}/" \;

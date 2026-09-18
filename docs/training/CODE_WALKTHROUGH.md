@@ -25,7 +25,7 @@ You do **not** need to know every script on day one. Read this in order, pause w
 |-------------|----------------|----------------------------------|
 | **Repo root on any OS** | Offline tests, Python CLI, reading git | `make check`, `python3 cli/deterministic_gen.py --explain …` |
 | **RHEL two-host lab** | Default: QA + prod boxes | `bash scripts/setup_rhel_hosts.sh write …` — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) |
-| **Native Linux with SELinux** (RHEL **QA**) | Staging, demo, soak, `semanage` | `sudo bash scripts/setup_staging_env.sh`, `curl 127.0.0.1:8888/…` |
+| **Native Linux with SELinux** (RHEL **QA**) | Staging, demo, soak, `semanage` | `sudo bash scripts/demo_bootstrap.sh --shopapi-only`, `curl 127.0.0.1:8091/health` |
 | **RHEL prod** | Ansible deploy lifecycle | Playbooks with `-i ansible/inventory.production.yml` |
 
 macOS has no SELinux — [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) then SSH to **rhel-qa**.
@@ -57,7 +57,7 @@ If any term is fuzzy, open [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). Qui
 
 **SELinux PaC** is the admin + developer tool that ships SELinux policy the same way you ship the application:
 
-1. A **reference app** runs on a Linux host with SELinux on. Flask `app/` is the offline test fixture; the customer talk uses Tomcat App A/B plus Spring Boot `demo/shopapi/` (swap in your service).
+1. A **reference app** runs on a Linux host with SELinux on. The customer talk uses Tomcat App A/B plus Spring Boot `demo/shopapi/` (swap in your service). Flask `app/` is the offline `make check` fixture, not the live demo.
 2. While the app domain is **permissive**, the kernel **logs** denials (AVCs) instead of blocking everything.
 3. Scripts **collect** those logs and **generate** updates to `.te` / `.fc` (deterministic engine; optional LLM summary).
 4. **CI** checks forbidden patterns and version consistency (generator already ran the same forbidden-pattern script). Compile and semantics run on **rhel-qa**.
@@ -109,9 +109,10 @@ Think of the repo in **layers**: app → policy source → generators → automa
 
 | Path | Beginner description |
 |------|----------------------|
-| [`app/`](../../app/) | Demo web app + systemd unit files. Exists so SELinux has realistic traffic to log. |
-| [`selinux/`](../../selinux/) | **`myapp.te`**, **`myapp.fc`**, version file — what reviewers approve. Second app example: **`selinux/payments/`**. |
-| [`config/`](../../config/) | **`myapp.manifest.yml`** — app name, paths, ports, curl paths, soak file locations. |
+| [`app/`](../../app/) | Flask **test fixture** (`make check`). Not installed on the demo VMs. |
+| [`demo/shopapi/`](../../demo/shopapi/) | Spring Boot **demo** JVM. Policy seed: **`selinux/shopapi/`**. |
+| [`selinux/`](../../selinux/) | **`myapp.te`** (test fixture), **`shopapi/`** (demo generate target), **`payments/`** (CI multi-module). |
+| [`config/`](../../config/) | **`shopapi.manifest.yml`** (demo), **`myapp.manifest.yml`** (tests). |
 | [`cli/`](../../cli/) | Python tools: read AVC logs, classify denials, write policy snippets, soak net-new. |
 | [`scripts/`](../../scripts/) | Bash entry points: two-host setup, compile, demo, soak checks. |
 | [`scripts/lib/`](../../scripts/lib/) | Shared code **sourced** by other scripts (not usually run alone). |
@@ -124,16 +125,19 @@ Think of the repo in **layers**: app → policy source → generators → automa
 
 ---
 
-## Application layer (`app/`)
+## Application layer (`app/` and `demo/shopapi/`)
 
-**Why it exists:** SELinux policy is written for **real behavior**. This Flask app is a safe, small stand-in for “our product on a server.”
+**Why `app/` exists:** SELinux policy is written for **real behavior**. The Flask app is a small stand-in used by **`make check`** and optional training labs. It is **not** the customer talk or the two-host pipeline.
+
+**Why `demo/shopapi/` exists:** that is the live generate target (Spring Boot, `SELinuxContext=shopapi_t`, first-ship `/health` `/state` `/log`, outage `/feature-spool`).
 
 | File | What it does (simply) |
 |------|------------------------|
-| **`app.py`** | Web server on port **8888**: six first-ship routes plus **`/feature-spool`** (Act 2 on prod; not in `wait_for_endpoints`). |
-| **`backend_stub.py`** | Tiny service on **8889** + socket under `/run/myapp/` — second SELinux domain (`myapp_backend_t`). |
-| **`myapp.service`**, **`myapp-backend.service`** | Tell systemd how to start the app and create state/log/run directories. |
-| **`backup.sh`** | Script the `/run-script` route executes (bash-only on purpose). |
+| **`demo/shopapi/`** | JVM on port **8091** (from `config/shopapi.manifest.yml`). |
+| **`app/app.py`** | Offline test server on port **8888**: six first-ship routes plus **`/feature-spool`** (fixture only). |
+| **`app/backend_stub.py`** | Tiny service on **8889** — second SELinux domain (`myapp_backend_t`) for tests/labs. |
+| **`app/myapp.service`**, **`myapp-backend.service`** | Test/lab systemd units. |
+| **`app/backup.sh`** | Script the `/run-script` fixture route executes. |
 
 **Why six HTTP paths?** Each path tries to use a different resource (port, log file, script file, network, socket). When policy is incomplete, you get an AVC that points to the **missing allow rule**. **Optional labs** run [`scripts/lib/integration_probes.sh`](../../scripts/lib/integration_probes.sh) (all HTTP paths in one pass). **Deploy gates** use [`scripts/wait_for_endpoints.sh`](../../scripts/wait_for_endpoints.sh) to curl those paths and confirm the process still runs as the right **domain**.
 
@@ -227,12 +231,12 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`setup_rhel_hosts.sh`** | Write `inventory.dev.yml` / `inventory.production.yml`; ping; doctor; bootstrap hints. |
 | **`demo_present.sh`** | Customer talk: Act 0 triage, App A (vendor, already enforcing), App B (tune, no `.te`), shopapi generate. `--profile customer\|technical`, `--preflight`, `--dry-run`. |
 | **`demo_bootstrap.sh`** / **`make demo-bootstrap`** | Idempotent three-app estate on RHEL. JWS if the repo is reachable, else distro Tomcat + `tomcat_t`. |
-| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_qa.sh`** / **`demo_e2e_rhel_prod.sh`** | Two-host pipeline (technical Act 5): generate → PR → clean soak → enforce; `/feature-spool` fails on prod; admin rollback. |
-| **`reset_demo_vms.sh`** | Between rehearsals: unload leftover `myapp` modules and prod RPMs. Flask stays. Then start Part 1. Not `reset_host_state.yml`. |
+| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_qa.sh`** / **`demo_e2e_rhel_prod.sh`** | Two-host **shopapi** pipeline (technical Act 5): generate → PR on `selinux/shopapi/` → clean soak → enforce; `/feature-spool` fails on prod; admin rollback. |
+| **`reset_demo_vms.sh`** | Between rehearsals: unload leftover `shopapi` modules and prod RPMs. JVM stays. Then start the Mac conductor. Not `reset_host_state.yml`. |
 | **`write_domain_seed.sh`** | Run **after** unconfined curls prove the AVC log is empty. Writes a types-only 1.0.0 seed and `--load` compiles it + `semanage permissive`. First real allows come from `dev_generate_policy.sh --apply`. |
 | **`demo_open_generated_pr.sh`** | Open a GitHub PR from live generated `selinux/` (Mac, after scp from rhel-qa). Not the frozen `open_demo_policy_pr.sh`. |
 | **`assemble_pr_body.sh`** | Builds GitHub PR description from template + summary + optional rule diff. |
-| **`setup_staging_env.sh`** | Prepare a Linux host for the demo (root). |
+| **`setup_staging_env.sh`** | Flask **test/lab** fixture (root). Customer demo uses `demo_bootstrap.sh`. |
 | **`compile_and_validate.sh`** | Compile `.te`/`.fc` to `.pp` and run basic checks. |
 
 **Environment tips:**
@@ -277,7 +281,7 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`demo_present.sh`** | Three-app customer talk (`--profile customer\|technical`, `--dry-run`, `--preflight`). |
 | **`demo_bootstrap.sh`** | Idempotent App A/B + shopapi estate (`make demo-bootstrap`). |
 | **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_qa.sh`**, **`demo_e2e_rhel_prod.sh`** | Two-host pipeline of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
-| **`reset_demo_vms.sh`** | Wipe leftover demo policy on both VMs (Mac). Flask stays. |
+| **`reset_demo_vms.sh`** | Wipe leftover shopapi policy on both VMs (Mac). JVM stays. |
 | **`write_domain_seed.sh`** | After unconfined curls: types-only 1.0.0 seed; `--load` compiles it. |
 | **`demo_open_generated_pr.sh`** | Live generate → GitHub PR (needs `gh`). |
 | **`run_demo.sh`** | Optional native-host walkthrough. |
@@ -310,14 +314,15 @@ Inventory examples: **`inventory.dev.example.yml`** (RHEL dev), **`inventory.pro
 
 | Artifact | Purpose |
 |----------|---------|
-| **`myapp-selinux.spec`** | RPM that ships the compiled module + `/etc/myapp/selinux-manifest.yml`. |
+| **`myapp-selinux.spec`** | Test-fixture RPM for the Flask `myapp` module. |
+| **`shopapi-selinux.spec`** | Demo RPM: compiled `shopapi.pp` + `/etc/shopapi/selinux-manifest.yml`. |
 | **`selinux-policy-ops.spec`** | RPM of operational scripts (`monitor_avc.sh`, `soak_net_new.py`, `collect_soak_facts.sh`, …) at `/usr/libexec/selinux-policy-ops`. |
 
 ---
 
 ## GitHub review (no Actions in the paced lab)
 
-The two-host talk track opens a **GitHub PR** with `scripts/demo_open_generated_pr.sh` so CODEOWNERS can review `selinux/`. GitHub Actions workflows are not part of that demo.
+The two-host talk track opens a **GitHub PR** with `scripts/demo_open_generated_pr.sh` so CODEOWNERS can review `selinux/shopapi/`. GitHub Actions workflows are not part of that demo.
 
 PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md).
 

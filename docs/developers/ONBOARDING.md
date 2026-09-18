@@ -2,7 +2,7 @@
 
 **Customer layout:** policy lives in **the application GitHub repo**, not in selinux-pac. Generate and compile on a **QA** RHEL box (`rhel-qa`). Admins ship a signed RPM and promote with AAP. **Prod never clones git.**
 
-This repository is the **platform** (generator, forbidden-pattern CI, Ansible/AAP, ops RPM). The live two-host demo application is **[anurag-saran/myapp](https://github.com/anurag-saran/myapp)** — policy PRs land there. A copy of `selinux/myapp.te` remains here as a **fixture** for tests and training labs. The customer talk’s JVM is **shopapi** (`demo/shopapi/`, `selinux/shopapi/`); Flask `myapp` stays the offline `make check` reference.
+This repository is the **platform** (generator, forbidden-pattern CI, Ansible/AAP, ops RPM). The live two-host demo application is **shopapi** (`demo/shopapi/`, `selinux/shopapi/`) — policy PRs land **here**. Flask `app/` and `selinux/myapp.te` remain **fixtures** for tests and optional training labs.
 
 **Prerequisites:** [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). Deploy: [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md). Prod AVC: [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md). Two-host lab: [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). Org checklist: [ADOPTION_CHECKLIST.md](../admin/ADOPTION_CHECKLIST.md).
 
@@ -29,7 +29,7 @@ On **rhel-qa** (first confine or a new feature):
 3. Generate (`dev_generate_policy.sh` pre-flights vendor/base policy first — JWS, EAP, httpd, named, postgresql), open a PR **on the app repo**. CI must run `forbidden-patterns` (copy [`.github/workflows/selinux-policy-ci.yml`](../../.github/workflows/selinux-policy-ci.yml) or call it as a reusable workflow). See [DETERMINISTIC_POLICY.md](DETERMINISTIC_POLICY.md) (vendor pre-flight).
 4. After merge: build `<app>-selinux` from **that** commit (`policy_version.txt` is the app’s policy NVR, not selinux-pac’s tag). AAP canary on prod.
 
-Do not copy Ansible playbooks into every app repo. Do not keep a second “live” `.te` in selinux-pac for a customer app; this repo’s `selinux/myapp.te` is the **fixture** for tests. The demo’s live allow list is [anurag-saran/myapp](https://github.com/anurag-saran/myapp).
+Do not copy Ansible playbooks into every app repo. Do not keep a second “live” `.te` in selinux-pac for a customer app; this repo’s `selinux/myapp.te` is the **fixture** for tests. The demo’s live allow list is generated into [`selinux/shopapi/`](../../selinux/shopapi/).
 
 **Fast path (still on this clone, for the payments example below):**
 

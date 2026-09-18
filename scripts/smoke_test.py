@@ -688,6 +688,77 @@ def test_demo_present_dry_run() -> None:
     assert tech.returncode == 0, tech_out
     assert "Act 5" in tech_out
     assert "demo_e2e_mac.sh" in tech_out
+    assert "flask" not in out.lower()
+    assert "8888" not in out
+
+
+def test_demo_e2e_scripts_dry_run() -> None:
+    """Mac/QA/prod talk tracks: shopapi, not Flask. QA/prod scripts refuse Darwin."""
+    mac = PROJECT_ROOT / "scripts" / "demo_e2e_mac.sh"
+    qa = PROJECT_ROOT / "scripts" / "demo_e2e_rhel_qa.sh"
+    prod = PROJECT_ROOT / "scripts" / "demo_e2e_rhel_prod.sh"
+    reset = PROJECT_ROOT / "scripts" / "reset_demo_vms.sh"
+    setup = PROJECT_ROOT / "scripts" / "setup_rhel_hosts.sh"
+
+    mac_run = subprocess.run(
+        [BASH, str(mac), "--dry-run", "--no-type", "--auto"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    mac_out = mac_run.stdout + mac_run.stderr
+    assert mac_run.returncode == 0, mac_out
+    assert "shopapi" in mac_out.lower()
+    assert "/feature-spool" in mac_out
+    assert "demo_e2e_rhel_qa.sh" in mac_out
+    assert "selinux/shopapi" in mac_out
+    assert "anurag-saran/myapp" not in mac_out
+    assert "setup_staging_env.sh" not in mac_out
+    assert "sync_myapp.sh" not in mac_out
+
+    qa_run = subprocess.run(
+        [BASH, str(qa), "--dry-run", "--no-type", "--auto", "--part", "app"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    qa_out = qa_run.stdout + qa_run.stderr
+    if sys.platform == "darwin":
+        assert qa_run.returncode != 0, qa_out
+        assert "not on the Mac" in qa_out
+    prod_run = subprocess.run(
+        [BASH, str(prod), "--dry-run", "--no-type", "--auto", "--part", "app"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    prod_out = prod_run.stdout + prod_run.stderr
+    if sys.platform == "darwin":
+        assert prod_run.returncode != 0, prod_out
+        assert "not on the Mac" in prod_out
+
+    reset_run = subprocess.run(
+        [BASH, str(reset), "--dry-run"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    reset_out = reset_run.stdout + reset_run.stderr
+    assert reset_run.returncode == 0, reset_out
+    assert "shopapi" in reset_out.lower()
+    assert "Would restore types-only selinux/shopapi/" in reset_out
+
+    boot = subprocess.run(
+        [BASH, str(setup), "bootstrap"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    boot_out = boot.stdout + boot.stderr
+    assert boot.returncode == 0, boot_out
+    assert "demo_bootstrap.sh --shopapi-only" in boot_out
+    assert "setup_staging_env.sh" not in boot_out
+    assert "Flask only" not in boot_out
 
 
 def test_demo_present_preflight_names_bootstrap() -> None:
@@ -1432,6 +1503,37 @@ def test_export_app_avcs_requires_paths() -> None:
     assert "paths_csv required" in result.stderr
 
 
+def test_avc_filter_keeps_pathless_bind_drops_passwd() -> None:
+    avc_lib = PROJECT_ROOT / "scripts" / "lib" / "avc_query.sh"
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"""
+source '{avc_lib}'
+avc_filter_lines_by_paths '/opt/shopapi,/var/lib/shopapi' 'shopapi_t' <<'AVC'
+type=AVC msg=audit(1): avc:  denied  {{ name_bind }} for  pid=1 comm="java" src=8091 scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=1
+type=AVC msg=audit(1): avc:  denied  {{ execmem }} for  pid=1 comm="java" scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:system_r:shopapi_t:s0 tclass=process permissive=1
+type=AVC msg=audit(1): avc:  denied  {{ read }} for  pid=1 comm="java" name="passwd" scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:object_r:passwd_file_t:s0 tclass=file permissive=1
+type=AVC msg=audit(1): avc:  denied  {{ append }} for  pid=1 comm="java" name="state.txt" scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:object_r:shopapi_var_lib_t:s0 tclass=file permissive=1
+type=AVC msg=audit(1): avc:  denied  {{ open }} for  pid=1 comm="java" path="/opt/shopapi/lib/libjli.so" scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:object_r:shopapi_exec_t:s0 tclass=file permissive=1
+type=AVC msg=audit(1): avc:  denied  {{ open }} for  pid=1 comm="java" path="/etc/passwd" scontext=system_u:system_r:shopapi_t:s0 tcontext=system_u:object_r:passwd_file_t:s0 tclass=file permissive=1
+AVC
+""",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "name_bind" in out
+    assert "execmem" in out
+    assert "state.txt" in out
+    assert "libjli.so" in out
+    assert "passwd" not in out
+
+
 def test_boolean_policy_render() -> None:
     from boolean_hints import BooleanMatch, render_boolean_finding, resolve_booleans_for_need
 
@@ -1584,6 +1686,7 @@ def main() -> int:
         ("monitor_avc_skip", test_monitor_avc_skip),
         ("vendor_policy_check", test_vendor_policy_check),
         ("demo_present_dry_run", test_demo_present_dry_run),
+        ("demo_e2e_scripts_dry_run", test_demo_e2e_scripts_dry_run),
         ("demo_present_preflight_names_bootstrap", test_demo_present_preflight_names_bootstrap),
         ("soak_net_new_empty_manifest", test_soak_net_new_empty_manifest),
         ("app_manifest", test_app_manifest),

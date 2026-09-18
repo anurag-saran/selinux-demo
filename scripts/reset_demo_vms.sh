@@ -3,7 +3,7 @@
 # reset_demo_vms.sh — Wipe leftover demo policy on rhel-qa and rhel-prod.
 #
 # Run on the Mac (Ansible controller) between rehearsals. Not part of the
-# customer talk. Does not uninstall Flask. Does not setenforce 0.
+# customer talk. Does not uninstall the JVM. Does not setenforce 0.
 #
 #   bash scripts/reset_demo_vms.sh
 #   bash scripts/reset_demo_vms.sh --dry-run
@@ -30,13 +30,16 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [options]
 
-Lab reset for a second run of the two-host talk. From the Mac:
+Lab reset for a second run of the two-host shopapi talk. From the Mac:
 
-  • Unload myapp / myapp_canary / myapp_ports and leftover seports
-  • Clear semanage permissive on myapp_t / myapp_backend_t
-  • On prod: rpm -e myapp-selinux selinux-policy-ops; delete soak/AVC files
-  • Restore this laptop’s selinux/myapp.te .fc policy_version.txt from git
-  • Leave /opt/myapp and systemd units in place
+  • Unload shopapi / shopapi_canary / shopapi_ports and leftover seports
+  • Clear semanage permissive on shopapi_t
+  • On prod: rpm -e shopapi-selinux selinux-policy-ops; delete soak/AVC files
+  • Restore this laptop’s types-only selinux/shopapi/ seed from git
+  • Leave /opt/shopapi and shopapi.service in place
+
+Also clears leftover Flask/myapp policy from older rehearsals. Flask is not
+the demo app.
 
 Not ansible/reset_host_state.yml (that only runs semodule -B and clears
 permissive; the module stays). Not emergency_rollback.yml.
@@ -100,7 +103,7 @@ if [[ -z "${ANSIBLE_SSH_USER:-}" ]]; then
 fi
 
 # Shared remote body. $1 is "dev" or "prod".
-# Unload policy leftovers; keep Flask. Host stays Enforcing.
+# Unload policy leftovers; keep the JVM. Host stays Enforcing.
 REMOTE_RESET=$(cat <<'REMOTE'
 set -u
 role="$1"
@@ -112,48 +115,57 @@ if ! command -v getenforce >/dev/null 2>&1; then
 fi
 
 if command -v semanage >/dev/null 2>&1; then
+    semanage port -d -t shopapi_port_t -p tcp 8091 2>/dev/null || true
     semanage port -d -t myapp_port_t -p tcp 8888 2>/dev/null || true
     semanage port -d -t myapp_backend_port_t -p tcp 8889 2>/dev/null || true
 fi
-for mod in myapp_ports myapp_canary myapp permissive_myapp_t permissive_myapp_backend_t; do
+for mod in shopapi_ports shopapi_canary shopapi permissive_shopapi_t \
+           myapp_ports myapp_canary myapp permissive_myapp_t permissive_myapp_backend_t; do
     semodule -r "${mod}" 2>/dev/null || true
 done
 if command -v semanage >/dev/null 2>&1; then
+    semanage port -d -t shopapi_port_t -p tcp 8091 2>/dev/null || true
     semanage port -d -t myapp_port_t -p tcp 8888 2>/dev/null || true
     semanage port -d -t myapp_backend_port_t -p tcp 8889 2>/dev/null || true
+    semanage permissive -d shopapi_t 2>/dev/null || true
     semanage permissive -d myapp_t 2>/dev/null || true
     semanage permissive -d myapp_backend_t 2>/dev/null || true
 fi
 
 if [[ "${role}" == prod ]]; then
     if command -v rpm >/dev/null 2>&1; then
+        rpm -q shopapi-selinux >/dev/null 2>&1 && rpm -e shopapi-selinux || true
         rpm -q myapp-selinux >/dev/null 2>&1 && rpm -e myapp-selinux || true
         rpm -q selinux-policy-ops >/dev/null 2>&1 && rpm -e selinux-policy-ops || true
     fi
-    rm -f /root/myapp-selinux-*.rpm /root/selinux-policy-ops-*.rpm 2>/dev/null || true
+    rm -f /root/shopapi-selinux-*.rpm /root/myapp-selinux-*.rpm /root/selinux-policy-ops-*.rpm 2>/dev/null || true
 fi
 
 semodule -B 2>/dev/null || true
 
-rm -f /var/lib/myapp/selinux_soak_last_fail.avc \
+rm -f /var/lib/shopapi/selinux_soak_last_fail.avc \
+      /var/lib/shopapi/selinux_soak_last_fail.json \
+      /var/lib/shopapi/selinux_canary_deployed_at \
+      /var/lib/myapp/selinux_soak_last_fail.avc \
       /var/lib/myapp/selinux_soak_last_fail.json \
       /var/lib/myapp/selinux_canary_deployed_at \
       /tmp/prod-feature-spool.avc \
       /tmp/emergency_avc.log 2>/dev/null || true
+rm -rf /var/lib/selinux-pac-demo/stamps 2>/dev/null || true
 
-restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp /var/spool/myapp 2>/dev/null || true
-if systemctl list-unit-files myapp.service >/dev/null 2>&1; then
-    systemctl restart myapp-backend.service myapp.service 2>/dev/null || true
+restorecon -Rv /opt/shopapi /var/lib/shopapi /var/log/shopapi /run/shopapi /var/spool/shopapi 2>/dev/null || true
+if systemctl list-unit-files shopapi.service >/dev/null 2>&1; then
+    systemctl restart shopapi.service 2>/dev/null || true
 fi
 
 echo "getenforce: $(getenforce)"
-if semodule -l 2>/dev/null | grep -E '^myapp($| )|^permissive_myapp'; then
-    echo "NOTE: a myapp-related module is still listed"
+if semodule -l 2>/dev/null | grep -E '^shopapi($| )|^permissive_shopapi|^myapp($| )|^permissive_myapp'; then
+    echo "NOTE: a leftover demo module is still listed"
 else
-    echo "Good: no myapp module loaded"
+    echo "Good: no shopapi (or leftover myapp) module loaded"
 fi
 if [[ "${role}" == prod ]] && command -v rpm >/dev/null 2>&1; then
-    rpm -q myapp-selinux selinux-policy-ops 2>/dev/null || echo "Good: demo policy RPMs not installed"
+    rpm -q shopapi-selinux myapp-selinux selinux-policy-ops 2>/dev/null || echo "Good: demo policy RPMs not installed"
 fi
 REMOTE
 )
@@ -170,50 +182,35 @@ ssh_sudo() {
     ssh "${SSH_OPTS[@]}" "${SSH_USER}@${host}" "sudo bash -s -- ${role}" <<<"${REMOTE_RESET}"
 }
 
-echo "Demo VM reset (policy leftovers only; Flask stays)."
+echo "Demo VM reset (policy leftovers only; shopapi JVM stays). Flask is not the demo app."
 echo "dev=${DEV_HOST} prod=${PROD_HOST} user=${SSH_USER}"
 [[ "${DRY}" -eq 1 ]] && echo "dry-run: no SSH, no git checkout"
 
 if [[ "${DO_DEV}" -eq 1 ]]; then
     if [[ "${DRY}" -eq 0 && -d "${PROJECT_ROOT}/.git" ]]; then
         git -C "${PROJECT_ROOT}" checkout -- \
-            selinux/myapp.te selinux/myapp.fc selinux/policy_version.txt
-        rm -f "${PROJECT_ROOT}/selinux/myapp.pp"
-        echo "Restored selinux-pac fixture selinux/myapp.te .fc policy_version.txt from git on this laptop."
+            selinux/shopapi/shopapi.te selinux/shopapi/shopapi.fc selinux/shopapi/policy_version.txt
+        rm -f "${PROJECT_ROOT}/selinux/shopapi/shopapi.pp"
+        echo "Restored types-only selinux/shopapi/ seed from git on this laptop."
     elif [[ "${DRY}" -eq 1 ]]; then
-        echo "Would restore selinux-pac fixture selinux/myapp.te .fc policy_version.txt from git on this laptop."
-    fi
-    MYAPP_ROOT="${MYAPP_ROOT:-$(cd "${PROJECT_ROOT}/.." && pwd)/myapp}"
-    if [[ "${DRY}" -eq 0 && -d "${MYAPP_ROOT}/.git" ]]; then
-        git -C "${MYAPP_ROOT}" checkout -- selinux 2>/dev/null || true
-        rm -f "${MYAPP_ROOT}/selinux/myapp.te" "${MYAPP_ROOT}/selinux/myapp.fc" \
-            "${MYAPP_ROOT}/selinux/policy_version.txt" "${MYAPP_ROOT}/selinux/myapp.pp"
-        rm -rf "${MYAPP_ROOT}/policy_out"
-        echo "Cleared generated policy in ${MYAPP_ROOT}/selinux (app GitHub repo)."
-    elif [[ "${DRY}" -eq 1 ]]; then
-        echo "Would clear generated policy in ${MYAPP_ROOT}/selinux."
+        echo "Would restore types-only selinux/shopapi/ seed from git on this laptop."
     fi
     ssh_sudo "${DEV_HOST}" dev
     if [[ "${DRY}" -eq 0 ]]; then
         ssh "${SSH_OPTS[@]}" "${SSH_USER}@${DEV_HOST}" \
-            'rm -f ~/myapp-selinux-*.rpm ~/selinux-policy-ops-*.rpm
+            'rm -f ~/shopapi-selinux-*.rpm ~/myapp-selinux-*.rpm ~/selinux-policy-ops-*.rpm
              if [[ -d ~/selinux-pac ]]; then
-               sudo rm -f ~/selinux-pac/selinux/myapp.pp
+               sudo rm -f ~/selinux-pac/selinux/shopapi/shopapi.pp
                sudo rm -rf ~/selinux-pac/policy_out ~/selinux-pac/dist
                sudo chown -R "$(id -un):$(id -gn)" ~/selinux-pac 2>/dev/null || true
-             fi
-             if [[ -d ~/myapp ]]; then
-               sudo rm -f ~/myapp/selinux/myapp.te ~/myapp/selinux/myapp.fc ~/myapp/selinux/policy_version.txt ~/myapp/selinux/myapp.pp
-               sudo rm -rf ~/myapp/policy_out
-               sudo chown -R "$(id -un):$(id -gn)" ~/myapp 2>/dev/null || true
              fi'
-        if ssh "${SSH_OPTS[@]}" "${SSH_USER}@${DEV_HOST}" 'test -d ~/selinux-pac/selinux'; then
+        if ssh "${SSH_OPTS[@]}" "${SSH_USER}@${DEV_HOST}" 'test -d ~/selinux-pac/selinux/shopapi'; then
             scp "${SSH_OPTS[@]}" \
-                "${PROJECT_ROOT}/selinux/myapp.te" \
-                "${PROJECT_ROOT}/selinux/myapp.fc" \
-                "${PROJECT_ROOT}/selinux/policy_version.txt" \
-                "${SSH_USER}@${DEV_HOST}:~/selinux-pac/selinux/"
-            echo "Copied git snapshot of fixture myapp.te / .fc / policy_version.txt onto rhel-qa selinux-pac (tests/labs)."
+                "${PROJECT_ROOT}/selinux/shopapi/shopapi.te" \
+                "${PROJECT_ROOT}/selinux/shopapi/shopapi.fc" \
+                "${PROJECT_ROOT}/selinux/shopapi/policy_version.txt" \
+                "${SSH_USER}@${DEV_HOST}:~/selinux-pac/selinux/shopapi/"
+            echo "Copied git snapshot of types-only shopapi.te / .fc / policy_version.txt onto rhel-qa."
         fi
     fi
 fi
@@ -222,10 +219,10 @@ if [[ "${DO_PROD}" -eq 1 ]]; then
     ssh_sudo "${PROD_HOST}" prod
     if [[ "${DRY}" -eq 0 ]]; then
         ssh "${SSH_OPTS[@]}" "${SSH_USER}@${PROD_HOST}" \
-            'rm -f ~/myapp-selinux-*.rpm ~/selinux-policy-ops-*.rpm /tmp/prod-feature-spool.avc'
+            'rm -f ~/shopapi-selinux-*.rpm ~/myapp-selinux-*.rpm ~/selinux-policy-ops-*.rpm /tmp/prod-feature-spool.avc'
     fi
 fi
 
 echo
 echo "Next: start docs/admin/RHEL_TWO_HOST.md at Part 1 (write / ping / rsync / scp)."
-echo "Do not canary until write_domain_seed.sh --load and generate --apply have run on rhel-qa."
+echo "Do not canary until demo_bootstrap.sh --shopapi-only and generate --apply have run on rhel-qa."

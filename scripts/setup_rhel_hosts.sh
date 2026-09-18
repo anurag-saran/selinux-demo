@@ -26,7 +26,7 @@ Subcommands:
   write     Write ansible/inventory.dev.yml (QA host rhel-qa) and inventory.production.yml
   ping      ansible ping both inventories
   doctor    getenforce / ausearch / sesearch on each host
-  bootstrap Print SSH commands to install the reference app on the QA box
+  bootstrap Print SSH commands to install shopapi on the QA box
 
 write options:
   --qa-host HOST      QA / discovery box IP or DNS (required; alias: --dev-host)
@@ -60,7 +60,7 @@ write_inventories() {
 # QA RHEL: policy discovery. File name inventory.dev.yml is legacy. soak_min_days=0 is lab-only.
 #
 # Controller-only (laptop / AAP): policy_artifact_dir, policy_pp_src.
-# On rhel-qa after clone + setup_staging_env.sh: selinux_ops_dir, app_manifest_path.
+# On rhel-qa after clone + demo_bootstrap.sh --shopapi-only: selinux_ops_dir, app_manifest_path.
 # Do not point those two at playbook_dir — that is a Mac/AAP path.
 
 all:
@@ -71,18 +71,18 @@ all:
       ansible_become: true
       ansible_python_interpreter: /usr/bin/python3
   vars:
-    app_name: myapp
-    domain: myapp_t
-    install_root: /opt/myapp
-    var_dir: /var/lib/myapp
-    log_dir: /var/log/myapp
-    runtime_dir: /run/myapp
-    service_name: myapp.service
+    app_name: shopapi
+    domain: shopapi_t
+    install_root: /opt/shopapi
+    var_dir: /var/lib/shopapi
+    log_dir: /var/log/shopapi
+    runtime_dir: /run/shopapi
+    service_name: shopapi.service
     selinux_ops_from_package: false
     selinux_ops_dir: ${checkout}/scripts
     policy_artifact_dir: "{{ playbook_dir }}/.."
-    policy_pp_src: "{{ policy_artifact_dir }}/selinux/{{ app_name }}.pp"
-    app_manifest_path: ${checkout}/config/myapp.manifest.yml
+    policy_pp_src: "{{ policy_artifact_dir }}/selinux/shopapi/shopapi.pp"
+    app_manifest_path: ${checkout}/config/shopapi.manifest.yml
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     soak_marker_file: "{{ var_dir }}/selinux_canary_deployed_at"
     soak_min_days: 0
@@ -112,16 +112,16 @@ all:
       ansible_become: true
       ansible_python_interpreter: /usr/bin/python3
   vars:
-    app_name: myapp
-    domain: myapp_t
-    install_root: /opt/myapp
-    var_dir: /var/lib/myapp
-    log_dir: /var/log/myapp
-    runtime_dir: /run/myapp
-    service_name: myapp.service
+    app_name: shopapi
+    domain: shopapi_t
+    install_root: /opt/shopapi
+    var_dir: /var/lib/shopapi
+    log_dir: /var/log/shopapi
+    runtime_dir: /run/shopapi
+    service_name: shopapi.service
     selinux_ops_from_package: true
     selinux_ops_dir: /usr/libexec/selinux-policy-ops
-    app_manifest_path: /etc/myapp/selinux-manifest.yml
+    app_manifest_path: /etc/shopapi/selinux-manifest.yml
     policy_artifact_dir: "{{ playbook_dir }}/.."
     policy_pp_src: ""
     ansible_env_path: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -167,9 +167,10 @@ doctor_hosts() {
     require_inventories
     require_ansible
     echo "=== doctor qa ==="
-    ansible -i "${DEV_INVENTORY}" all -b -m shell -a 'getenforce; command -v ausearch; command -v sesearch'
+    ansible -i "${DEV_INVENTORY}" all -b -m shell -a 'hostname; getenforce; command -v ausearch; command -v sesearch'
     echo "=== doctor prod ==="
-    ansible -i "${PROD_INVENTORY}" all -b -m shell -a 'getenforce; command -v ausearch; command -v sesearch; rpm -q selinux-policy-ops'
+    # rpm -q returns 1 when the package is absent. That is expected before canary RPMs.
+    ansible -i "${PROD_INVENTORY}" all -b -m shell -a 'hostname; getenforce; command -v ausearch; command -v sesearch; if rpm -q selinux-policy-ops >/dev/null 2>&1; then rpm -q selinux-policy-ops; else echo "selinux-policy-ops: not installed (expected before RPMs)"; fi'
 }
 
 print_bootstrap() {
@@ -180,34 +181,36 @@ print_bootstrap() {
     fi
     cat <<EOF
 === Bootstrap the QA RHEL box (run over SSH as a user with sudo) ===
-=== Next: docs/admin/RHEL_TWO_HOST.md Part 2 (look at the prompt: Mac vs rhel-qa) ===
+=== Next: docs/admin/RHEL_TWO_HOST.md (look at the prompt: Mac vs rhel-qa) ===
 
 ssh ${ANSIBLE_USER}@${dev_hint}
-sudo dnf install -y git python3 policycoreutils policycoreutils-python-utils \\
-  setools-console audit selinux-policy-devel
+sudo dnf install -y git java-17-openjdk-headless maven python3 python3-pyyaml \\
+  policycoreutils policycoreutils-python-utils setools-console audit selinux-policy-devel
 # Clone this repo on the box (or rsync from your laptop):
 git clone https://github.com/anurag-saran/selinux-pac.git ~/selinux-pac
 cd ~/selinux-pac
-# Flask only — no semodule. Curl unconfined first (empty AVC log), then:
-sudo bash scripts/setup_staging_env.sh --app-only
-# After ausearch shows no myapp denials — create the domain (not an allow list):
-sudo bash scripts/write_domain_seed.sh --load
+# Spring Boot shopapi + types-only seed (SELinuxContext=shopapi_t, permissive).
+# Do not install Flask. Do not curl /feature-spool yet.
+sudo bash scripts/demo_bootstrap.sh --shopapi-only
 sudo bash scripts/selinux_pac_adopt.sh doctor
 
-Generate on rhel-qa from AVCs into the **myapp** tree, copy sources + .pp back, open a GitHub PR on anurag-saran/myapp, then canary from the controller:
-  ssh ${ANSIBLE_USER}@${dev_hint} 'cd ~/selinux-pac && sudo bash scripts/dev_generate_policy.sh --apply --app-root ~/myapp && bash scripts/compile_and_validate.sh ~/myapp/selinux'
-  scp ${ANSIBLE_USER}@${dev_hint}:~/myapp/selinux/myapp.te ${ANSIBLE_USER}@${dev_hint}:~/myapp/selinux/myapp.fc ${ANSIBLE_USER}@${dev_hint}:~/myapp/selinux/policy_version.txt ${ANSIBLE_USER}@${dev_hint}:~/myapp/selinux/myapp.pp ../myapp/selinux/
+Generate on rhel-qa from first-ship AVCs into selinux/shopapi/, copy sources + .pp back,
+open a GitHub PR on selinux-pac, then canary from the controller:
+  ssh ${ANSIBLE_USER}@${dev_hint} 'cd ~/selinux-pac && sudo bash scripts/dev_generate_policy.sh --apply --allow-needs-review --app-name shopapi --app-root ~/selinux-pac && POLICY_MODULE=shopapi SELINUX_DOMAIN=shopapi_t bash scripts/compile_and_validate.sh ~/selinux-pac/selinux/shopapi'
+  scp ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/shopapi/shopapi.te ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/shopapi/shopapi.fc ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/shopapi/policy_version.txt ${ANSIBLE_USER}@${dev_hint}:~/selinux-pac/selinux/shopapi/shopapi.pp selinux/shopapi/
   bash scripts/demo_open_generated_pr.sh
   ansible-playbook -i ansible/inventory.dev.yml ansible/deploy_canary.yml
 
 === PROD RHEL box (no git clone) ===
-=== Explained in docs/admin/RHEL_TWO_HOST.md Part 2g + Part 6 ===
+=== Explained in docs/admin/RHEL_TWO_HOST.md ===
 
-# App first (scp app/ + setup_staging_env.sh --app-only). Then RPMs for policy.
-sudo dnf install -y python3 python3-pip policycoreutils policycoreutils-python-utils setools-console audit
-# After you build RPMs on the controller:
+# App first (scp demo/shopapi + demo_bootstrap.sh --shopapi-only --no-seed --unconfined).
+# Then RPMs for policy. Do not install Flask.
+sudo dnf install -y java-17-openjdk-headless python3 python3-pyyaml \\
+  policycoreutils policycoreutils-python-utils setools-console audit
+# After you build RPMs on the controller (or rhel-qa):
 #   bash packaging/build_rpms.sh
-# Install selinux-policy-ops + myapp-selinux from your internal repo, then:
+# Install selinux-policy-ops + shopapi-selinux from your internal repo, then:
   ansible-playbook -i ansible/inventory.production.yml ansible/deploy_canary.yml --limit canary
   ansible-playbook -i ansible/inventory.production.yml ansible/soak_monitor.yml --limit canary
 # Customer prod waits 7 days. Talk-only: add -e force_enforce=true (still needs a ticket).

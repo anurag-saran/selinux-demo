@@ -132,21 +132,11 @@ if [[ -z "${raw}" ]] && ! command -v ausearch >/dev/null 2>&1 && [[ ! -f /var/lo
     exit 1
 fi
 
-IFS=',' read -r -a path_filters <<< "${PATHS}"
 matches=()
 while IFS= read -r line; do
     [[ -z "${line}" ]] && continue
-    ok=0
-    if [[ ${#path_filters[@]} -eq 0 ]]; then
-        ok=1
-    else
-        for p in "${path_filters[@]}"; do
-            p="${p// /}"
-            [[ -n "${p}" && "${line}" == *"${p}"* ]] && ok=1 && break
-        done
-    fi
-    [[ "${ok}" -eq 1 ]] && matches+=("${line}")
-done <<< "${raw}"
+    matches+=("${line}")
+done < <(printf '%s\n' "${raw}" | avc_filter_lines_by_paths "${PATHS}" "${DOMAIN}")
 
 count="${#matches[@]}"
 

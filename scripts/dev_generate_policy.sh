@@ -203,7 +203,7 @@ require_local_export_privileges() {
     log_error "This step must run with sudo."
     log_error "It reads the audit log and writes policy_out/ (that folder is often owned by root after setup_staging_env.sh)."
     echo "  cd ~/selinux-pac"
-    echo "  sudo bash scripts/dev_generate_policy.sh --apply --app-root ~/myapp"
+    echo "  sudo bash scripts/dev_generate_policy.sh --apply --app-name shopapi --app-root ~/selinux-pac"
     exit 1
 }
 
@@ -230,9 +230,9 @@ export_avcs() {
     log_info "Exporting AVCs from local audit log (avc_query pipeline)..."
     export_app_avcs_to_file "${AVC_LOG}" boot "${PRIMARY_DOMAIN}" "${BACKEND_DOMAIN:-}" "${PATHS_CSV}"
     [[ -s "${AVC_LOG}" ]] || {
-        log_error "No AVC lines in ${AVC_LOG}. Run staging tests first:"
-        echo "  sudo bash scripts/setup_staging_env.sh"
-        echo "  curl http://127.0.0.1:8888/save-log"
+        log_error "No AVC lines in ${AVC_LOG}. Exercise the app first (shopapi: curl /health /state /log)."
+        echo "  sudo bash scripts/demo_bootstrap.sh --shopapi-only"
+        echo "  curl http://127.0.0.1:8091/health"
         exit 1
     }
     log_info "Exported $(wc -l < "${AVC_LOG}" | tr -d ' ') AVC lines to ${AVC_LOG}"

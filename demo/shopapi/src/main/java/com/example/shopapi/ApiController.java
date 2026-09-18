@@ -72,7 +72,31 @@ public class ApiController {
         return Map.of(
             "stateDir", stateDir().toString(),
             "logDir", logDir().toString(),
+            "spoolDir", spoolDir().toString(),
             "port", envOr("SHOPAPI_PORT", "8091")
         );
+    }
+
+    /**
+     * First-ship policy does not label this path. After enforce it must 500 + AVC
+     * until a second generate. Do not curl it during soak.
+     */
+    @GetMapping(value = "/feature-spool", produces = MediaType.TEXT_PLAIN_VALUE)
+    public String featureSpool() throws IOException {
+        Path dir = spoolDir();
+        Files.createDirectories(dir);
+        Path f = dir.resolve("feature.log");
+        Files.writeString(
+            f,
+            Instant.now() + " feature\n",
+            StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.APPEND
+        );
+        return "SPOOL " + f + "\n";
+    }
+
+    private static Path spoolDir() {
+        return Path.of(envOr("SHOPAPI_SPOOL_DIR", "/var/spool/shopapi"));
     }
 }
