@@ -2,6 +2,8 @@
 
 You have **three computers**. Only the two Linux VMs run SELinux. The Mac is the remote control.
 
+**LAST_VERIFIED:** 2026-09-18 — live Mac + rhel-qa (`192.168.64.6`) + rhel-prod (`192.168.64.5`). First-ship generate → PR → prod canary/soak/`force_enforce` → `/feature-spool` HTTP 500 → `emergency_rollback.yml` → second generate → recanary → `/feature-spool` 200 under enforcing. Host stayed Enforcing.
+
 The **customer talk** (vendor Tomcat already enforcing → tune inherited Tomcat → generate for Spring Boot) is **[202](../training/202-DEMO_GUIDE.md)** (`demo_present.sh`, one host, ~20 min). This file is the **~45 min three-host** walkthrough: ship shopapi policy with Ansible. Do not open this script in front of a customer who has not seen 202.
 
 **Demo application is Spring Boot `shopapi`.** Offline `make check` uses deterministic fixtures. Do not install a second demo app on the VMs.
@@ -72,7 +74,7 @@ Lab QA inventory has `soak_min_days: 0`. **Never copy that onto prod.**
 bash scripts/reset_demo_vms.sh
 ```
 
-Unloads leftover `shopapi` modules and prod RPMs. Restores the types-only `selinux/shopapi/` seed from git. Does not uninstall the JVM.
+Unloads leftover `shopapi` modules and prod RPMs. Restores the types-only `selinux/shopapi/` seed from git. Clears the current and rotated audit logs so a second first-generate does not ingest leftover `/feature-spool` AVCs. Does not uninstall the JVM.
 
 ---
 

@@ -174,6 +174,17 @@ fi
 
 semodule -B 2>/dev/null || true
 
+# Lab only: drop leftover AVCs (including rotated logs — ausearch --input-logs
+# reads them) so a second 203 first-generate does not include /feature-spool
+# from a prior 101/202 run on the same VM.
+if command -v service >/dev/null 2>&1; then
+    service auditd stop >/dev/null 2>&1 || true
+    # Glob must run as root (this remote body already does).
+    rm -f /var/log/audit/audit.log.* 2>/dev/null || true
+    : > /var/log/audit/audit.log 2>/dev/null || true
+    service auditd start >/dev/null 2>&1 || true
+fi
+
 rm -f /var/lib/shopapi/selinux_soak_last_fail.avc \
       /var/lib/shopapi/selinux_soak_last_fail.json \
       /var/lib/shopapi/selinux_canary_deployed_at \
