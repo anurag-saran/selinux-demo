@@ -4,7 +4,7 @@ Guides are numbered like a course. **100** = learn, **200** = demo and develop, 
 
 | Band | Meaning | Start |
 |------|---------|--------|
-| **100** | Labels, one AVC, generate a module | **[101](training/101-SELINUX.md)** |
+| **100** | Labels, one AVC, generate a module | **[101](training/101-SELINUX.md)** then **[102](training/102-SELINUX_BASICS.md)** |
 | **200** | Three-app talk, two-host lab, generator, new apps | **[202](training/202-DEMO_GUIDE.md)** (after 101) |
 | **300** | AAP, soak, incidents, org rollout | **[301](admin/301-ANSIBLE_OPERATIONS.md)** |
 
@@ -14,7 +14,7 @@ Guides are numbered like a course. **100** = learn, **200** = demo and develop, 
 | **Where** | Which machine and directory (controller vs RHEL server vs repo root) |
 | **What / good sign** | What the command does and how you know it worked |
 
-**Terms** like domain, AVC, `.te`, and **`semanage`** are defined in **[102](policy/102-SELINUX_BASICS.md)**.
+**Terms** like domain, AVC, `.te`, and **`semanage`** are defined in **[102](training/102-SELINUX_BASICS.md)**.
 
 | You are | Start here |
 |---------|------------|
@@ -32,7 +32,7 @@ Guides are numbered like a course. **100** = learn, **200** = demo and develop, 
 | # | Guide | You need |
 |---|--------|----------|
 | **101** | [SELinux 101](training/101-SELINUX.md) | Typed shopapi loop on **one** RHEL box |
-| **102** | [SELinux basics](policy/102-SELINUX_BASICS.md) | Reading primer (lab 0 is §1–4) |
+| **102** | [SELinux basics](training/102-SELINUX_BASICS.md) | Reading primer (lab 0 is §1–4) |
 | **103** | [Hands-on recap](training/103-TRAINING_LAB.md) | One-screen recap after 101; `make training-lab` is the talk dry-run |
 
 ### 200 — Demo and develop

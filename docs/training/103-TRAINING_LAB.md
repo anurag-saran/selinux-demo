@@ -7,7 +7,7 @@ There is no separate Flask lab or `selinux/stub/` overlay. `make training-lab` i
 | # | Guide | Role |
 |---|--------|------|
 | **101** | [SELinux 101](101-SELINUX.md) | Pre-talk labs 0–7 — type these on **rhel-qa** |
-| **102** | [SELinux basics](../policy/102-SELINUX_BASICS.md) | Reading primer — 101 lab 0 is §1–4 |
+| **102** | [SELinux basics](102-SELINUX_BASICS.md) | Reading primer — 101 lab 0 is §1–4 |
 | **201** | [Code walkthrough](201-CODE_WALKTHROUGH.md) | Where scripts and tools live |
 | **202** | [Three-app customer talk](202-DEMO_GUIDE.md) | `demo_present.sh`: vendor Tomcat → tune Tomcat → generate shopapi |
 | **203** | [Two Linux VMs](../admin/203-RHEL_TWO_HOST.md) | Two-host shopapi generate / canary / soak |

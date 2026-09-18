@@ -6,12 +6,12 @@ Day-to-day runbook for **shipping SELinux policy** with application teams. Ansib
 
 | You are… | Read first | Then |
 |----------|------------|------|
-| **New to SELinux** | [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
+| **New to SELinux** | [102-SELINUX_BASICS.md](../training/102-SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
 | **Running day-to-day deploys** | [301-ANSIBLE_OPERATIONS.md](301-ANSIBLE_OPERATIONS.md) then [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) | Phases 1–6 as your checklist |
 | **Reviewing policy PRs** | [207-SELINUX_BEST_PRACTICES.md](../policy/207-SELINUX_BEST_PRACTICES.md) §8 | PR template + CI mapping §15 |
 | **Optional training** | [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md) (three-app talk) | This guide from section 4 onward |
 
-**Learning path:** [203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md) → [301-ANSIBLE_OPERATIONS.md](301-ANSIBLE_OPERATIONS.md) → [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) → **this guide**. Concepts: [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
+**Learning path:** [203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md) → [301-ANSIBLE_OPERATIONS.md](301-ANSIBLE_OPERATIONS.md) → [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) → **this guide**. Concepts: [102-SELINUX_BASICS.md](../training/102-SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
 
 **Where this guide applies:** two RHEL boxes (QA + prod) from a controller — [203-RHEL_TWO_HOST.md](203-RHEL_TWO_HOST.md). Commands like `semanage`, `semodule`, Ansible playbooks, and soak checks run on **those servers**.
 
@@ -46,7 +46,7 @@ High-blast-radius SELinux changes need **per-domain permissive soak**, **path la
 | **semanage** | Tool on the **server** that adds/removes domains from the permissive list (`-a` / `-d`) and manages ports/booleans in the live policy DB |
 | **Vendor policy** | Module Red Hat already ships (JWS/Tomcat, EAP, httpd, …). Generate a custom module only when none exists; see §2.5 |
 
-SELinux theory (labels, `.te`/`.fc`, `semanage` examples): [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md).
+SELinux theory (labels, `.te`/`.fc`, `semanage` examples): [102-SELINUX_BASICS.md](../training/102-SELINUX_BASICS.md).
 
 ---
 
@@ -141,7 +141,7 @@ Enforce   semanage permissive -d myapp_t
 
 **If policy changes during soak:** redeploy canary, extend `.te`, and **reset the soak clock** (new marker timestamp). See [§14 Troubleshooting](#14-troubleshooting).
 
-Full timeline for beginners: [102-SELINUX_BASICS.md §7.5](../policy/102-SELINUX_BASICS.md).
+Full timeline for beginners: [102-SELINUX_BASICS.md §7.5](../training/102-SELINUX_BASICS.md).
 
 ---
 
@@ -215,7 +215,7 @@ ansible-playbook ... ansible/deploy_canary.yml -e "canary_max_avc=2"
 
 Do not raise the threshold to bypass missing policy — fix `.te`, redeploy, and re-soak instead.
 
-**List vs add:** `semanage permissive -l` lists domains; `-a` adds, `-d` removes. See [102-SELINUX_BASICS.md §7](../policy/102-SELINUX_BASICS.md).
+**List vs add:** `semanage permissive -l` lists domains; `-a` adds, `-d` removes. See [102-SELINUX_BASICS.md §7](../training/102-SELINUX_BASICS.md).
 
 ---
 
@@ -247,7 +247,7 @@ This runs `matchpathcon` on key paths and fails if `restorecon -Rv -n` would rel
 
 Always run verification immediately after policy install and before `systemctl restart`.
 
-Full `restorecon` walkthrough: [102-SELINUX_BASICS.md §6](../policy/102-SELINUX_BASICS.md).
+Full `restorecon` walkthrough: [102-SELINUX_BASICS.md §6](../training/102-SELINUX_BASICS.md).
 
 ---
 
@@ -513,7 +513,7 @@ Before you enforce on production, confirm:
 | Problem | What it looks like | What to do |
 |---------|-------------------|------------|
 | **Enforce fails soak gate** | `Soak period not met` or `Too many AVC denials` | Wait remaining days; fix policy from AVCs; redeploy canary — do **not** use `force_enforce` without approval |
-| **Mislabeled files after deploy** | `verify_file_contexts.sh` fails | Run `restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp`; re-verify; see [Basics §6](../policy/102-SELINUX_BASICS.md) |
+| **Mislabeled files after deploy** | `verify_file_contexts.sh` fails | Run `restorecon -Rv /opt/myapp /var/lib/myapp /var/log/myapp /run/myapp`; re-verify; see [Basics §6](../training/102-SELINUX_BASICS.md) |
 | **AVCs spike during soak** | `soak_monitor.yml` fails (`net_new_count` > 0) | [303-DENIAL_RESPONSE.md](303-DENIAL_RESPONSE.md) — copy `selinux_soak_last_fail.*`, PR, recanary; **reset soak clock**. Do **not** `semodule -i` on the host |
 | **Ansible inventory missing** | `Could not match supplied host pattern` | Copy `inventory.production.example.yml` → `inventory.production.yml`; set real hostnames |
 | **Canary marker missing** | `Canary marker not found` | Run `deploy_canary.yml` first — marker is written on canary deploy |
@@ -554,7 +554,7 @@ Developer workflow and PR assembly: [README.md](../../README.md) and [202-DEMO_G
 
 | Guide | Sections to read | Audience |
 |-------|------------------|----------|
-| [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md) | §7 two-layer model; §7.5 soak timeline; §8 avc.log filter | New to SELinux |
+| [102-SELINUX_BASICS.md](../training/102-SELINUX_BASICS.md) | §7 two-layer model; §7.5 soak timeline; §8 avc.log filter | New to SELinux |
 | [207-SELINUX_BEST_PRACTICES.md](../policy/207-SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
 | [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`); two-host pipeline (`demo_e2e_*.sh`) | Presenters |
 | [204-DETERMINISTIC_POLICY.md](../developers/204-DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |

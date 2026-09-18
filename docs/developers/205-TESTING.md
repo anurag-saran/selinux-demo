@@ -8,7 +8,7 @@ This document is the **single reference** for how this repository tests SELinux 
 | **Policy author opening a PR** | §4 CI on pull requests | §5 Shell gate scripts |
 | **Admin / SRE** | §6 Staging and production gates | [`203-RHEL_TWO_HOST.md`](../admin/203-RHEL_TWO_HOST.md), [`301-ANSIBLE_OPERATIONS.md`](../admin/301-ANSIBLE_OPERATIONS.md), [`302-PRODUCTION_READINESS.md`](../admin/302-PRODUCTION_READINESS.md) |
 
-Related: endpoint SELinux concepts in **[102](../policy/102-SELINUX_BASICS.md)** §9; typed labs in **[101](../training/101-SELINUX.md)**; paced walkthrough in **[202](../training/202-DEMO_GUIDE.md)**; **file-by-file code tour** in **[201](../training/201-CODE_WALKTHROUGH.md)**. **Catalog:** [`README.md`](../README.md).
+Related: endpoint SELinux concepts in **[102](../training/102-SELINUX_BASICS.md)** §9; typed labs in **[101](../training/101-SELINUX.md)**; paced walkthrough in **[202](../training/202-DEMO_GUIDE.md)**; **file-by-file code tour** in **[201](../training/201-CODE_WALKTHROUGH.md)**. **Catalog:** [`README.md`](../README.md).
 
 **Convention:** **Repo root** = directory with `Makefile` and `scripts/`. Offline `make check` uses deterministic goldens (`selinux/myapp.te`, `config/myapp.manifest.yml`) plus shopapi/payments modules. Live probes run on **RHEL** against **shopapi** ([203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md)).
 

@@ -6,7 +6,7 @@ The **customer talk** is **202** — three applications (vendor Tomcat already e
 
 | You are | Start here |
 |---------|------------|
-| **New to SELinux** | **[101](docs/training/101-SELINUX.md)** then **[202](docs/training/202-DEMO_GUIDE.md)** |
+| **New to SELinux** | **[101](docs/training/101-SELINUX.md)** → **[102](docs/training/102-SELINUX_BASICS.md)** → **[202](docs/training/202-DEMO_GUIDE.md)** |
 | **RHEL admin (customer env)** | [Admins: your environment](#admins-your-environment) |
 | **Trying this on a Mac** | [Try it on a Mac](#try-it-on-a-mac) |
 | **Application developer** | [Developers](#developers) and **[206](docs/developers/206-ONBOARDING.md)** |
@@ -217,10 +217,10 @@ selinux/      Policy source of truth (.te/.fc, policy_version.txt)
 ansible/      selinux_pac role + aap/ Controller workflows
 packaging/    selinux-policy-ops + <app>-selinux; publish_internal.sh
 scripts/      setup_rhel_hosts.sh (admins), demo_e2e_*.sh (three-window lab talk track)
-docs/training/    101 labs, 103 recap, 201 walkthrough, 202 talk
+docs/training/    101 labs, 102 basics, 103 recap, 201 walkthrough, 202 talk
 docs/admin/       203 two-host, 301–304 ship/run
 docs/developers/  204 generator, 205 tests, 206 onboarding
-docs/policy/      102 basics, 207 best practices
+docs/policy/      207 best practices
 ```
 
 ---

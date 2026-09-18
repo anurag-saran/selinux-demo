@@ -8,7 +8,7 @@ This guide captures **design principles and anti-patterns** enforced in this rep
 | **Security / admin reviewer** | PR review checklist and gates | [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md), §Review checklist below |
 | **RHEL admin running deploy** | Step-by-step rollout | [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md), [302-PRODUCTION_READINESS.md](../admin/302-PRODUCTION_READINESS.md), [ansible/README.md](../../ansible/README.md) |
 | **Testing / CI author** | Endpoint matrix, smoke tests, gates | [205-TESTING.md](../developers/205-TESTING.md) |
-| **New to SELinux concepts** | Labels, soak, permissive domains | [102-SELINUX_BASICS.md](102-SELINUX_BASICS.md) |
+| **New to SELinux concepts** | Labels, soak, permissive domains | [102-SELINUX_BASICS.md](../training/102-SELINUX_BASICS.md) |
 
 **Doc index and reading order:** [README.md](../README.md).
 
@@ -246,7 +246,7 @@ Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_re
 | [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md) | AAP workflows (`ansible/aap/`) and soak monitor |
 | [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md) | File/port AVC after ship → PR |
 | [../ansible/README.md](../../ansible/README.md) | Ansible playbook task order and variables |
-| [102-SELINUX_BASICS.md](102-SELINUX_BASICS.md) | Concepts and beginner mistakes |
+| [102-SELINUX_BASICS.md](../training/102-SELINUX_BASICS.md) | Concepts and beginner mistakes |
 | [202-DEMO_GUIDE.md](../training/202-DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) |
 | [302-PRODUCTION_READINESS.md](../admin/302-PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
 | [README.md](../../README.md) | Commands, CI, Ansible pointer |

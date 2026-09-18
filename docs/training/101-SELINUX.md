@@ -1,6 +1,6 @@
 # 101 — SELinux 101 (commands before the demo)
 
-Finish this guide **before** the three-app talk (**[202](202-DEMO_GUIDE.md)**). The talk is short because it assumes you can already: read a label, decode one AVC, generate a module from that log, load it, see that the **same** denial is not added again, then watch a **new** URL fail under enforcing and fix only the net-new rule.
+Finish this guide **before** the three-app talk (**[202](202-DEMO_GUIDE.md)**). Words and labels are **[102](102-SELINUX_BASICS.md)** (skim §1–4 in lab 0). The talk is short because it assumes you can already: read a label, decode one AVC, generate a module from that log, load it, see that the **same** denial is not added again, then watch a **new** URL fail under enforcing and fix only the net-new rule.
 
 This page is that practice. One app (**shopapi**), one RHEL box, typed commands. It is not the customer talk and not the two-host AAP pipeline.
 
@@ -58,7 +58,7 @@ Need two VMs from a Mac first? [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST
 
 **Why:** every later lab is “this **type** tried to do **this permission** to **that type**.” If the third field of a label is fuzzy, the AVC will look like noise.
 
-**Read:** **[102](../policy/102-SELINUX_BASICS.md)** §1–4 (labels, the four-part context, `ls -Z` vs `ps -eZ`).
+**Read:** **[102](102-SELINUX_BASICS.md)** §1–4 (labels, the four-part context, `ls -Z` vs `ps -eZ`).
 
 **Type this** (optional, on rhel-qa):
 

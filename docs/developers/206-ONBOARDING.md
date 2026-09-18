@@ -4,7 +4,7 @@
 
 This repository is the **platform** (generator, forbidden-pattern CI, Ansible/AAP, ops RPM). The live two-host demo application is **shopapi** (`demo/shopapi/`, `selinux/shopapi/`) — policy PRs land **here**. `selinux/myapp.te` and `config/myapp.manifest.yml` remain **offline generator goldens** for `make check`.
 
-**Prerequisites:** [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). Deploy: [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md). Prod AVC: [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md). Two-host lab: [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md). Org checklist: [304-ADOPTION_CHECKLIST.md](../admin/304-ADOPTION_CHECKLIST.md).
+**Prerequisites:** [102-SELINUX_BASICS.md](../training/102-SELINUX_BASICS.md) §1–7 and [config/README.md](../../config/README.md). Deploy: [301-ANSIBLE_OPERATIONS.md](../admin/301-ANSIBLE_OPERATIONS.md). Prod AVC: [303-DENIAL_RESPONSE.md](../admin/303-DENIAL_RESPONSE.md). Two-host lab: [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md). Org checklist: [304-ADOPTION_CHECKLIST.md](../admin/304-ADOPTION_CHECKLIST.md).
 
 ---
 

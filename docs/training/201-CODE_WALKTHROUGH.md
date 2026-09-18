@@ -6,7 +6,7 @@ You do **not** need to know every script on day one. Read this in order, pause w
 
 | Your goal | Start here |
 |-----------|------------|
-| Understand SELinux words (domain, AVC, `.te`) | **[102](../policy/102-SELINUX_BASICS.md)** §1–7 |
+| Understand SELinux words (domain, AVC, `.te`) | **[102](102-SELINUX_BASICS.md)** §1–7 |
 | **Practice commands on a SELinux host** | **[101](101-SELINUX.md)** (then **[103](103-TRAINING_LAB.md)**) |
 | See how this tool fits together | [What SELinux PaC does](#what-selinux-pac-does-in-plain-english) → [Story of one policy change](#story-of-one-policy-change) |
 | Find a folder or file | [Directory map](#directory-map-what-each-folder-is-for) |
@@ -36,7 +36,7 @@ macOS has no SELinux — [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md) t
 
 ## Words you will see in this repo
 
-If any term is fuzzy, open [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.md). Quick reminders:
+If any term is fuzzy, open [102-SELINUX_BASICS.md](102-SELINUX_BASICS.md). Quick reminders:
 
 | Term | Plain English |
 |------|----------------|
@@ -47,7 +47,7 @@ If any term is fuzzy, open [102-SELINUX_BASICS.md](../policy/102-SELINUX_BASICS.
 | **AVC** | A log line: “this process tried to do X and policy said no.” |
 | **Domain** | The SELinux type of a **running** process (e.g. `myapp_t`). |
 | **Manifest** | YAML file listing app name, paths, HTTP test URLs, and domains — so scripts do not hardcode `myapp`. |
-| **semanage** | Linux admin tool that changes SELinux’s **live** settings (per-domain permissive, port labels, booleans) — see [102-SELINUX_BASICS.md §7](../policy/102-SELINUX_BASICS.md) |
+| **semanage** | Linux admin tool that changes SELinux’s **live** settings (per-domain permissive, port labels, booleans) — see [102-SELINUX_BASICS.md §7](102-SELINUX_BASICS.md) |
 | **`policy_out/`** | Local scratch folder for generated files (not committed to git). |
 | **`selinux/`** | The **real** policy source your team reviews in pull requests. |
 
@@ -92,7 +92,7 @@ flowchart TD
 **Step by step:**
 
 1. **Staging** — `scripts/demo_bootstrap.sh --shopapi-only` installs Spring Boot and puts `shopapi_t` in permissive mode so you can collect denials safely.
-2. **Trigger the app** — curl first-ship `/health` `/state` `/log` on :8091. See [102-SELINUX_BASICS.md §9](../policy/102-SELINUX_BASICS.md) for the mapping.
+2. **Trigger the app** — curl first-ship `/health` `/state` `/log` on :8091. See [102-SELINUX_BASICS.md §9](102-SELINUX_BASICS.md) for the mapping.
 3. **Export AVCs** — `scripts/dev_generate_policy.sh --app shopapi` calls `lib/avc_query.sh` with paths and domains from **`config/shopapi.manifest.yml`**.
 4. **Generate policy** — Default engine is **`cli/deterministic_gen.py`** (offline, rule-based). Optional: **`cli/summarize_pr.py`** polishes `pr_summary.md` only. Legacy all-in-one LLM: **`cli/selinux_gen.py --legacy-full-policy`**.
 5. **Review** — Output lands in **`policy_out/`** (`.te`, `.fc`, `pr_summary.md`, `findings.json`). You compare to **`selinux/`** and open a PR.
@@ -325,7 +325,7 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 
 ## Suggested path for new contributors
 
-1. Type **[101](101-SELINUX.md)** on a SELinux VM (**[102](../policy/102-SELINUX_BASICS.md)** §1–4 if labels are fuzzy).
+1. Type **[101](101-SELINUX.md)** on a SELinux VM (**[102](102-SELINUX_BASICS.md)** §1–4 if labels are fuzzy).
 2. Watch **[202](202-DEMO_GUIDE.md)**.
 3. Skim [README.md](../../README.md) architecture diagram.
 4. Open **`config/shopapi.manifest.yml`** and **`demo/shopapi/`** — match each first-ship path to a permission story. Generator goldens live in **`selinux/myapp.te`**.
@@ -355,7 +355,7 @@ Numbered catalog: [docs/README.md](../README.md).
 | # | Guide | Best for |
 |---|--------|----------|
 | **101** | [SELinux 101](101-SELINUX.md) | Typed shopapi labs before the talk |
-| **102** | [SELinux basics](../policy/102-SELINUX_BASICS.md) | First-time SELinux readers |
+| **102** | [SELinux basics](102-SELINUX_BASICS.md) | First-time SELinux readers |
 | **103** | [Hands-on recap](103-TRAINING_LAB.md) | After 101: recap + `demo_present.sh` |
 | **202** | [Three-app customer talk](202-DEMO_GUIDE.md) | `demo_present.sh` |
 | **203** | [Two Linux VMs](../admin/203-RHEL_TWO_HOST.md) | QA + prod |
