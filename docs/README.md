@@ -40,8 +40,8 @@ Guides are numbered like a course. **100** = learn, **200** = demo and develop, 
 | # | Guide | You need |
 |---|--------|----------|
 | **201** | [Code walkthrough](training/201-CODE_WALKTHROUGH.md) | What each folder and script is for |
-| **202** | [Three-app customer talk](training/202-DEMO_GUIDE.md) | `demo_present.sh` — finish **101** first |
-| **203** | [Two Linux VMs](admin/203-RHEL_TWO_HOST.md) | QA + prod + Mac Ansible (`demo_e2e_*.sh`) |
+| **202** | [Three-app customer talk](training/202-DEMO_GUIDE.md) | `demo_present.sh` — one host, ~20 min; finish **101** first |
+| **203** | [Two Linux VMs](admin/203-RHEL_TWO_HOST.md) | `demo_e2e_*.sh` — three hosts, ~45 min |
 | **204** | [Deterministic policy](developers/204-DETERMINISTIC_POLICY.md) | Offline AVC → `.te` / `.fc` |
 | **205** | [Testing](developers/205-TESTING.md) | `make check`, CI, endpoints |
 | **206** | [Onboarding an application](developers/206-ONBOARDING.md) | Point a developer at a new app |

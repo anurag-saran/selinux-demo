@@ -38,11 +38,16 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [options]
 
-Three situations, one talk: vendor already enforcing (App A) → tune inherited
-Tomcat (App B, no .te) → generate for Spring Boot (shopapi).
+Single-host customer talk (~20 min): vendor Tomcat already enforcing (App A) →
+tune inherited Tomcat (App B, no .te) → generate for Spring Boot (shopapi).
+
+  One RHEL box. Do not run this as the three-host production walkthrough.
+  Multi-host (~45 min, Mac + rhel-qa + rhel-prod):  bash scripts/demo_e2e_mac.sh
+  Guide: docs/training/202-DEMO_GUIDE.md
 
 Options:
-  --profile customer|technical   Short path (~20 min) or full pipeline
+  --profile customer|technical   customer = acts 0,1,2,3 (~20 min)
+                                 technical = 0–5 (adds PR + points at demo_e2e_mac.sh)
   --acts LIST                    Comma-separated act numbers (overrides --profile)
   --preflight                    Check the host and exit (pass/fail table)
   --dry-run                      Print narration + commands; execute nothing
@@ -54,6 +59,7 @@ Options:
 
 Laptop with no RHEL:  bash scripts/demo_present.sh --dry-run --profile customer
 Unprepared VM:        make demo-bootstrap
+Second Act 2 on the same host:  bash scripts/reset_demo_vms.sh --dev-only
 EOF
 }
 
@@ -121,6 +127,57 @@ port_listening() {
     return 1
 }
 
+# True if APP_B_PORT is in the local customizations (semanage -C), not the
+# stock http_port_t list. A second Act 2 on a labelled port produces no name_bind.
+app_b_port_labelled() {
+    local port="${APP_B_PORT}"
+    command -v semanage >/dev/null 2>&1 || return 1
+    if semanage port -l -C 2>/dev/null | awk -v p="${port}" '
+        $2 == "tcp" {
+            line = $0
+            sub(/^[^ \t]+[ \t]+tcp[ \t]+/, "", line)
+            n = split(line, parts, /,[ \t]*/)
+            for (i = 1; i <= n; i++) {
+                gsub(/[ \t]/, "", parts[i])
+                if (parts[i] == p) exit 0
+                if (parts[i] ~ /^[0-9]+-[0-9]+$/) {
+                    split(parts[i], r, /-/)
+                    if ((p + 0) >= (r[1] + 0) && (p + 0) <= (r[2] + 0)) exit 0
+                }
+            }
+        }
+        END { exit 1 }
+    '; then
+        return 0
+    fi
+    return 1
+}
+
+app_b_fcontext_custom() {
+    command -v semanage >/dev/null 2>&1 || return 1
+    if semanage fcontext -l -C 2>/dev/null | grep -F "${APP_B_DATA}" >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+# Prints the first connect boolean that is on; return 1 if none are on.
+app_b_connect_boolean_on() {
+    local b
+    for b in tomcat_can_network_connect jws6_can_network_connect \
+        jws_can_network_connect httpd_can_network_connect; do
+        if getsebool "${b}" 2>/dev/null | grep -q '--> on'; then
+            printf '%s' "${b}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+app_b_reset_hint() {
+    echo "bash scripts/reset_demo_vms.sh --dev-only   (or: make demo-bootstrap after deleting the three host tunings)"
+}
+
 run_preflight() {
     echo
     echo "Demo preflight"
@@ -132,15 +189,19 @@ run_preflight() {
         pf_row "WOULD" "getenforce" "Enforcing"
         pf_row "WOULD" "tomcat unit" "$(demo_tomcat_service 2>/dev/null || echo tomcat.service)"
         pf_row "WOULD" "shopapi unit" "shopapi.service"
+        pf_row "WOULD" "App B port ${APP_B_PORT}" "must not be labelled (fix: semanage port -d -p tcp ${APP_B_PORT})"
+        pf_row "WOULD" "App B fcontext" "must not exist for ${APP_B_DATA} (fix: semanage fcontext -d '${APP_B_DATA}(/.*)?')"
+        pf_row "WOULD" "App B boolean" "tomcat_can_network_connect off (fix: setsebool -P … off)"
         echo
         echo "On a missing or unconfined App A: run make demo-bootstrap"
+        echo "On an already-tuned App B: $(app_b_reset_hint)"
         return 0
     fi
 
     if [[ "$(uname -s)" != "Linux" ]]; then
         pf_row "FAIL" "Linux/RHEL host" "$(uname -s)" "run make demo-bootstrap on a RHEL VM, or --dry-run here"
         echo
-        echo "Preflight FAILED. If App A is missing or unconfined: run make demo-bootstrap"
+        echo "Preflight FAILED. If App A is missing or unconfined: run make demo-bootstrap on a RHEL VM, or --dry-run here"
         return 1
     fi
 
@@ -194,10 +255,30 @@ run_preflight() {
     else
         pf_row "FAIL" "port ${APP_A_PORT}" "not listening" "run make demo-bootstrap"
     fi
-    if port_listening "${APP_B_PORT}"; then
-        pf_row "WARN" "port ${APP_B_PORT}" "already listening — Act 2 port probe may be already tuned"
+    if app_b_port_labelled; then
+        pf_row "FAIL" "port ${APP_B_PORT}" "already labelled — Act 2 will not produce a denial" \
+            "semanage port -d -p tcp ${APP_B_PORT}   (or: $(app_b_reset_hint))"
+    elif port_listening "${APP_B_PORT}"; then
+        pf_row "FAIL" "port ${APP_B_PORT}" "already listening — Act 2 will not produce a name_bind denial" \
+            "semanage port -d -p tcp ${APP_B_PORT}; restart Tomcat   (or: $(app_b_reset_hint))"
     else
-        pf_row "PASS" "port ${APP_B_PORT}" "free or unbound (inherited name_bind still to show)"
+        pf_row "PASS" "port ${APP_B_PORT}" "unlabelled and not listening (name_bind still to show)"
+    fi
+
+    if app_b_fcontext_custom; then
+        pf_row "FAIL" "App B fcontext" "already set for ${APP_B_DATA} — Act 2 label probe will not produce a denial" \
+            "semanage fcontext -d '${APP_B_DATA}(/.*)?'   (or: $(app_b_reset_hint))"
+    else
+        pf_row "PASS" "App B fcontext" "no custom mapping for ${APP_B_DATA}"
+    fi
+
+    local b_on
+    b_on="$(app_b_connect_boolean_on || true)"
+    if [[ -n "${b_on}" ]]; then
+        pf_row "FAIL" "App B boolean" "${b_on} is on — Act 2 gateway probe will not produce a denial" \
+            "setsebool -P ${b_on} off   (or: $(app_b_reset_hint))"
+    else
+        pf_row "PASS" "App B boolean" "connect boolean off (or absent)"
     fi
 
     if [[ "${OPEN_PR}" -eq 1 ]]; then
@@ -220,7 +301,7 @@ run_preflight() {
 
     echo
     if [[ "${PREFLIGHT_FAIL}" -ne 0 ]]; then
-        echo "Preflight FAILED. If App A is missing or unconfined: run make demo-bootstrap"
+        echo "Preflight FAILED. Missing App A: make demo-bootstrap. Already-tuned App B: $(app_b_reset_hint)"
         return 1
     fi
     echo "Preflight PASSED. variant=$(demo_variant) domain=$(demo_tomcat_domain)"
@@ -291,8 +372,13 @@ act2_fix_if_avc() {
 }
 
 act2_app_b() {
-    local fctx
+    local fctx modules_before
     fctx="$(demo_tomcat_fcontext_type)"
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        modules_before="unchanged"
+    else
+        modules_before="$(semodule -l 2>/dev/null | wc -l | tr -d ' ')"
+    fi
 
     e2e_banner "Act 2 — App B inherited Tomcat (~5 min, live tune)"
     tlab_explain "Someone else had ${APP_A_PORT}, so this instance listens on ${APP_B_PORT}. Content landed in ${APP_B_DATA}. It calls a payment gateway. That is a normal estate, not a lab trick. audit2why is the manual form of what our generator automates — we show it first."
@@ -359,7 +445,12 @@ act2_app_b() {
         e2e_run "bash scripts/dev_generate_policy.sh --tune-report --app-name tomcat --unit $(demo_tomcat_service)" || true
     fi
 
-    tlab_checkpoint "Three one-line fixes, zero policy authored. If you were about to write a .te for App B, the app was configured wrong."
+    tlab_explain "Proof: four denials, four one-line host fixes, zero policy authored."
+    e2e_run "git -C ${PROJECT_ROOT} status --short selinux/"
+    demo_expect "empty — nothing under selinux/"
+    e2e_run "sudo semodule -l | wc -l"
+    demo_expect "${modules_before} — unchanged; we did not load a new module"
+    tlab_checkpoint "Four denials, four one-line fixes, zero .te. If you were about to write a module for App B, the app was configured wrong."
     tlab_pause
 }
 
@@ -425,6 +516,7 @@ main() {
     e2e_banner "SELinux PaC — nothing to do, then tune, then build"
     echo "profile=${PROFILE} acts=${ACTS} app=${DEMO_APP} dry-run=${E2E_DRY}"
     echo "Unprepared host: make demo-bootstrap    Laptop: --dry-run --profile customer"
+    echo "Second Act 2 on this host: bash scripts/reset_demo_vms.sh --dev-only"
     echo
     local IFS=','
     local act

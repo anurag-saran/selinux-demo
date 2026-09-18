@@ -38,6 +38,12 @@ tlab_explain() {
     echo
 }
 
+tlab_lab_only_banner() {
+    echo
+    echo -e "${TLAB_RED}${TLAB_BOLD}LAB ONLY${TLAB_NC}${TLAB_RED} — $*${TLAB_NC}"
+    echo
+}
+
 tlab_checkpoint() {
     echo -e "${TLAB_GREEN}Checkpoint:${TLAB_NC} $*"
     echo

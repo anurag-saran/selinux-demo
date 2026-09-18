@@ -222,10 +222,10 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | **`dev_generate_policy.sh`** | Main command: vendor-policy pre-flight → export AVCs → generate → diff → optional copy into `selinux/`. `--tune-report` for vendor-covered apps (commands only). `--force "reason"` only if the app genuinely differs. |
 | **`selinux_pac_adopt.sh`** | `doctor` + `init APP` — print manifest and **Ansible** next steps. |
 | **`setup_rhel_hosts.sh`** | Write `inventory.dev.yml` / `inventory.production.yml`; ping; doctor; bootstrap hints. |
-| **`demo_present.sh`** | Customer talk: Act 0 triage, App A (vendor, already enforcing), App B (tune, no `.te`), shopapi generate. `--profile customer\|technical`, `--preflight`, `--dry-run`. |
+| **`demo_present.sh`** | Customer talk (~20 min, one host): Act 0 triage, App A (vendor, already enforcing), App B (tune, no `.te`), shopapi generate. `--profile customer` = 0–3; `technical` adds PR + a pointer at `demo_e2e_mac.sh`. `--preflight` FAILs if App B is already tuned. |
 | **`demo_bootstrap.sh`** / **`make demo-bootstrap`** | Idempotent three-app estate on RHEL. JWS if the repo is reachable, else distro Tomcat + `tomcat_t`. |
-| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_qa.sh`** / **`demo_e2e_rhel_prod.sh`** | Two-host **shopapi** pipeline (technical Act 5): generate → PR on `selinux/shopapi/` → clean soak → enforce; `/feature-spool` fails on prod; admin rollback. |
-| **`reset_demo_vms.sh`** | Between rehearsals: unload leftover `shopapi` modules and prod RPMs. JVM stays. Then start the Mac conductor. Not `reset_host_state.yml`. |
+| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_qa.sh`** / **`demo_e2e_rhel_prod.sh`** | Three-host **shopapi** pipeline (~45 min): generate → PR on `selinux/shopapi/` → clean soak → enforce; `/feature-spool` fails on prod; admin rollback. Not the first customer conversation. `demo_e2e_rhel_dev.sh` is a deprecated name for the QA script (remove after 2026-12-31). |
+| **`reset_demo_vms.sh`** | Between rehearsals: unload leftover `shopapi` modules and prod RPMs; **untune App B** (port 8090, `/opt/appdata` fcontext, connect boolean). JVM stays. Then start the Mac conductor or `demo_present.sh --preflight`. Not `reset_host_state.yml`. |
 | **`demo_open_generated_pr.sh`** | Open a GitHub PR from live generated `selinux/` (Mac, after scp from rhel-qa). |
 | **`assemble_pr_body.sh`** | Builds GitHub PR description from template + summary + optional rule diff. |
 | **`compile_and_validate.sh`** | Compile `.te`/`.fc` to `.pp` and run basic checks. |
@@ -268,10 +268,10 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 
 | Script | Role |
 |--------|------|
-| **`demo_present.sh`** | Three-app customer talk (`--profile customer\|technical`, `--dry-run`, `--preflight`). |
+| **`demo_present.sh`** | Customer talk, one host (~20 min). |
 | **`demo_bootstrap.sh`** | Idempotent App A/B + shopapi estate (`make demo-bootstrap`). |
-| **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_qa.sh`**, **`demo_e2e_rhel_prod.sh`** | Two-host pipeline of [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md). |
-| **`reset_demo_vms.sh`** | Wipe leftover shopapi policy on both VMs (Mac). JVM stays. |
+| **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_qa.sh`**, **`demo_e2e_rhel_prod.sh`** | Three-host pipeline of [203-RHEL_TWO_HOST.md](../admin/203-RHEL_TWO_HOST.md) (~45 min). |
+| **`reset_demo_vms.sh`** | Wipe leftover shopapi policy and untune App B (Mac). JVM stays. |
 | **`demo_open_generated_pr.sh`** | Live generate → GitHub PR (needs `gh`). |
 
 ---

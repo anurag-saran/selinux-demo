@@ -41,6 +41,13 @@ from selinux_gen import (  # noqa: E402
 )
 
 
+def assert_mentions(text: str, *needles: str) -> None:
+    """Talk tracks name these apps/paths — prefer this over a deny-list of old strings."""
+    blob = text.lower()
+    missing = [n for n in needles if n.lower() not in blob]
+    assert not missing, f"talk output missing {missing}"
+
+
 def test_prompts() -> None:
     avc = (
         'type=AVC msg=audit(123): avc: denied { write } for pid=1 comm="python3" '
@@ -576,6 +583,18 @@ def test_demo_present_dry_run() -> None:
     assert "audit2why" in out
     assert "SELinuxContext" in out
     assert "make demo-bootstrap" in out or "demo-bootstrap" in out
+    assert_mentions(out, "shopapi", "tomcat")
+    assert "status --short selinux" in out
+    assert "semodule -l" in out
+    help_run = subprocess.run(
+        [BASH, str(script), "--help"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    help_out = help_run.stdout + help_run.stderr
+    assert help_run.returncode == 0, help_out
+    assert "demo_e2e_mac.sh" in help_out
     te = (PROJECT_ROOT / "selinux" / "shopapi" / "shopapi.te").read_text(encoding="utf-8")
     assert not any(
         (not line.lstrip().startswith("#")) and "execmem" in line
@@ -597,6 +616,8 @@ def test_demo_present_dry_run() -> None:
     pre_out = pre.stdout + pre.stderr
     assert pre.returncode == 0, pre_out
     assert "make demo-bootstrap" in pre_out
+    assert "semanage port -d" in pre_out
+    assert "8090" in pre_out
     tech = subprocess.run(
         [
             BASH,
@@ -615,8 +636,7 @@ def test_demo_present_dry_run() -> None:
     assert tech.returncode == 0, tech_out
     assert "Act 5" in tech_out
     assert "demo_e2e_mac.sh" in tech_out
-    assert "flask" not in out.lower()
-    assert "8888" not in out
+    assert_mentions(tech_out, "shopapi")
 
 
 def test_demo_e2e_scripts_dry_run() -> None:
@@ -635,13 +655,20 @@ def test_demo_e2e_scripts_dry_run() -> None:
     )
     mac_out = mac_run.stdout + mac_run.stderr
     assert mac_run.returncode == 0, mac_out
-    assert "shopapi" in mac_out.lower()
-    assert "/feature-spool" in mac_out
-    assert "demo_e2e_rhel_qa.sh" in mac_out
-    assert "selinux/shopapi" in mac_out
-    assert "anurag-saran/myapp" not in mac_out
-    assert "setup_staging_env.sh" not in mac_out
-    assert "sync_myapp.sh" not in mac_out
+    assert_mentions(
+        mac_out, "shopapi", "/feature-spool", "demo_e2e_rhel_qa.sh", "selinux/shopapi"
+    )
+    assert "LAB ONLY" in mac_out
+    assert "soak_min_days" in mac_out
+    mac_help = subprocess.run(
+        [BASH, str(mac), "--help"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    mac_help_out = mac_help.stdout + mac_help.stderr
+    assert mac_help.returncode == 0, mac_help_out
+    assert "demo_present.sh" in mac_help_out
 
     qa_run = subprocess.run(
         [BASH, str(qa), "--dry-run", "--no-type", "--auto", "--part", "app"],
@@ -674,6 +701,8 @@ def test_demo_e2e_scripts_dry_run() -> None:
     assert reset_run.returncode == 0, reset_out
     assert "shopapi" in reset_out.lower()
     assert "Would restore types-only selinux/shopapi/" in reset_out
+    assert "8090" in reset_out
+    assert "fcontext" in reset_out
 
     boot = subprocess.run(
         [BASH, str(setup), "bootstrap"],
@@ -683,9 +712,37 @@ def test_demo_e2e_scripts_dry_run() -> None:
     )
     boot_out = boot.stdout + boot.stderr
     assert boot.returncode == 0, boot_out
-    assert "demo_bootstrap.sh --shopapi-only" in boot_out
-    assert "setup_staging_env.sh" not in boot_out
-    assert "Flask only" not in boot_out
+    assert_mentions(boot_out, "demo_bootstrap.sh --shopapi-only")
+
+
+def test_e2e_quiet_ssh_wrap_skips_when_ssh_missing() -> None:
+    """No SSH client: wrapping must no-op (eval hosts, empty PATH)."""
+    with tempfile.TemporaryDirectory() as raw:
+        bindir = Path(raw)
+        src = shutil.which("bash")
+        assert src
+        (bindir / "bash").symlink_to(Path(src).resolve())
+        env = os.environ.copy()
+        env["PATH"] = str(bindir)
+        result = subprocess.run(
+            [
+                str(bindir / "bash"),
+                "-c",
+                'set -euo pipefail; cd "$1"; E2E_DRY=0; '
+                "source scripts/lib/training_lab_runner.sh; "
+                "source scripts/lib/e2e_demo.sh; "
+                "e2e_install_quiet_ssh; echo WRAP_OK",
+                "_",
+                str(PROJECT_ROOT),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    out = result.stdout + result.stderr
+    assert result.returncode == 0, out
+    assert "WRAP_OK" in result.stdout
+    assert "Bad substitution" not in out
 
 
 def test_demo_present_preflight_names_bootstrap() -> None:
@@ -1838,6 +1895,7 @@ def main() -> int:
         ("vendor_policy_check", test_vendor_policy_check),
         ("demo_present_dry_run", test_demo_present_dry_run),
         ("demo_e2e_scripts_dry_run", test_demo_e2e_scripts_dry_run),
+        ("e2e_quiet_ssh_wrap_skips_when_ssh_missing", test_e2e_quiet_ssh_wrap_skips_when_ssh_missing),
         ("demo_present_preflight_names_bootstrap", test_demo_present_preflight_names_bootstrap),
         ("soak_net_new_empty_manifest", test_soak_net_new_empty_manifest),
         ("app_manifest", test_app_manifest),

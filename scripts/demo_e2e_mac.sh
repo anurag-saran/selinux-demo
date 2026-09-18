@@ -27,7 +27,8 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Presenter script for THIS Mac. Demo application is shopapi (Spring Boot).
-The demo application is shopapi. Do not install a second app on the VMs.
+Three-host production walkthrough (~45 min): this window + rhel-qa + rhel-prod.
+Do not run this as the first customer conversation.
 
 $(e2e_usage_common)
 
@@ -76,7 +77,8 @@ mac_canary_enforce_dev() {
     tlab_checkpoint "failed=0. Recent shopapi_t events should be 0 raw / 0 net-new."
     tlab_pause
 
-    tlab_explain "Dev inventory waits 0 days so we can lock down in a demo. Do not copy soak_min_days: 0 onto prod."
+    tlab_lab_only_banner "Dev inventory waits 0 days so this talk can lock down. Never copy soak_min_days: 0 onto prod (inventory.production.yml stays at 7 days). The gate is real; QA is lab-only."
+    tlab_explain "QA canary/enforce uses soak_min_days: 0. Production inventory is 7 days plus a change ticket."
     e2e_run "ansible-playbook -i ansible/inventory.dev.yml ansible/enforce_production.yml -e change_ticket=LAB"
     tlab_checkpoint "failed=0. Host getenforce is still Enforcing; shopapi_t is no longer permissive."
 }

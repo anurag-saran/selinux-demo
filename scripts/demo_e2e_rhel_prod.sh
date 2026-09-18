@@ -48,6 +48,7 @@ Usage: $(basename "$0") [options]
 
 Presenter script for the PROD VM (${PROD_HOST}). Do not run this on the Mac.
 Do not git clone onto this box — shopapi files from scp, policy from RPMs.
+This is one window of the ~45 min three-host walkthrough (see demo_e2e_mac.sh).
 
   --part app      Install shopapi only (no SELinux module, unconfined JVM)
   --part rpms     Install selinux-policy-ops + shopapi-selinux from ~/

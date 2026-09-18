@@ -155,13 +155,22 @@ macOS has **no SELinux**. The Mac is the **Ansible controller**; policy still ru
 | `bash scripts/setup_rhel_hosts.sh doctor` | On each VM (as sudo): hostname, `getenforce`, `ausearch`, `sesearch`. Prod also checks `selinux-policy-ops` and **does not fail** if that RPM is not installed yet. | `Enforcing`; paths to `ausearch` and `sesearch`. Prod may print `selinux-policy-ops: not installed (expected before RPMs)` |
 | `bash scripts/setup_rhel_hosts.sh bootstrap` | **Prints** the SSH/`dnf`/`demo_bootstrap.sh --shopapi-only` commands for **rhel-qa only**. It does not run them. | A block starting `=== Bootstrap the QA RHEL box` |
 | `bash scripts/sync_rhel_dev.sh` | rsync this checkout to `~/selinux-pac` on rhel-qa (shopapi lives here). | `Synced … -> ansible@192.168.64.6:selinux-pac/` |
-| `bash scripts/reset_demo_vms.sh` | Between rehearsals: unload leftover `shopapi` modules and prod RPMs. JVM stays. Restore the types-only `selinux/shopapi/` seed. | `Good: no shopapi (or leftover myapp) module loaded` on both VMs |
+| `bash scripts/reset_demo_vms.sh` | Between rehearsals: unload leftover `shopapi` modules and prod RPMs; untune App B (port 8090 / `/opt/appdata` / connect boolean). JVM stays. Restore the types-only `selinux/shopapi/` seed. | `Good: no shopapi (or leftover myapp) module loaded` on both VMs |
 
 Those IPs are this Mac’s UTM shared network (`rhel-qa` = `192.168.64.6`, `rhel-prod` = `192.168.64.5`). Re-check with `ping` if a VM was recreated.
 
 **You are not done.** `bootstrap` only printed the next commands. Run the paced lab from **[203](docs/admin/203-RHEL_TWO_HOST.md)** (plain-language, one computer at a time), especially [Present this lab (three terminals)](docs/admin/203-RHEL_TWO_HOST.md#present-this-lab-three-terminals). Re-run on the same VMs: `bash scripts/reset_demo_vms.sh`, then the Mac conductor.
 
-**Before the talk (101):** [docs/training/101-SELINUX.md](docs/training/101-SELINUX.md) (one host, shopapi). Then **202**:
+**Before the talk (101):** [docs/training/101-SELINUX.md](docs/training/101-SELINUX.md) (one host, shopapi). Then pick **one** demo:
+
+| Talk | Audience | Setup | Length | Start |
+|------|----------|--------|--------|-------|
+| **202** | Customer / first conversation | One RHEL host | ~20 min | `bash scripts/demo_present.sh` |
+| **203** | Technical deep dive | Mac + rhel-qa + rhel-prod | ~45 min | `bash scripts/demo_e2e_mac.sh` |
+
+`--help` on each script names the other. Do not run `demo_e2e_mac.sh` as the first customer conversation.
+
+**202 customer talk:**
 
 ```bash
 bash scripts/demo_present.sh --dry-run --profile customer   # any laptop
@@ -170,9 +179,9 @@ bash scripts/demo_present.sh --preflight
 bash scripts/demo_present.sh --profile customer
 ```
 
-See **[202](docs/training/202-DEMO_GUIDE.md)**. Two-host generate/canary/soak remains `demo_e2e_*.sh` (**203**, technical profile Act 5).
+See **[202](docs/training/202-DEMO_GUIDE.md)**. Already-tuned App B (second run): `bash scripts/reset_demo_vms.sh --dev-only`.
 
-**End to end (two-host pipeline, technical):** three Terminal windows. The Mac script is the conductor; press Enter between steps.
+**203 three-host pipeline:** three Terminal windows. The Mac script is the conductor; press Enter between steps.
 
 | Window | Start |
 |--------|--------|

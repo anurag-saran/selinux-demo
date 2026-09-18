@@ -34,6 +34,9 @@ Lab reset for a second run of the two-host shopapi talk. From the Mac:
 
   • Unload shopapi / shopapi_canary / shopapi_ports and leftover seports
   • Clear semanage permissive on shopapi_t
+  • Untune App B so a second customer Act 2 still produces denials:
+      semanage port -d tcp 8090, fcontext -d /opt/appdata, setsebool connect off,
+      chcon user_home_t on /opt/appdata
   • On prod: rpm -e shopapi-selinux selinux-policy-ops; delete soak/AVC files
   • Restore this laptop’s types-only selinux/shopapi/ seed from git
   • Leave /opt/shopapi and shopapi.service in place
@@ -129,7 +132,36 @@ if command -v semanage >/dev/null 2>&1; then
     semanage permissive -d shopapi_t 2>/dev/null || true
     semanage permissive -d myapp_t 2>/dev/null || true
     semanage permissive -d myapp_backend_t 2>/dev/null || true
+
+    # App B (demo_present.sh Act 2). A second talk on the same host is silent
+    # unless these three host tunings are undone and /opt/appdata is mislabeled.
+    while read -r ptype proto rest; do
+        [[ "${proto:-}" == tcp ]] || continue
+        echo "${rest:-}" | grep -Eq '(^|[^0-9])8090([^0-9]|$)' || continue
+        semanage port -d -t "${ptype}" -p tcp 8090 2>/dev/null || true
+    done < <(semanage port -l -C 2>/dev/null | awk 'NF >= 3 && $1 != "SELinux" { print }')
+    semanage port -d -t http_port_t -p tcp 8090 2>/dev/null || true
+    while read -r spec; do
+        [[ -n "${spec}" ]] || continue
+        semanage fcontext -d "${spec}" 2>/dev/null || true
+    done < <(semanage fcontext -l -C 2>/dev/null | awk 'index($1, "/opt/appdata") { print $1 }')
+    semanage fcontext -d '/opt/appdata(/.*)?' 2>/dev/null || true
+    semanage fcontext -d '/opt/appdata' 2>/dev/null || true
+    for b in tomcat_can_network_connect jws6_can_network_connect \
+        jws_can_network_connect httpd_can_network_connect; do
+        getsebool "${b}" >/dev/null 2>&1 && setsebool -P "${b}" off || true
+    done
 fi
+
+if [[ -d /opt/appdata ]]; then
+    chcon -R -t user_home_t /opt/appdata 2>/dev/null || true
+fi
+for svc in jws6-tomcat.service tomcat.service tomcat9.service; do
+    if systemctl list-unit-files "${svc}" >/dev/null 2>&1 \
+        && systemctl is-active --quiet "${svc}" 2>/dev/null; then
+        systemctl restart "${svc}" 2>/dev/null || true
+    fi
+done
 
 if [[ "${role}" == prod ]]; then
     if command -v rpm >/dev/null 2>&1; then
@@ -175,13 +207,14 @@ ssh_sudo() {
     echo "-> ${SSH_USER}@${host} (${role})"
     if [[ "${DRY}" -eq 1 ]]; then
         echo "(dry-run — not executing)"
+        echo "  would also untune App B: semanage port -d -p tcp 8090; fcontext -d /opt/appdata; setsebool connect off; chcon user_home_t"
         return 0
     fi
     # shellcheck disable=SC2029
     ssh "${SSH_OPTS[@]}" "${SSH_USER}@${host}" "sudo bash -s -- ${role}" <<<"${REMOTE_RESET}"
 }
 
-echo "Demo VM reset (policy leftovers only; shopapi JVM stays)."
+echo "Demo VM reset (policy leftovers + App B host tunings; shopapi JVM stays)."
 echo "dev=${DEV_HOST} prod=${PROD_HOST} user=${SSH_USER}"
 [[ "${DRY}" -eq 1 ]] && echo "dry-run: no SSH, no git checkout"
 
@@ -223,5 +256,6 @@ if [[ "${DO_PROD}" -eq 1 ]]; then
 fi
 
 echo
-echo "Next: start docs/admin/203-RHEL_TWO_HOST.md at Part 1 (write / ping / rsync / scp)."
+echo "Next: customer talk → bash scripts/demo_present.sh --preflight (202)."
+echo "      three-host ship → docs/admin/203-RHEL_TWO_HOST.md at Part 1 (write / ping / rsync / scp)."
 echo "Do not canary until demo_bootstrap.sh --shopapi-only and generate --apply have run on rhel-qa."

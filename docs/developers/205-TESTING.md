@@ -120,8 +120,10 @@ python3 scripts/smoke_test.py
 | `tune_report` | Tomcat fixture: `--tune-report` emits fcontext / setsebool / semanage port commands and no `.te` |
 | `tune_report_skip_no_selinux` | `--tune-report` with no SELinux tools prints a skip notice and exits 0 |
 | `force_reason_recorded` | `--force` reason appears in `findings.json`, `pr_summary.md`, and the PR body banner |
-| `demo_present_dry_run` | `--dry-run --profile customer` prints the three-app narration on a machine with no SELinux |
-| `demo_present_preflight_names_bootstrap` | `--preflight` without `--dry-run` names `make demo-bootstrap` when App A is absent |
+| `demo_present_dry_run` | `--dry-run --profile customer` prints the three-app narration; `--help` names `demo_e2e_mac.sh`; Act 2 proof commands (`git status --short selinux/`, `semodule -l`) |
+| `demo_present_preflight_names_bootstrap` | `--preflight` without `--dry-run` names `make demo-bootstrap` when App A is absent; dry-run preflight names App B un-tune commands |
+| `demo_e2e_scripts_dry_run` | Mac/QA/prod `--dry-run` / Darwin refuse; Mac `--help` names `demo_present.sh`; reset dry-run names App B un-tune |
+| `e2e_quiet_ssh_wrap_skips_when_ssh_missing` | `e2e_install_quiet_ssh` no-ops when `ssh`/`scp` are missing or `E2E_DRY=1` |
 | `app_manifest` | Validates demo + example manifests; `shell-export` emits expected keys |
 | `rpm_ops_parity` | Ops RPM file list matches repo scripts |
 | `skip_ai_fixture_sync` | Offline demo `skip_ai/generated/` matches committed `selinux/` |

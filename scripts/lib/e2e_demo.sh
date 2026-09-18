@@ -10,10 +10,13 @@ E2E_SSH_USER="${ANSIBLE_SSH_USER:-ansible}"
 
 e2e_usage_common() {
     cat <<EOF
+For the ~20 min single-host customer talk, see scripts/demo_present.sh.
+Guide: docs/training/202-DEMO_GUIDE.md  ·  docs/admin/203-RHEL_TWO_HOST.md
+
 Options:
   --auto       No Enter pauses. On the Mac script, also SSH and run the VM talk tracks.
   --no-type    Print commands instantly (no typewriter)
-  --dry-run    Type and explain only — do not run commands
+  --dry-run    Type and explain only — do not run commands (no SSH client required)
   --skip-export  (rhel-qa --part generate) use existing policy_out/avc.log
   -h, --help   Show help
 EOF
@@ -23,11 +26,14 @@ EOF
 # stay plain `ssh` / `scp`; the wrapper is on PATH for the rest of the script.
 e2e_install_quiet_ssh() {
     local real_ssh real_scp bindir
+    # Dry-run never opens a connection (laptop eval with no VMs / no SSH client).
+    [[ "${E2E_DRY:-0}" -eq 1 ]] && return 0
     if [[ -n "${E2E_SSH_WRAP_DIR:-}" && -x "${E2E_SSH_WRAP_DIR}/ssh" ]]; then
         return 0
     fi
-    real_ssh="$(command -v ssh)"
-    real_scp="$(command -v scp)"
+    real_ssh="$(command -v ssh || true)"
+    real_scp="$(command -v scp || true)"
+    [[ -n "${real_ssh}" && -x "${real_ssh}" && -n "${real_scp}" && -x "${real_scp}" ]] || return 0
     bindir="$(mktemp -d "${TMPDIR:-/tmp}/selinux-pac-e2e-ssh.XXXXXX")"
     cat >"${bindir}/ssh" <<EOF
 #!/bin/sh
