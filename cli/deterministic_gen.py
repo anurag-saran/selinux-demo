@@ -336,6 +336,9 @@ def classify(
 ) -> Finding:
     src, tgt, tclass = need.src_type, need.tgt_type, need.tclass
     perms = need.perms
+    if tclass == "tcp_socket" and src == tgt:
+        need = AccessNeed(src, tgt, tclass, perms | frozenset({"read", "write", "ioctl"}))
+        perms = need.perms
 
     if baseline_macro_covers(need, existing_te):
         return Finding(
@@ -400,6 +403,76 @@ def classify(
             bind_port=port,
             bind_proto=proto if port is not None else "",
             port_type=ptype,
+        )
+
+    if tgt == "node_t" and "node_bind" in perms and tclass in ("tcp_socket", "udp_socket"):
+        proto = "udp" if tclass == "udp_socket" else "tcp"
+        return Finding(
+            need,
+            VERDICT_INTERFACE,
+            f"corenet_{proto}_bind_generic_node({src})",
+            "Bind a socket to a network node (refpolicy corenet).",
+            paths,
+            engine="house_rules",
+        )
+
+    if tgt == "cgroup_t":
+        return Finding(
+            need,
+            VERDICT_BASELINE,
+            "",
+            "cgroup_t is JVM cgroupfs telemetry; omit rather than require an undeclared type.",
+            paths,
+        )
+
+    if tgt == "random_device_t":
+        return Finding(
+            need,
+            VERDICT_INTERFACE,
+            f"dev_read_urand({src})\ndev_read_rand({src})",
+            "Observed /dev/random and /dev/urandom reads.",
+            paths,
+            engine="house_rules",
+        )
+
+    if tgt == "tmp_t":
+        rendered = (
+            f"files_manage_generic_tmp_dirs({src})"
+            if tclass == "dir"
+            else f"files_manage_generic_tmp_files({src})"
+        )
+        return Finding(
+            need,
+            VERDICT_INTERFACE,
+            rendered,
+            "Observed generic tmp (hsperfdata / work files).",
+            paths,
+            engine="house_rules",
+        )
+
+    if tgt == "proc_t":
+        return Finding(
+            need,
+            VERDICT_INTERFACE,
+            f"kernel_read_system_state({src})",
+            "Observed /proc/stat (and similar) reads.",
+            paths,
+            engine="house_rules",
+        )
+
+    if tgt == "proc_net_t":
+        rendered = (
+            f"kernel_read_network_state_symlinks({src})"
+            if tclass == "lnk_file"
+            else f"kernel_read_network_state({src})"
+        )
+        return Finding(
+            need,
+            VERDICT_INTERFACE,
+            rendered,
+            "Observed /proc/net reads.",
+            paths,
+            engine="house_rules",
         )
 
     existing = parse_existing_allows(existing_te)

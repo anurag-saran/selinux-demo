@@ -66,8 +66,21 @@ avc_filter_lines_by_paths() {
             echo "${line}"
             continue
         fi
+        tctx="${line##* tcontext=}"
+        tctx="${tctx%% *}"
+        ttype="$(cut -d: -f3 <<<"${tctx}")"
+        case "${ttype}" in
+            random_device_t|tmp_t|proc_t|proc_net_t)
+                echo "${line}"
+                continue
+                ;;
+        esac
         # path= is a file-tree AVC outside the manifest — skip.
         if [[ "${line}" == *" path="* ]]; then
+            continue
+        fi
+        # cgroupfs getattr needs gen_require(cgroup_t) and is optional JVM telemetry.
+        if [[ "${line}" == *" tclass=filesystem "* ]]; then
             continue
         fi
         if [[ "${line}" == *" tclass=file "* || "${line}" == *" tclass=dir "* \

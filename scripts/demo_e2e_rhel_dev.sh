@@ -128,6 +128,8 @@ part_generate() {
         e2e_run "sudo bash scripts/dev_generate_policy.sh --apply --allow-needs-review --app-name shopapi --app-root ${APP_ROOT}"
     fi
     e2e_run "POLICY_MODULE=shopapi SELINUX_DOMAIN=shopapi_t bash scripts/compile_and_validate.sh ${APP_ROOT}/selinux/shopapi"
+    e2e_run "sudo semodule -i ${APP_ROOT}/selinux/shopapi/shopapi.pp"
+    e2e_run "sudo semanage port -a -t shopapi_port_t -p tcp $(shop_port) 2>/dev/null || sudo semanage port -m -t shopapi_port_t -p tcp $(shop_port)"
     tlab_pause
     e2e_explain_selinux_tree "${APP_ROOT}"
     e2e_run "ls -l ${APP_ROOT}/selinux/shopapi/shopapi.te ${APP_ROOT}/selinux/shopapi/shopapi.fc ${APP_ROOT}/selinux/shopapi/policy_version.txt ${APP_ROOT}/selinux/shopapi/shopapi.pp"

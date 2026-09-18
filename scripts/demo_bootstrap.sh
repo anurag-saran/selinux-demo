@@ -215,6 +215,7 @@ PY
         [[ -f "${pp}" ]] && semodule -i "${pp}" || true
     fi
     restorecon -Rv "${install_root}" "${var_dir}" "${log_dir}" "${runtime_dir}" 2>/dev/null || true
+    demo_register_shopapi_port "$(demo_manifest_http_port "${PROJECT_ROOT}/config/shopapi.manifest.yml")"
     # Permissive domain so Act 3 can collect observed AVCs. Do not guess allows here.
     semanage permissive -a shopapi_t 2>/dev/null || true
 }

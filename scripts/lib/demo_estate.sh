@@ -177,6 +177,17 @@ demo_install_shopapi_jre() {
     echo "shopapi JRE launcher ${root}/bin/java (JAVA_HOME=${root})" >&2
 }
 
+# After shopapi_port_t exists (seed or generated module). Canary seport also does this.
+demo_register_shopapi_port() {
+    local port="${1:-}"
+    if [[ -z "${port}" ]]; then
+        return 0
+    fi
+    semanage port -a -t shopapi_port_t -p tcp "${port}" 2>/dev/null \
+        || semanage port -m -t shopapi_port_t -p tcp "${port}" 2>/dev/null \
+        || true
+}
+
 # Write /etc/shopapi.env and the systemd unit from config/shopapi.manifest.yml (no path literals).
 demo_write_shopapi_runtime_files() {
     local project_root="${1:?}"
