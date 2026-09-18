@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ import urllib.request
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BASH = shutil.which("bash") or "/bin/bash"
 sys.path.insert(0, str(PROJECT_ROOT / "cli"))
 
 from avc_preprocess import (  # noqa: E402
@@ -515,6 +517,202 @@ def test_monitor_avc_skip() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_vendor_policy_check() -> None:
+    script = PROJECT_ROOT / "scripts" / "lib" / "vendor_policy_check.sh"
+
+    def run(args: list[str], extra_env: dict[str, str] | None = None, *, mock: bool = True) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        for key in list(env):
+            if key.startswith("VENDOR_CHECK_"):
+                del env[key]
+        if mock:
+            env["VENDOR_CHECK_MOCK"] = "1"
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            [BASH, str(script), *args],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    loaded = run(
+        ["--app-name", "tomcat"],
+        {
+            "VENDOR_CHECK_SEMODULE_L": "container\njws6_tomcat\t1.0.0\n",
+            "VENDOR_CHECK_RPM_QA": "",
+            "VENDOR_CHECK_DNF_AVAILABLE": "",
+            "VENDOR_CHECK_PS_EZ": "",
+        },
+    )
+    loaded_out = loaded.stdout + loaded.stderr
+    assert loaded.returncode != 0, loaded_out
+    assert "jws6_tomcat" in loaded_out
+    assert "already loaded" in loaded_out.lower()
+    assert "do not generate" in loaded_out.lower()
+
+    available = run(
+        ["--app-name", "tomcat"],
+        {
+            "VENDOR_CHECK_SEMODULE_L": "",
+            "VENDOR_CHECK_RPM_QA": "",
+            "VENDOR_CHECK_DNF_AVAILABLE": "jws6-tomcat-selinux",
+            "VENDOR_CHECK_PS_EZ": "",
+        },
+    )
+    available_out = available.stdout + available.stderr
+    assert available.returncode != 0, available_out
+    assert "jws6-tomcat-selinux" in available_out
+    assert "available but not installed" in available_out.lower()
+
+    unconfined = run(
+        ["--app-name", "tomcat", "--unit", "tomcat.service"],
+        {
+            "VENDOR_CHECK_SEMODULE_L": "",
+            "VENDOR_CHECK_RPM_QA": "",
+            "VENDOR_CHECK_DNF_AVAILABLE": "",
+            "VENDOR_CHECK_PS_EZ": "system_u:system_r:unconfined_java_t:s0  java",
+        },
+    )
+    unconfined_out = unconfined.stdout + unconfined.stderr
+    assert unconfined.returncode != 0, unconfined_out
+    assert "unconfined_java_t" in unconfined_out
+    assert "not enabled" in unconfined_out.lower()
+
+    proceed = run(
+        ["--app-name", "myapp"],
+        {
+            "VENDOR_CHECK_SEMODULE_L": "jws6_tomcat\nhttpd",
+            "VENDOR_CHECK_RPM_QA": "jws6-tomcat-selinux-1.0-1.el9.noarch",
+            "VENDOR_CHECK_DNF_AVAILABLE": "jws6-tomcat-selinux",
+            "VENDOR_CHECK_PS_EZ": "system_u:system_r:unconfined_java_t:s0  java",
+        },
+    )
+    proceed_out = proceed.stdout + proceed.stderr
+    assert proceed.returncode == 0, proceed_out
+    assert "continuing" in proceed_out.lower()
+    assert "no vendor or base module covers 'myapp'" in proceed_out
+
+    forced = run(
+        ["--app-name", "tomcat", "--force"],
+        {"VENDOR_CHECK_SEMODULE_L": "jws6_tomcat"},
+    )
+    forced_out = forced.stdout + forced.stderr
+    assert forced.returncode == 0, forced_out
+    assert "bypassed (--force)" in forced_out
+
+    with tempfile.TemporaryDirectory() as empty_path:
+        skipped = run(
+            ["--app-name", "tomcat"],
+            {"PATH": empty_path},
+            mock=False,
+        )
+    skipped_out = skipped.stdout + skipped.stderr
+    assert skipped.returncode == 0, skipped_out
+    assert "vendor policy check skipped" in skipped_out
+    assert "semodule and rpm not found" in skipped_out
+
+    reported = run(
+        ["--app-name", "tomcat", "--report"],
+        {"VENDOR_CHECK_SEMODULE_L": "jws6_tomcat"},
+    )
+    reported_out = reported.stdout + reported.stderr
+    assert reported.returncode == 0, reported_out
+    assert "TRIAGE situation=loaded" in reported_out
+    assert "jws6_tomcat" in reported_out
+
+
+def test_demo_present_dry_run() -> None:
+    script = PROJECT_ROOT / "scripts" / "demo_present.sh"
+    result = subprocess.run(
+        [
+            BASH,
+            str(script),
+            "--dry-run",
+            "--no-type",
+            "--auto",
+            "--profile",
+            "customer",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    out = result.stdout + result.stderr
+    assert result.returncode == 0, out
+    assert "Act 0" in out
+    assert "TRIAGE" in out or "vendor" in out.lower()
+    assert "App A" in out
+    assert "App B" in out or "inherited" in out.lower()
+    assert "shopapi" in out.lower() or "Spring Boot" in out
+    assert "audit2why" in out
+    assert "SELinuxContext" in out
+    assert "make demo-bootstrap" in out or "demo-bootstrap" in out
+    te = (PROJECT_ROOT / "selinux" / "shopapi" / "shopapi.te").read_text(encoding="utf-8")
+    assert not any(
+        (not line.lstrip().startswith("#")) and "execmem" in line
+        for line in te.splitlines()
+    )
+    pre = subprocess.run(
+        [
+            BASH,
+            str(script),
+            "--dry-run",
+            "--no-type",
+            "--auto",
+            "--preflight",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    pre_out = pre.stdout + pre.stderr
+    assert pre.returncode == 0, pre_out
+    assert "make demo-bootstrap" in pre_out
+    tech = subprocess.run(
+        [
+            BASH,
+            str(script),
+            "--dry-run",
+            "--no-type",
+            "--auto",
+            "--profile",
+            "technical",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    tech_out = tech.stdout + tech.stderr
+    assert tech.returncode == 0, tech_out
+    assert "Act 5" in tech_out
+    assert "demo_e2e_mac.sh" in tech_out
+
+
+def test_demo_present_preflight_names_bootstrap() -> None:
+    script = PROJECT_ROOT / "scripts" / "demo_present.sh"
+    result = subprocess.run(
+        [
+            BASH,
+            str(script),
+            "--preflight",
+            "--no-type",
+            "--auto",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    out = result.stdout + result.stderr
+    if sys.platform != "linux":
+        assert result.returncode != 0, out
+        assert "make demo-bootstrap" in out
+        return
+    if result.returncode != 0:
+        assert "make demo-bootstrap" in out, out
+
+
 def test_soak_net_new_empty_manifest() -> None:
     manifest = PROJECT_ROOT / "config" / "myapp.manifest.yml"
     proc = subprocess.run(
@@ -539,8 +737,9 @@ def test_app_manifest() -> None:
     loader = PROJECT_ROOT / "scripts" / "lib" / "app_manifest.py"
     demo_manifest = PROJECT_ROOT / "config" / "myapp.manifest.yml"
     example_manifest = PROJECT_ROOT / "config" / "payments.manifest.example.yml"
+    shopapi_manifest = PROJECT_ROOT / "config" / "shopapi.manifest.yml"
 
-    for path in (demo_manifest, example_manifest):
+    for path in (demo_manifest, example_manifest, shopapi_manifest):
         result = subprocess.run(
             ["python3", str(loader), "validate", str(path)],
             cwd=PROJECT_ROOT,
@@ -817,6 +1016,7 @@ DETERMINISTIC_CLASSIFICATION_VERDICTS = frozenset(
         "direct",
         "toolchain_required",
         "boolean",
+        "needs_review",
     }
 )
 
@@ -875,6 +1075,8 @@ def _deterministic_run_args(
         version_file=PROJECT_ROOT / "selinux" / "policy_version.txt",
         explain=explain,
         allow_degraded=False,
+        allow_needs_review=False,
+        allow_needs_review_perm=[],
         policy_kern=None,
         boolean_hints=hints_path,
     )
@@ -910,6 +1112,8 @@ def _run_deterministic_gen(
     out_dir: Path,
     mock: dict | None,
     boolean_mock: dict | None,
+    allow_needs_review: bool = False,
+    allow_needs_review_perm: list[str] | None = None,
 ) -> tuple[int, str, str]:
     """Run deterministic_gen; in-process when fixture mocks are present."""
     import io
@@ -921,12 +1125,20 @@ def _run_deterministic_gen(
     args = _deterministic_run_args(
         case_dir, manifest, te, fc, explain=explain, out_dir=out_dir
     )
+    args.allow_needs_review = allow_needs_review
+    args.allow_needs_review_perm = list(allow_needs_review_perm or [])
     stdout = io.StringIO()
     stderr = io.StringIO()
 
     def _invoke() -> int:
         with redirect_stdout(stdout), redirect_stderr(stderr):
             return dg.run(args)
+
+    extra_flags: list[str] = []
+    if allow_needs_review:
+        extra_flags.append("--allow-needs-review")
+    for perm in args.allow_needs_review_perm:
+        extra_flags.extend(["--allow-needs-review-perm", perm])
 
     if not mock and not boolean_mock:
         gen = PROJECT_ROOT / "cli" / "deterministic_gen.py"
@@ -945,6 +1157,7 @@ def _run_deterministic_gen(
                 str(fc),
                 "--out-dir",
                 str(out_dir),
+                *extra_flags,
             ],
             cwd=PROJECT_ROOT,
             capture_output=True,
@@ -995,6 +1208,39 @@ def test_deterministic_verdict_fixture_coverage() -> None:
             seen.add(row["verdict"])
     missing = DETERMINISTIC_CLASSIFICATION_VERDICTS - seen
     assert not missing, f"Add fixtures for verdict(s): {sorted(missing)}"
+
+
+def test_needs_review_hits() -> None:
+    """NEEDS_REVIEW_RULES matches execmem/capabilities/foreign transitions only."""
+    sys.path.insert(0, str(PROJECT_ROOT / "cli"))
+    from policy_rules import needs_review_hits
+
+    module = {"myapp_t", "myapp_backend_t"}
+    assert needs_review_hits(
+        "myapp_t", "myapp_t", "process", frozenset({"execmem"}), module
+    ) == (("process", "execmem"),)
+    assert (
+        needs_review_hits("myapp_t", "myapp_t", "process", frozenset({"getattr"}), module)
+        == ()
+    )
+    assert needs_review_hits(
+        "myapp_t", "unconfined_t", "process", frozenset({"transition"}), module
+    ) == (("process", "transition"),)
+    assert (
+        needs_review_hits(
+            "myapp_t", "myapp_backend_t", "process", frozenset({"transition"}), module
+        )
+        == ()
+    )
+    assert needs_review_hits(
+        "myapp_t", "myapp_t", "capability", frozenset({"dac_override"}), module
+    ) == (("capability", "dac_override"),)
+    from policy_rules import NEEDS_REVIEW_RATIONALE, NEEDS_REVIEW_RULES
+
+    rule_keys = {(tclass, perm) for tclass, perm, _scope in NEEDS_REVIEW_RULES}
+    assert rule_keys == set(NEEDS_REVIEW_RATIONALE), (
+        "NEEDS_REVIEW_RATIONALE keys must match NEEDS_REVIEW_RULES (tclass, perm)"
+    )
 
 
 def test_deterministic_fixture_classify() -> None:
@@ -1065,6 +1311,45 @@ def test_deterministic_fixture_classify() -> None:
                 )
         if want_exit != 0:
             assert payload.get("generation_blocked") is True, f"{case}: expected generation_blocked"
+            if case == "12-execmem-review":
+                summary = (case_dir / "_out" / "pr_summary.md").read_text(encoding="utf-8")
+                assert summary.startswith("### Needs review (domain-weakening permissions)"), (
+                    f"{case}: needs_review heading must come first in pr_summary.md"
+                )
+                assert "execmem" in summary
+                assert "--allow-needs-review" in summary
+                assert "W^X" in summary or "writable" in summary.lower()
+                te_blocked = case_dir / "_out" / "myapp.te"
+                if te_blocked.is_file():
+                    assert "execmem" not in te_blocked.read_text(encoding="utf-8"), (
+                        f"{case}: blocked run must not emit execmem in the .te"
+                    )
+                row = next(r for r in rows if r.get("verdict") == "needs_review")
+                assert "execmem" in (row.get("rendered") or "")
+                assert "allow myapp_t self:process execmem;" in (row.get("rendered") or "")
+                with tempfile.TemporaryDirectory() as tmp:
+                    tmp_path = Path(tmp)
+                    allow_code, allow_out, allow_err = _run_deterministic_gen(
+                        case_dir,
+                        manifest,
+                        te,
+                        fc,
+                        explain=False,
+                        out_dir=tmp_path,
+                        mock=mock,
+                        boolean_mock=boolean_mock,
+                        allow_needs_review=True,
+                    )
+                    allow_combined = allow_out + allow_err
+                    assert allow_code == 0, f"{case}: --allow-needs-review exit {allow_code}\n{allow_combined}"
+                    allow_te = (tmp_path / "myapp.te").read_text(encoding="utf-8")
+                    assert "allow myapp_t self:process execmem;" in allow_te
+                    assert "# Needs review" in allow_te
+                    allow_summary = (tmp_path / "pr_summary.md").read_text(encoding="utf-8")
+                    assert "### Needs review (domain-weakening permissions)" in allow_summary
+                    assert "execmem" in allow_summary
+                    allow_findings = json.loads((tmp_path / "findings.json").read_text(encoding="utf-8"))
+                    assert allow_findings.get("generation_blocked") is False
             continue
 
         if case == "02-port-bind":
@@ -1297,6 +1582,9 @@ def main() -> int:
         ("verify_file_contexts_skip", test_verify_file_contexts_skip),
         ("check_soak_ready_gate", test_check_soak_ready_gate),
         ("monitor_avc_skip", test_monitor_avc_skip),
+        ("vendor_policy_check", test_vendor_policy_check),
+        ("demo_present_dry_run", test_demo_present_dry_run),
+        ("demo_present_preflight_names_bootstrap", test_demo_present_preflight_names_bootstrap),
         ("soak_net_new_empty_manifest", test_soak_net_new_empty_manifest),
         ("app_manifest", test_app_manifest),
         ("rpm_ops_parity", test_rpm_ops_parity),
@@ -1310,6 +1598,7 @@ def main() -> int:
         ("check_soak_auto_tier_fail_closed", test_check_soak_auto_tier_fail_closed),
         ("skip_ai_fixture_sync", test_skip_ai_fixture_sync),
         ("deterministic_verdict_fixture_coverage", test_deterministic_verdict_fixture_coverage),
+        ("needs_review_hits", test_needs_review_hits),
         ("deterministic_fixture_classify", test_deterministic_fixture_classify),
         ("payments_onboarding_module", test_payments_onboarding_module),
         ("export_app_avcs_requires_paths", test_export_app_avcs_requires_paths),

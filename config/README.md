@@ -27,7 +27,7 @@ bash scripts/wait_for_endpoints.sh --manifest "$APP_MANIFEST"
 bash scripts/validate_app_manifest.sh config/payments.manifest.yml
 ```
 
-Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.yml`.
+Default (when `APP_MANIFEST` is unset): `config/${POLICY_APP:-myapp}.manifest.yml`. Demo JVM: [`shopapi.manifest.yml`](shopapi.manifest.yml) (`--app shopapi`). Flask `myapp` stays the `make check` reference.
 
 ## Schema
 

@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- App B inherited context: content lives at /opt/appdata (wrong default label). -->
+<Context docBase="/opt/appdata" path="/inherited" reloadable="false" />

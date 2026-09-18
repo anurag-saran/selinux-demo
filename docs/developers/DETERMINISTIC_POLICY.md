@@ -12,6 +12,23 @@ Before refpolicy interfaces or raw allows on base types, the generator applies *
 
 Optional live check: **`bash scripts/run_boolean_query_integration.sh`** (skips when `sesearch` / targeted policy is unavailable).
 
+## Vendor policy pre-flight
+
+`dev_generate_policy.sh` calls `check_vendor_policy()` **before** AVC export or generation. Red Hat already ships policy for JWS (Tomcat), EAP/JBoss, httpd, named, and postgresql. Node.js and Spring Boot typically do not have a vendor module — those proceed.
+
+JWS/EAP SELinux lives in a **separate RPM** (`jws6-tomcat-selinux`, `eap7-selinux` / `eap8-selinux`) that is **not** installed by default. Until it is, Tomcat runs `unconfined_java_t`. An empty `semodule -l` is not proof that no vendor policy exists.
+
+| Situation | Generator | What you do |
+|-----------|-----------|-------------|
+| Vendor module already loaded (`jws6_tomcat`, `jboss`, `httpd`, …) | Exit non-zero | Tune booleans / `fcontext`; do **not** generate a duplicate |
+| Vendor RPM available but not installed | Exit non-zero | `dnf install jws6-tomcat-selinux` (or `eap*-selinux`); do **not** generate |
+| Genuinely no vendor/base policy for this app | Continues | Generate as usual |
+| `semodule` and `rpm` both missing (laptop) | One skip line, continues | Offline fixtures / `make check` stay green |
+
+`--force` bypasses the check when the app **genuinely differs** from the vendor one; the generator prints that it bypassed. There is no network call (local `semodule -l`, `rpm -qa`, `dnf --cacheonly` only).
+
+Admin commands: [PRODUCTION_READINESS.md §2.5](../admin/PRODUCTION_READINESS.md).
+
 ## Quick start
 
 | | |
@@ -44,7 +61,7 @@ sudo sepolgen-ifgen
 # → /var/lib/sepolgen/interface_info
 ```
 
-Without ifgen, the generator prints a **stderr banner** on every run (`SEPOLGEN INTERFACE MATCHING IS NOT AVAILABLE`) and still classifies **direct** / **fc_fix** / **fc_drift** / **private_port** rules. Base-type allows require sepolgen or explicit **`--allow-degraded`** (extra degraded banner; `engine=degraded` in `findings.json`). Exit code **1** when blockers remain (`forbidden`, `toolchain_required`) unless you only used `--explain`.
+Without ifgen, the generator prints a **stderr banner** on every run (`SEPOLGEN INTERFACE MATCHING IS NOT AVAILABLE`) and still classifies **direct** / **fc_fix** / **fc_drift** / **private_port** rules. Base-type allows require sepolgen or explicit **`--allow-degraded`** (extra degraded banner; `engine=degraded` in `findings.json`). Exit code **1** when blockers remain (`forbidden`, `toolchain_required`, `needs_review` without `--allow-needs-review`) unless you only used `--explain`.
 
 Do not confuse missing ifgen with “no interface matched” — the latter is logged when ifgen data exists but no macro fits the denial.
 
@@ -75,6 +92,7 @@ bash scripts/compile_and_validate.sh selinux
 | `direct` | Module-private types, or sepolgen ran but no macro matched (manual review) |
 | `toolchain_required` | Base-type denial with no sepolgen and no `--allow-degraded` — generation blocked |
 | `boolean` | Curated YAML override **then** `sesearch --allow --bool …` on loaded policy → **`setsebool -P … on`** (see `host_admin_actions`; policy identity in header / `findings.json`) |
+| `needs_review` | Legitimate but domain-weakening (`execmem`, `dac_override`, foreign `process transition`, …). Recorded in findings / `pr_summary.md`; **not** written to the `.te` unless `--allow-needs-review` |
 
 ## Verification
 
@@ -87,7 +105,7 @@ python3 cli/verify_avc_coverage.py --avc-log policy_out/avc.log \
 
 Labeling fixes (`fc_fix`, `fc_drift`) are satisfied via `findings.json`, not allow rules. Shared logic: **`cli/fc_labeling.py`** (also strips redundant lines from LLM `.fc` output).
 
-`findings.json` is an object: `sepolgen_status`, `sepolgen_detail`, `generation_blocked`, and `findings` (array of classified rows). Refusal cases (`forbidden`, `toolchain_required`) still write **`findings.json`** with `generation_blocked: true` before exit 1. Older list-only files still work in `verify_avc_coverage.py`.
+`findings.json` is an object: `sepolgen_status`, `sepolgen_detail`, `generation_blocked`, and `findings` (array of classified rows). Refusal cases (`forbidden`, `toolchain_required`, `needs_review` without `--allow-needs-review`) still write **`findings.json`** and **`pr_summary.md`** with `generation_blocked: true` before exit 1. Older list-only files still work in `verify_avc_coverage.py`.
 
 Golden fixtures: **`bash scripts/run_deterministic_fixtures.sh`** (`make test-fixtures`). `pr_summary.md` includes a **Classification audit (engine)** table for reviewers.
 
@@ -99,7 +117,7 @@ Golden fixtures: **`bash scripts/run_deterministic_fixtures.sh`** (`make test-fi
 | `dev_generate_policy.sh --llm-summary` | above + `cli/summarize_pr.py` (narrative only) |
 | Legacy | `cli/selinux_gen.py --legacy-full-policy` (deprecated) |
 
-Fixtures: [`docs/examples/fixtures/deterministic/`](../examples/fixtures/deterministic/) — contiguous **`01`–`11`** AVC directories; **every classification verdict** has at least one golden row (`avc.log` + `expected.json`). Run **`make test-fixtures`**. Cases `08`/`09` use optional `sepolgen_mock.json` so hosts without ifgen still pass. Boolean coverage: `04-boolean-network-connect` and `10-boolean-hint`.
+Fixtures: [`docs/examples/fixtures/deterministic/`](../examples/fixtures/deterministic/) — contiguous **`01`–`12`** AVC directories; **every classification verdict** has at least one golden row (`avc.log` + `expected.json`). Run **`make test-fixtures`**. Cases `08`/`09` use optional `sepolgen_mock.json` so hosts without ifgen still pass. Boolean coverage: `04-boolean-network-connect` and `10-boolean-hint`. `needs_review`: `12-execmem-review`.
 
 ## After merge (not this CLI)
 

@@ -1,0 +1,8 @@
+{
+  "exit_code": 1,
+  "stderr_substrings": [
+    "needs_review",
+    "execmem",
+    "--allow-needs-review"
+  ]
+}

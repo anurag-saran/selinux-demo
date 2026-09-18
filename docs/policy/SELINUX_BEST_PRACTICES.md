@@ -30,11 +30,14 @@ Current module version: read **`selinux/policy_version.txt`** (SemVer). Keep the
 | Unix socket to backend | Peer connection | `allow myapp_t myapp_backend_t:unix_stream_socket connectto` |
 | `policy_module()` syntax | Required for refpolicy Makefile compile | Top of every `.te` |
 | Incremental allows from AVCs | Least privilege | Deterministic generator: net-new rows only (`findings.json`) |
+| Use vendor/base policy when it exists | Duplicate `jws6_tomcat` / `jboss_t` / `httpd_t` is worse than no custom module | `check_vendor_policy()` in `dev_generate_policy.sh` refuses JWS, EAP, httpd, named, postgresql |
 
 ### Don’t
 
 | Anti-pattern | Why it fails |
 |--------------|--------------|
+| Generate a custom module for JWS/Tomcat, EAP/JBoss, or httpd | Vendor/base policy already confines these; install `jws6-tomcat-selinux` / `eap*-selinux` or tune booleans. The generator refuses unless `--force`. |
+| Quietly add `allow … self:process execmem` (or `dac_override`) | Domain-weakening; generator classifies `needs_review` and exits until `--allow-needs-review` after confirming the AVC |
 | Raw `allow myapp_t syslogd_t:unix_stream_socket connectto` | Incomplete vs `logging_send_syslog_msg`; misses `devlog_t` / dgram paths |
 | `allow myapp_t unreserved_port_t:tcp_socket name_bind` | Binds **any** high port — not just 8888 |
 | `allow myapp_t myapp_backend_t:tcp_socket connectto` | **`connectto` is not valid on `tcp_socket`** — use `name_connect` to port type |
@@ -211,6 +214,8 @@ The LLM path follows the same house rules as hand-written policy. See [`cli/prom
 
 **Human review is mandatory** — generated output passes CI but does not replace admin sign-off.
 
+The generator also **refuses to duplicate vendor policy**. Pointing it at JWS or EAP without `--force` exits non-zero; install `jws6-tomcat-selinux` / `eap*-selinux` (or tune the loaded module) instead. See [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md).
+
 ---
 
 ## 8. Review checklist (admins)
@@ -242,6 +247,6 @@ Use with the [PR template](../../.github/PULL_REQUEST_TEMPLATE/selinux_policy_re
 | [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) | File/port AVC after ship → PR |
 | [../ansible/README.md](../../ansible/README.md) | Ansible playbook task order and variables |
 | [SELINUX_BASICS.md](SELINUX_BASICS.md) | Concepts and beginner mistakes |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Optional paced walkthrough |
+| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) |
 | [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | Admin runbook — soak, canary, enforce, rollback |
 | [README.md](../../README.md) | Commands, CI, Ansible pointer |

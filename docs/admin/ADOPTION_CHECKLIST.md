@@ -59,7 +59,7 @@ Two-host lab (reference `myapp`): [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md).
 
 ## Optional
 
-- [ ] Two-host talk track: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) / [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (reference `myapp` in this clone; say “your repo would hold `selinux/`”)
+- [ ] Customer talk: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`). Two-host pipeline: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) (reference `myapp` in this clone; say “your repo would hold `selinux/`”)
 
 ## Admin runbook
 

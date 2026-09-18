@@ -1,0 +1,443 @@
+#!/usr/bin/env bash
+#
+# demo_present.sh — Three-app customer talk: nothing to do → tune it → build it.
+#
+#   bash scripts/demo_present.sh --dry-run --profile customer
+#   bash scripts/demo_present.sh --preflight
+#   bash scripts/demo_present.sh --profile customer
+#   bash scripts/demo_present.sh --profile technical --app shopapi
+#   bash scripts/demo_present.sh --acts 0,1,2
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/training_lab_runner.sh
+source "${SCRIPT_DIR}/lib/training_lab_runner.sh"
+# shellcheck source=lib/e2e_demo.sh
+source "${SCRIPT_DIR}/lib/e2e_demo.sh"
+# shellcheck source=lib/demo_estate.sh
+source "${SCRIPT_DIR}/lib/demo_estate.sh"
+# shellcheck source=lib/vendor_policy_check.sh
+source "${SCRIPT_DIR}/lib/vendor_policy_check.sh"
+
+TLAB_PS1='demo# '
+PROFILE="customer"
+ACTS=""
+PREFLIGHT=0
+DEMO_APP="shopapi"
+SKIP_AI=1
+OPEN_PR=0
+LLM_SUMMARY=0
+PREFLIGHT_FAIL=0
+
+CUSTOMER_ACTS="0,1,2,3"
+TECHNICAL_ACTS="0,1,2,3,4,5"
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options]
+
+Three situations, one talk: vendor already enforcing (App A) → tune inherited
+Tomcat (App B, no .te) → generate for Spring Boot (shopapi).
+
+Options:
+  --profile customer|technical   Short path (~20 min) or full pipeline
+  --acts LIST                    Comma-separated act numbers (overrides --profile)
+  --app shopapi|flask            Pipeline acts 3+ target (default: shopapi)
+  --preflight                    Check the host and exit (pass/fail table)
+  --dry-run                      Print narration + commands; execute nothing
+  --skip-ai                      Do not require OPENAI_API_KEY (default)
+  --open-pr                      Preflight requires gh auth
+  --auto                         No Enter pauses
+  --no-type                      Instant command echo
+  -h, --help
+
+Laptop with no RHEL:  bash scripts/demo_present.sh --dry-run --profile customer
+Unprepared VM:        make demo-bootstrap
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --profile) PROFILE="$2"; shift 2 ;;
+        --acts) ACTS="$2"; shift 2 ;;
+        --app) DEMO_APP="$2"; shift 2 ;;
+        --preflight) PREFLIGHT=1; shift ;;
+        --dry-run|--say-only) E2E_DRY=1; shift ;;
+        --skip-ai) SKIP_AI=1; shift ;;
+        --open-pr) OPEN_PR=1; shift ;;
+        --llm-summary) LLM_SUMMARY=1; SKIP_AI=0; shift ;;
+        --auto) TLAB_AUTO=1; shift ;;
+        --no-type) TLAB_NO_TYPE=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+    esac
+done
+
+if [[ "${DEMO_APP}" != "shopapi" && "${DEMO_APP}" != "flask" ]]; then
+    echo "Unknown --app ${DEMO_APP} (use shopapi|flask)" >&2
+    exit 2
+fi
+
+if [[ -z "${ACTS}" ]]; then
+    case "${PROFILE}" in
+        customer) ACTS="${CUSTOMER_ACTS}" ;;
+        technical) ACTS="${TECHNICAL_ACTS}" ;;
+        *) echo "Unknown --profile ${PROFILE} (use customer|technical)" >&2; exit 2 ;;
+    esac
+fi
+
+demo_expect() {
+    echo -e "${TLAB_DIM}Expected:${TLAB_NC} $*"
+}
+
+pf_row() {
+    local status="$1" name="$2" detail="$3" hint="${4:-}"
+    printf '%-6s  %-28s  %s\n' "${status}" "${name}" "${detail}"
+    if [[ "${status}" == "FAIL" ]]; then
+        PREFLIGHT_FAIL=1
+        if [[ -n "${hint}" ]]; then
+            echo "        → ${hint}"
+        fi
+    elif [[ "${status}" == "WARN" && -n "${hint}" ]]; then
+        echo "        → ${hint}"
+    fi
+}
+
+port_listening() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | grep -Eq ":${port}[[:space:]]"
+        return $?
+    fi
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+run_preflight() {
+    echo
+    echo "Demo preflight"
+    echo "=============="
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        echo "(dry-run — checks not executed)"
+        pf_row "WOULD" "App A HTTP :${APP_A_PORT}" "curl /standard/"
+        pf_row "WOULD" "App A confined" "ps -o label=  (jws6_tomcat_t or tomcat_t)"
+        pf_row "WOULD" "getenforce" "Enforcing"
+        pf_row "WOULD" "tomcat unit" "$(demo_tomcat_service 2>/dev/null || echo tomcat.service)"
+        pf_row "WOULD" "shopapi unit" "shopapi.service"
+        pf_row "WOULD" "podman / ${DEMO_PODMAN_IMAGE}" "optional for flask venv; not required for shopapi"
+        echo
+        echo "On a missing or unconfined App A: run make demo-bootstrap"
+        return 0
+    fi
+
+    if [[ "$(uname -s)" != "Linux" ]]; then
+        pf_row "FAIL" "Linux/RHEL host" "$(uname -s)" "run make demo-bootstrap on a RHEL VM, or --dry-run here"
+        echo
+        echo "Preflight FAILED. If App A is missing or unconfined: run make demo-bootstrap"
+        return 1
+    fi
+
+    local ge
+    ge="$(getenforce 2>/dev/null || echo missing)"
+    if [[ "${ge}" == "Enforcing" ]]; then
+        pf_row "PASS" "getenforce" "${ge}"
+    else
+        pf_row "FAIL" "getenforce" "${ge}" "setenforce 1 (keep the host Enforcing)"
+    fi
+
+    local svc
+    svc="$(demo_tomcat_service)"
+    if systemctl is-active --quiet "${svc}" 2>/dev/null; then
+        pf_row "PASS" "Tomcat unit" "${svc} active"
+    else
+        pf_row "FAIL" "Tomcat unit" "${svc} not active" "run make demo-bootstrap"
+    fi
+
+    if curl -sf "http://127.0.0.1:${APP_A_PORT}/standard/" >/dev/null 2>&1 \
+        || curl -sf "http://127.0.0.1:${APP_A_PORT}/standard/index.jsp" >/dev/null 2>&1; then
+        pf_row "PASS" "App A HTTP" ":${APP_A_PORT}/standard/"
+    else
+        pf_row "FAIL" "App A HTTP" "not responding on :${APP_A_PORT}" "run make demo-bootstrap"
+    fi
+
+    local label
+    label="$(ps -eo label,comm 2>/dev/null | awk '/tomcat|jsvc|java/ && /tomcat_t|jws6_tomcat_t/ {print $1; exit}')"
+    if [[ -n "${label}" ]]; then
+        pf_row "PASS" "App A confined" "${label}"
+    else
+        local raw
+        raw="$(ps -eo label,comm 2>/dev/null | awk '/tomcat|jsvc/ {print $1; exit}')"
+        pf_row "FAIL" "App A confined" "${raw:-no tomcat process}" "run make demo-bootstrap"
+    fi
+
+    if [[ -f "${APP_A_FORBIDDEN_PATH}" ]]; then
+        pf_row "PASS" "App A deny-file" "${APP_A_FORBIDDEN_PATH}"
+    else
+        pf_row "FAIL" "App A deny-file" "missing ${APP_A_FORBIDDEN_PATH}" "run make demo-bootstrap"
+    fi
+
+    if systemctl list-unit-files shopapi.service >/dev/null 2>&1; then
+        pf_row "PASS" "shopapi unit" "installed"
+    else
+        pf_row "FAIL" "shopapi unit" "missing" "run make demo-bootstrap"
+    fi
+
+    if port_listening "${APP_A_PORT}"; then
+        pf_row "PASS" "port ${APP_A_PORT}" "listening (App A)"
+    else
+        pf_row "FAIL" "port ${APP_A_PORT}" "not listening" "run make demo-bootstrap"
+    fi
+    if port_listening "${APP_B_PORT}"; then
+        pf_row "WARN" "port ${APP_B_PORT}" "already listening — Act 2 port probe may be already tuned"
+    else
+        pf_row "PASS" "port ${APP_B_PORT}" "free or unbound (inherited name_bind still to show)"
+    fi
+
+    if command -v podman >/dev/null 2>&1; then
+        pf_row "PASS" "podman" "$(command -v podman)"
+        if podman image exists "${DEMO_PODMAN_IMAGE}" >/dev/null 2>&1; then
+            pf_row "PASS" "build image" "${DEMO_PODMAN_IMAGE}"
+        else
+            pf_row "WARN" "build image" "${DEMO_PODMAN_IMAGE} not pulled" \
+                "podman pull ${DEMO_PODMAN_IMAGE} (flask venv path only)"
+        fi
+    else
+        pf_row "WARN" "podman" "not installed (optional for this talk)"
+    fi
+
+    if [[ "${OPEN_PR}" -eq 1 ]]; then
+        if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+            pf_row "PASS" "gh auth" "ok"
+        else
+            pf_row "FAIL" "gh auth" "missing" "gh auth login (required with --open-pr)"
+        fi
+    fi
+
+    if [[ "${SKIP_AI}" -eq 0 && "${LLM_SUMMARY}" -eq 1 ]]; then
+        if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+            pf_row "PASS" "OPENAI_API_KEY" "set"
+        else
+            pf_row "FAIL" "OPENAI_API_KEY" "unset" "export OPENAI_API_KEY or pass --skip-ai"
+        fi
+    else
+        pf_row "PASS" "OPENAI_API_KEY" "not required (deterministic / --skip-ai)"
+    fi
+
+    echo
+    if [[ "${PREFLIGHT_FAIL}" -ne 0 ]]; then
+        echo "Preflight FAILED. If App A is missing or unconfined: run make demo-bootstrap"
+        return 1
+    fi
+    echo "Preflight PASSED. variant=$(demo_variant) domain=$(demo_tomcat_domain)"
+    return 0
+}
+
+act0_triage() {
+    e2e_banner "Act 0 — Triage (~2 min)"
+    tlab_explain "Three situations. We decline the generator until we are in the third."
+    tlab_explain "App A: greenfield Tomcat on ${APP_A_PORT} — vendor policy. App B: inherited Tomcat on ${APP_B_PORT} talking to a payment gateway. shopapi: Spring Boot, no vendor module."
+    demo_expect "vendor check names a loaded tomcat/jws module for App A, and situation=none for shopapi"
+
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        echo "[INFO] TRIAGE situation=loaded app=tomcat module=jws6_tomcat (or tomcat) class=tomcat action=tune"
+        echo "[INFO] TRIAGE situation=none app=shopapi action=generate"
+        echo "[INFO] variant would be jws (jws6_tomcat_t) or tomcat (tomcat_t) — bootstrap prints which"
+    else
+        vendor_policy_preflight --report --app-name tomcat --unit "$(demo_tomcat_service)" || true
+        vendor_policy_preflight --report --app-name shopapi --unit shopapi.service || true
+        echo "variant=$(demo_variant) domain=$(demo_tomcat_domain)"
+        ps -eo label,comm 2>/dev/null | grep -E 'tomcat|java|shopapi' | head -n 20 || true
+    fi
+    tlab_explain "This demo will generate policy only for shopapi. Tomcat is vendor-covered."
+    tlab_checkpoint "Audience can place their estate: covered / tune / generate."
+    tlab_pause
+}
+
+act1_app_a() {
+    e2e_banner "Act 1 — App A standard Tomcat (~1 min, no changes)"
+    tlab_explain "Greenfield deploy on standard paths and port ${APP_A_PORT}. Already enforcing. Zero work from us. Both Tomcat apps share one domain — SELinux is not isolating A from B; that would be separate instances or containers."
+    e2e_run "getenforce"
+    demo_expect "Enforcing"
+    e2e_run "ps -eo label,comm | grep -E 'tomcat|jsvc' | head"
+    demo_expect "scontext ... $(demo_tomcat_domain)  (jws6_tomcat_t if JWS, tomcat_t if distro Tomcat)"
+    e2e_run "curl -sS http://127.0.0.1:${APP_A_PORT}/standard/"
+    demo_expect "App A standard / OK"
+    tlab_explain "Now a request that must fail — reading ${APP_A_FORBIDDEN_PATH}, world-readable so DAC cannot hide the AVC."
+    e2e_run "curl -sS http://127.0.0.1:${APP_A_PORT}/standard/forbidden.jsp"
+    demo_expect "DENIED ... (not UNEXPECTED_READ)"
+    e2e_run "sudo ausearch -m avc -ts recent | grep -E 'out-of-scope|user_home_t|forbidden' | tail -n 5"
+    demo_expect "scontext=...:$(demo_tomcat_domain):s0  tclass=file  denied { read }"
+    tlab_checkpoint "Vendor policy, already enforcing, a real denial on demand. We authored nothing."
+    tlab_pause
+}
+
+# Return 0 if ausearch -ts recent matches PATTERN. Dry-run always 0 (show the fix).
+act2_has_avc() {
+    local pattern="$1"
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        return 0
+    fi
+    sudo ausearch -m avc -ts recent 2>/dev/null | grep -E "${pattern}" >/dev/null 2>&1
+}
+
+act2_fix_if_avc() {
+    local what="$1"
+    local pattern="$2"
+    local fix="$3"
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        e2e_run "${fix}"
+        return 0
+    fi
+    if act2_has_avc "${pattern}"; then
+        e2e_run "${fix}"
+    else
+        echo "No AVC matching /${pattern}/ for ${what} — skipping that one-line fix. Do not invent a .te."
+    fi
+}
+
+act2_app_b() {
+    local fctx
+    fctx="$(demo_tomcat_fcontext_type)"
+
+    e2e_banner "Act 2 — App B inherited Tomcat (~5 min, live tune)"
+    tlab_explain "Someone else had ${APP_A_PORT}, so this instance listens on ${APP_B_PORT}. Content landed in ${APP_B_DATA}. It calls a payment gateway. That is a normal estate, not a lab trick. audit2why is the manual form of what our generator automates — we show it first."
+    tlab_explain "If a probe produces no AVC, we say so and skip that fix. Observed behaviour beats assumed behaviour. Port first: if name_bind failed at start, HTTP on ${APP_B_PORT} never comes up."
+
+    tlab_explain "Probe 1 — port: connector ${APP_B_PORT}"
+    e2e_run "curl -sS -o /dev/null -w '%{http_code}\n' --connect-timeout 2 http://127.0.0.1:${APP_B_PORT}/inherited/ || true"
+    e2e_run "sudo ausearch -m avc -ts recent | grep name_bind | tail -n 10 || true"
+    e2e_run "sudo ausearch -m avc -ts recent | audit2why | tail -n 30"
+    demo_expect "name_bind on unreserved_port_t → semanage port -a -t http_port_t -p tcp ${APP_B_PORT}"
+    act2_fix_if_avc "port ${APP_B_PORT}" "name_bind" \
+        "sudo semanage port -a -t http_port_t -p tcp ${APP_B_PORT} || sudo semanage port -m -t http_port_t -p tcp ${APP_B_PORT}"
+    if [[ "${E2E_DRY}" -eq 1 ]] || act2_has_avc "name_bind"; then
+        e2e_run "sudo systemctl restart $(demo_tomcat_service)"
+    fi
+    e2e_run "curl -sS http://127.0.0.1:${APP_B_PORT}/inherited/ || true"
+
+    tlab_explain "Probe 2 — label: ${APP_B_DATA} (user_home_t on purpose)"
+    e2e_run "curl -sS http://127.0.0.1:${APP_B_PORT}/inherited/data.jsp || true"
+    e2e_run "sudo ausearch -m avc -ts recent | grep -E 'appdata|user_home_t' | tail -n 10 || true"
+    e2e_run "sudo ausearch -m avc -ts recent | audit2why | tail -n 30"
+    demo_expect "mislabeled ${APP_B_DATA} → semanage fcontext + restorecon (no .te)"
+    act2_fix_if_avc "label ${APP_B_DATA}" "appdata|user_home_t" \
+        "sudo semanage fcontext -a -t ${fctx} '${APP_B_DATA}(/.*)?' || sudo semanage fcontext -a -t tomcat_var_lib_t '${APP_B_DATA}(/.*)?'"
+    if [[ "${E2E_DRY}" -eq 1 ]] || act2_has_avc "appdata|user_home_t"; then
+        e2e_run "sudo restorecon -Rv ${APP_B_DATA}"
+    fi
+    e2e_run "curl -sS http://127.0.0.1:${APP_B_PORT}/inherited/data.jsp || true"
+
+    tlab_explain "Probe 3 — boolean: outbound gateway"
+    e2e_run "curl -sS http://127.0.0.1:${APP_B_PORT}/inherited/gateway.jsp || true"
+    e2e_run "sudo ausearch -m avc -ts recent | grep -E 'name_connect|network_connect' | tail -n 10 || true"
+    e2e_run "sudo ausearch -m avc -ts recent | audit2why | tail -n 30"
+    demo_expect "Was caused by a boolean (tomcat_can_network_connect or jws equivalent) → setsebool -P … on"
+    if [[ "${E2E_DRY}" -eq 1 ]]; then
+        e2e_run "sudo setsebool -P tomcat_can_network_connect on"
+        echo "(dry-run — live: use the boolean audit2why names, often jws6_can_network_connect)"
+    elif act2_has_avc "name_connect|network_connect"; then
+        local b enabled=0
+        for b in tomcat_can_network_connect jws6_can_network_connect jws_can_network_connect httpd_can_network_connect; do
+            if getsebool "${b}" >/dev/null 2>&1; then
+                e2e_run "sudo setsebool -P ${b} on"
+                enabled=1
+                break
+            fi
+        done
+        if [[ "${enabled}" -eq 0 ]]; then
+            echo "No known connect boolean on this host — skipping. Do not invent a .te."
+        fi
+    else
+        echo "No AVC matching name_connect for outbound boolean — skipping that one-line fix. Do not invent a .te."
+    fi
+    e2e_run "curl -sS http://127.0.0.1:${APP_B_PORT}/inherited/gateway.jsp || true"
+
+    tlab_checkpoint "Three one-line fixes, zero policy authored. If you were about to write a .te for App B, the app was configured wrong."
+    tlab_pause
+}
+
+act3_generate() {
+    e2e_banner "Act 3 — Spring Boot / ${DEMO_APP}: the generator is allowed"
+    if [[ "${DEMO_APP}" == "flask" ]]; then
+        tlab_explain "Flask myapp is the test reference. Hand off to the existing QA talk track."
+        echo "On rhel-qa: bash scripts/demo_e2e_rhel_qa.sh --part app && bash scripts/demo_e2e_rhel_qa.sh --part generate"
+        tlab_pause
+        return 0
+    fi
+    tlab_explain "No vendor module for Spring Boot. systemd SELinuxContext= sets shopapi_t because /usr/bin/java cannot carry this app's entrypoint label."
+    e2e_run "systemctl cat shopapi.service | grep -E 'SELinuxContext|ExecStart'"
+    demo_expect "SELinuxContext=system_u:system_r:shopapi_t:s0"
+    e2e_run "ps -o label=,comm= -C java | head"
+    demo_expect "shopapi_t  java   (after the types-only seed is loaded)"
+    local shop_port
+    shop_port="$(demo_manifest_http_port "${PROJECT_ROOT}/config/shopapi.manifest.yml")"
+    tlab_explain "Exercise endpoints under the permissive seed so the AVC log is real. Types-only seed is committed. Allows come from those AVCs — not a JVM cookbook. execmem is needs_review if and only if the AVC log shows it."
+    e2e_run "curl -sS http://127.0.0.1:${shop_port}/health || true"
+    e2e_run "curl -sS http://127.0.0.1:${shop_port}/state || true"
+    e2e_run "curl -sS http://127.0.0.1:${shop_port}/log || true"
+    e2e_run "sudo ausearch -m avc -ts recent | grep shopapi_t | tail -n 20 || true"
+    e2e_run "sudo bash scripts/dev_generate_policy.sh --apply --app-name shopapi --app-root ${PROJECT_ROOT}"
+    demo_expect "generator runs; vendor preflight lets shopapi through; findings.json lists observed verdicts"
+    tlab_checkpoint "This is the first time we authored policy. We declined twice first."
+    tlab_pause
+}
+
+act4_pr() {
+    e2e_banner "Act 4 — PR (technical)"
+    tlab_explain "Policy PR on the app tree. CI forbidden-patterns already ran at generate time."
+    e2e_run "bash scripts/validate_forbidden_patterns.sh selinux/shopapi"
+    if [[ "${OPEN_PR}" -eq 1 ]]; then
+        e2e_run_allow_fail "bash scripts/demo_open_generated_pr.sh"
+    else
+        echo "Skip gh pr (pass --open-pr to enable)."
+    fi
+    tlab_pause
+}
+
+act5_pipeline() {
+    e2e_banner "Act 5 — Canary / soak / fail (technical)"
+    tlab_explain "Existing two-host pipeline is unchanged from here: canary, soak, talk-only enforce, /feature-spool outage, rollback, recanary."
+    echo "Mac: bash scripts/demo_e2e_mac.sh"
+    echo "QA:  bash scripts/demo_e2e_rhel_qa.sh"
+    echo "Prod: bash ~/e2e-demo/demo_e2e_rhel_prod.sh"
+    tlab_pause
+}
+
+run_act() {
+    local n="$1"
+    case "${n}" in
+        0) act0_triage ;;
+        1) act1_app_a ;;
+        2) act2_app_b ;;
+        3) act3_generate ;;
+        4) act4_pr ;;
+        5) act5_pipeline ;;
+        *) echo "Unknown act ${n}" >&2; exit 2 ;;
+    esac
+}
+
+main() {
+    if [[ "${PREFLIGHT}" -eq 1 ]]; then
+        run_preflight
+        exit $?
+    fi
+    e2e_banner "SELinux PaC — nothing to do, then tune, then build"
+    echo "profile=${PROFILE} acts=${ACTS} app=${DEMO_APP} dry-run=${E2E_DRY}"
+    echo "Unprepared host: make demo-bootstrap    Laptop: --dry-run --profile customer"
+    echo
+    local IFS=','
+    local act
+    for act in ${ACTS}; do
+        act="$(echo "${act}" | tr -d ' ')"
+        [[ -n "${act}" ]] || continue
+        run_act "${act}"
+    done
+    tlab_checkpoint "Done. Covered → tuned → generated. Restraint first."
+}
+
+main

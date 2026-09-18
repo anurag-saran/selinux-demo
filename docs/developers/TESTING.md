@@ -139,10 +139,14 @@ python3 scripts/smoke_test.py --no-require-backend
 | `verify_file_contexts_skip` | `--skip-if-unavailable` exits 0 without SELinux tools |
 | `check_soak_ready_gate` | Soak script fails on missing/recent marker, passes on 8-day-old marker |
 | `monitor_avc_skip` | `monitor_avc.sh --skip-if-unavailable` exits 0 |
+| `vendor_policy_check` | Mocked `semodule`/`rpm`/`dnf`: loaded module refuses, available-not-installed refuses, custom app proceeds; `--force` and missing-tools skip |
+| `demo_present_dry_run` | `--dry-run --profile customer` prints the three-app narration on a machine with no SELinux |
+| `demo_present_preflight_names_bootstrap` | `--preflight` without `--dry-run` names `make demo-bootstrap` when App A is absent |
 | `app_manifest` | Validates demo + example manifests; `shell-export` emits expected keys |
 | `rpm_ops_parity` | Ops RPM file list matches repo scripts |
 | `skip_ai_fixture_sync` | Offline demo `skip_ai/generated/` matches committed `selinux/` |
 | `deterministic_verdict_fixture_coverage` | Every classification verdict has ≥1 golden row under `docs/examples/fixtures/deterministic/` |
+| `needs_review_hits` | `execmem` / `dac_override` / foreign `process transition` match `NEEDS_REVIEW_RULES`; in-module transition does not |
 | `deterministic_fixture_classify` | Each fixture: `--explain` + generation vs `expected.json`; optional `sepolgen_mock.json` |
 | `fc_labeling_drift_detection` | `fc_labeling.py` redundant `.fc` line detection |
 
@@ -204,7 +208,7 @@ These run on **SELinux hosts** (Ansible playbooks call them; admins can run manu
 
 ## 6. Staging and production gates
 
-Production control plane is **Ansible Automation Platform (AAP)** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)). The two-host talk ([DEMO_GUIDE.md](../training/DEMO_GUIDE.md)) runs the same playbooks from the Mac.
+Production control plane is **Ansible Automation Platform (AAP)** ([ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md)). The three-app customer talk is [DEMO_GUIDE.md](../training/DEMO_GUIDE.md); the two-host pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) runs the same playbooks from the Mac.
 
 | Phase | Playbook | Key tests embedded |
 |-------|----------|-------------------|

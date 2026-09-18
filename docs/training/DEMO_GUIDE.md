@@ -1,82 +1,82 @@
-# SELinux PaC — optional paced walkthrough
+# SELinux PaC — three-app customer talk
 
-Present the two-host lab with the typewriter scripts. Day-to-day work starts at [README.md](../../README.md).
+**LAST_VERIFIED:** 2026-09-17 — authored on macOS. **Not yet run on RHEL hardware.** Re-verify on RHEL 9.x (or CentOS Stream 9) with JWS 6 + `jws6-tomcat-selinux`, or the distro Tomcat fallback + JDK 17, and update this line.
 
-**Follow:** [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) — especially [Present this lab (three terminals)](../admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals).
+Present **nothing to do → tune it → build it**. Flask `app/` stays the **offline test** reference (`make check`). Spring Boot `demo/shopapi/` is the **demo** reference.
 
-## Run it end to end
+**Follow also:** [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) for the two-host generate/canary/soak acts (technical profile).
 
-Both VMs up (`192.168.64.6` / `192.168.64.5`). From the Mac, `ssh ansible@…` to each without a password prompt. Repo root: `/Users/asaran/projects/selinux-pac`.
+## The three situations
 
-Re-run on the same VMs: `bash scripts/reset_demo_vms.sh` then start [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) at Part 1.
+Red Hat customers mostly run JWS (Tomcat), EAP, Python, Node, and Spring Boot. Only some of those have vendor policy. The talk uses three apps so people can place their own estate:
 
-**Customer talk (press Enter):**
+| App | What it is | What we do |
+|-----|------------|------------|
+| **App A** | Tomcat, **greenfield**, standard paths, port **8080** | Already deployed, confined, **enforcing**. Evidence, not a live step. |
+| **App B** | Tomcat, **inherited**: `/opt/appdata`, port **8090**, outbound gateway | Real denials. One-line `semanage` / `setsebool`. **Zero `.te`.** |
+| **shopapi** | Spring Boot JVM under systemd | **No vendor module.** Only this one hits the generator. |
 
-```bash
-# Window 1 — Mac
-cd /Users/asaran/projects/selinux-pac
-bash scripts/demo_e2e_mac.sh
+App A is a standard deploy. App B is the one you inherited — something else had 8080, content landed in `/opt/appdata`, it talks to a payment gateway. That is what most estates look like.
 
-# Window 2 — when the Mac says switch
-ssh ansible@192.168.64.6
-# then: bash ~/selinux-pac/scripts/demo_e2e_rhel_qa.sh --part app
-# later: --part generate   and   --part generate --skip-export
+**Same Tomcat domain:** App A and App B run as `jws6_tomcat_t` or `tomcat_t`. SELinux is **not** isolating them from each other. If you need that isolation, use separate instances or containers.
 
-# Window 3 — when the Mac says switch
-ssh ansible@192.168.64.5
-# then, in order: bash ~/e2e-demo/demo_e2e_rhel_prod.sh --part app
-#   --part rpms  --part soak  --part soak-avc  --part fail  --part restore  --part retest
-```
+**JWS vs Tomcat:** JWS needs a Red Hat subscription and the JWS repo. If bootstrap cannot see that repo, it installs **upstream Tomcat** from the distro and confines it with **`tomcat_t`**, not `jws6_tomcat_t`. The narrative is identical. Bootstrap prints which variant it chose.
 
-**Rehearsal (one window):** `bash scripts/demo_e2e_mac.sh --auto --no-type`
-
-**Talk-only:** `--dry-run`. **7-day refuse instead of talk-only enforce:** `DEMO_PROD_FORCE_ENFORCE=false bash scripts/demo_e2e_mac.sh`.
-
-| Window | Script | Where you type |
-|--------|--------|----------------|
-| Mac (Ansible controller) | `bash scripts/demo_e2e_mac.sh` | Repo root on the Mac |
-| rhel-qa | `bash scripts/demo_e2e_rhel_qa.sh --part app` then `--part generate` (later `--skip-export`) | SSH session on the QA VM |
-| rhel-prod | `bash ~/e2e-demo/demo_e2e_rhel_prod.sh --part app` then `--part rpms`, `--part soak`, `--part soak-avc`, `--part fail`, `--part restore`, `--part retest` | SSH session on the prod VM |
-
-Flags: `--dry-run` (talk track only), `--auto` (no pauses; the Mac script also SSHs and runs the VM talk tracks), `--no-type` (no typewriter).
-
-Talk-only prod enforce (default): `force_enforce=true` plus `-e change_ticket=DEMO` so the recording can treat a **clean** soak as complete. `inventory.production.yml` still has `soak_min_days: 7`. To show the 7-day refuse instead:
+## Commands
 
 ```bash
-DEMO_PROD_FORCE_ENFORCE=false bash scripts/demo_e2e_mac.sh
+# Understand the flow (Mac, CI, any laptop — no SELinux, no podman, no JVM)
+bash scripts/demo_present.sh --dry-run --profile customer
+
+# Night before: is App A still confined?
+bash scripts/demo_present.sh --preflight
+
+# From-scratch VM (root, RHEL)
+make demo-bootstrap
+# then:
+bash scripts/demo_present.sh --preflight
+bash scripts/demo_present.sh --profile customer
 ```
 
-GitHub PR after generate (Mac, needs `gh auth login`): `bash scripts/demo_open_generated_pr.sh` opens the PR on **[anurag-saran/myapp](https://github.com/anurag-saran/myapp)**. CI jobs **forbidden-patterns** and **version-consistency** on that repo should pass — the generator already ran the forbidden-pattern check. Do not use `open_demo_policy_pr.sh` (frozen 1.1.1 snapshot).
+| Flag | Meaning |
+|------|---------|
+| `--profile customer` | Acts 0–3 (~20 min): triage, App A, App B, start generate |
+| `--profile technical` | Customer path plus PR + two-host pipeline handoff |
+| `--acts 0,1,2` | Manual act list |
+| `--app shopapi` \| `--app flask` | Pipeline target (default **shopapi**) |
+| `--preflight` | Pass/fail table; names `make demo-bootstrap` if App A is missing/unconfined |
+| `--dry-run` | Narration + commands + expected output; **executes nothing** |
+| `--open-pr` | Preflight requires `gh auth` |
 
----
+Existing typewriter scripts (`demo_e2e_mac.sh` / `_rhel_qa.sh` / `_rhel_prod.sh`) remain the two-host generate/canary/soak track (technical Act 5).
 
-## Two-act story the scripts tell
+## Acts
 
-| Act | What you show |
-|-----|----------------|
-| **1 — from scratch** | On rhel-qa: app **unconfined** (empty AVC log) → create domain live → second curls produce `myapp_t` AVCs → generate first real `.te` in **~/myapp** → copy to Mac → **GitHub PR on anurag-saran/myapp** (CI `forbidden-patterns` green) → canary/enforce on QA → RPMs on prod → canary → **soak: HTTP 200, AVC file clean** (`soak_monitor` passes) → talk-only prod enforce (treat soak as complete) |
-| **2 — outage, restore, PaC** | `curl /feature-spool` on **rhel-prod** returns **500** → `emergency_rollback.yml` (`myapp_t` permissive; host still Enforcing) → app **200** again → copy AVC log to rhel-qa → generate `--skip-export` → **second PR** → recanary prod (`soak_monitor` should pass) → curl succeeds under the new module |
+| Act | Time | What you show |
+|-----|------|----------------|
+| **0 Triage** | ~2 min | Vendor-policy check: which apps are covered, which are unconfined. Names **shopapi** as the generate target. Runs **before** staging. |
+| **1 App A** | ~1 min | `getenforce`, process domain, successful `/standard/`, then `/standard/forbidden.jsp` + `ausearch` (world-readable out-of-scope file, `scontext` vendor domain). No changes. |
+| **2 App B** | ~5 min | Trigger label / port / boolean denials. `ausearch \| audit2why`. One-line fixes. No `.te`. |
+| **3 shopapi** | rest of customer path | `SELinuxContext=shopapi_t`, types-only seed, generate from **observed** AVCs. |
+| **4–5** | technical | PR / forbidden-patterns; canary, soak, outage, rollback via existing e2e scripts. |
 
-Do **not** canary the committed `1.1.x` module before generate. Do **not** overlay or mention `selinux/stub/` (training labs only).
+## Presenter framing
 
----
+- Decline the generator twice (A covered, B tuned) before it appears. That restraint is the point.
+- Act 1 without the forbidden curl is just an assertion. Always show the denial. The file is world-readable on purpose so DAC cannot hide the AVC (`/etc/shadow` would fail before SELinux).
+- Act 2: if a probe produces **no** AVC, say so — do not invent a fix.
+- shopapi policy: **no JVM cookbook**. If `execmem` is not in the AVC log, do not add it (`needs_review` if it is).
+- `SELinuxContext=` is how a JVM under systemd gets a domain when `/usr/bin/java` is shared `bin_t`. The labelled-wrapper alternative is in `demo/shopapi/shopapi.service`.
 
-## `selinux/` on rhel-qa (say this **after** `write_domain_seed.sh` in `--part app`)
+## Self-service
 
-Full table: [RHEL_TWO_HOST.md §2f](../admin/RHEL_TWO_HOST.md#2f-create-the-confined-domain-then-collect-avcs).
+| Who | Path |
+|-----|------|
+| Us (maintained host) | App A persists. `--preflight` the night before. Act 1 is evidence. |
+| Colleague on a throwaway VM | `make demo-bootstrap` (idempotent; resume after Ctrl-C). |
+| Customer after the meeting | Same bootstrap + `--dry-run` on a laptop first. |
+| Laptop, no RHEL | `--dry-run` only. `make check` still uses Flask. |
 
-| Path | One line |
-|------|----------|
-| `myapp.te` / `.fc` | After the live seed: types + labels. After `--apply`: generated allows. Git 1.1.3 is CI only — do not load it. |
-| `policy_version.txt` | Lockstep with `policy_module()`; RPM/PR bump |
-| `myapp.pp` | Compiled on rhel-qa only (gitignored) |
-| `myapp_ports.cil` | Optional FCOS portcon; RHEL canary uses seport |
-| `myapp_canary.te` / `.fc` | Optional overlay without semanage; not this talk |
-| `payments/` | Second onboarded app; not this talk |
-| `policy_out/` | `avc.log`, candidate `.te`/`.fc`, `pr_body.md` |
+`payments/` remains a **CI multi-module fixture**, not a talk app.
 
----
-
-Optional hands-on labs (on **rhel-qa**, not macOS): [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md). Those labs may still mention a training stub; the customer talk track does not.
-
-**Ship path:** [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md) → [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md).
+**Ship path after generate:** [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](../admin/DENIAL_RESPONSE.md).

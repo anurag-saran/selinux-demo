@@ -91,6 +91,111 @@ VERDICT_INTERFACE = "interface"
 VERDICT_DIRECT = "direct"
 VERDICT_TOOLCHAIN = "toolchain_required"
 VERDICT_BOOLEAN = "boolean"
+VERDICT_NEEDS_REVIEW = "needs_review"
+
+# Permissions that can be legitimate but measurably weaken the domain.
+# Checked before interface matching and the direct-allow fallback.
+# Tuple: (tclass, perm, scope) where scope is "any" or "foreign_domain"
+# (process transition/dyntransition only when the target is outside this module).
+NEEDS_REVIEW_RULES: frozenset[tuple[str, str, str]] = frozenset(
+    {
+        ("process", "execmem", "any"),
+        ("process", "execstack", "any"),
+        ("process", "execheap", "any"),
+        ("process", "setexec", "any"),
+        ("process", "setcurrent", "any"),
+        ("capability", "dac_override", "any"),
+        ("capability", "dac_read_search", "any"),
+        ("capability", "sys_admin", "any"),
+        ("capability", "sys_module", "any"),
+        ("capability", "sys_ptrace", "any"),
+        ("capability", "setuid", "any"),
+        ("capability", "setgid", "any"),
+        ("process", "transition", "foreign_domain"),
+        ("process", "dyntransition", "foreign_domain"),
+    }
+)
+
+# What the permission allows, why it weakens the domain, and alternatives.
+# Keyed by (tclass, perm). Keep in sync with NEEDS_REVIEW_RULES.
+NEEDS_REVIEW_RATIONALE: dict[tuple[str, str], tuple[str, str, str]] = {
+    ("process", "execmem"): (
+        "map memory as both writable and executable",
+        "it breaks W^X: memory the process can write, it can also execute",
+        "this AVC showed process execmem was denied. Some JVM/runtime configurations "
+        "avoid writable+executable mappings; do not assume a JVM needs execmem. "
+        "Confirm empirically for this workload and its options before "
+        "--allow-needs-review",
+    ),
+    ("process", "execstack"): (
+        "an executable stack",
+        "stack contents can be executed (classic stack-smash path)",
+        "clear PT_GNU_STACK / disable an executable stack on the binary; grant only "
+        "if this AVC is confirmed on the shipped binary",
+    ),
+    ("process", "execheap"): (
+        "an executable heap",
+        "heap data can be executed",
+        "avoid making the heap executable; confirm this AVC against the workload",
+    ),
+    ("process", "setexec"): (
+        "set the exec security context before execve",
+        "the domain can choose a different domain for a child at exec",
+        "use a labeled entrypoint and type_transition in this module instead of setexec",
+    ),
+    ("process", "setcurrent"): (
+        "change the current process security context",
+        "the process can leave its confined domain",
+        "do not grant; use a domain transition on exec of a labeled binary",
+    ),
+    ("capability", "dac_override"): (
+        "bypass DAC write/access checks",
+        "Unix file permissions no longer constrain this domain",
+        "fix ownership, mode, or labels so dac_override is unnecessary",
+    ),
+    ("capability", "dac_read_search"): (
+        "bypass DAC read/search checks",
+        "the domain can read files the Unix owner did not grant",
+        "fix ownership, mode, or labels so dac_read_search is unnecessary",
+    ),
+    ("capability", "sys_admin"): (
+        "a wide range of administrative operations",
+        "the domain gains near-admin capability",
+        "drop the need for sys_admin, or split a privileged helper domain",
+    ),
+    ("capability", "sys_module"): (
+        "load or unload kernel modules",
+        "the domain can change kernel integrity",
+        "do not grant to an app domain; load modules from an admin domain",
+    ),
+    ("capability", "sys_ptrace"): (
+        "ptrace-attach other processes",
+        "the domain can inspect and modify other processes' memory",
+        "do not grant; debug from a separate admin/debug domain",
+    ),
+    ("capability", "setuid"): (
+        "change UID",
+        "the domain can assume other Unix identities",
+        "run as the intended UID from systemd; avoid setuid in the app",
+    ),
+    ("capability", "setgid"): (
+        "change GID",
+        "the domain can assume other Unix group identities",
+        "run as the intended GID from systemd; avoid setgid in the app",
+    ),
+    ("process", "transition"): (
+        "create a process in another SELinux domain",
+        "this domain can start code as a domain this module does not own",
+        "if the target is this app's helper, add it to the module; otherwise do not "
+        "grant an outbound domain transition",
+    ),
+    ("process", "dyntransition"): (
+        "dynamically change to another SELinux domain",
+        "this domain can become a domain this module does not own",
+        "if the target is this app's helper, add it to the module; otherwise do not "
+        "grant dyntransition",
+    ),
+}
 
 # What the author should do next (not a live host patch).
 NEXT_ACTION = {
@@ -102,5 +207,49 @@ NEXT_ACTION = {
     VERDICT_INTERFACE: "update_te_allow",
     VERDICT_FORBIDDEN: "refuse",
     VERDICT_TOOLCHAIN: "install_sepolgen",
+    VERDICT_NEEDS_REVIEW: "review_then_opt_in",
     VERDICT_BASELINE: "",
 }
+
+
+def needs_review_hits(
+    src_type: str,
+    tgt_type: str,
+    tclass: str,
+    perms: frozenset[str],
+    module_types: set[str],
+) -> tuple[tuple[str, str], ...]:
+    """Return sorted (tclass, perm) pairs from NEEDS_REVIEW_RULES that match this need."""
+    hits: list[tuple[str, str]] = []
+    for rule_class, perm, scope in sorted(NEEDS_REVIEW_RULES):
+        if tclass != rule_class or perm not in perms:
+            continue
+        if scope == "foreign_domain":
+            if tgt_type in module_types or tgt_type in {src_type, "self"}:
+                continue
+        hits.append((rule_class, perm))
+    return tuple(hits)
+
+
+def format_needs_review_note(hits: tuple[tuple[str, str], ...]) -> str:
+    """Deterministic reviewer text: what it allows, why it weakens, alternatives."""
+    parts = [
+        "Security decision (needs review): the AVC log showed this permission was "
+        "denied. It is not a labeling miss. The proposed allow is recorded in "
+        "findings.json / pr_summary.md but is not written to the .te unless you pass "
+        "--allow-needs-review (or --allow-needs-review-perm)."
+    ]
+    for tclass, perm in hits:
+        allows, weakens, alternatives = NEEDS_REVIEW_RATIONALE.get(
+            (tclass, perm),
+            (
+                f"{tclass}:{perm}",
+                "it is a high-privilege permission",
+                "confirm empirically; opt in only with --allow-needs-review",
+            ),
+        )
+        parts.append(
+            f"{tclass}:{perm} allows {allows}. It weakens the domain because {weakens}. "
+            f"Alternatives: {alternatives}."
+        )
+    return " ".join(parts)

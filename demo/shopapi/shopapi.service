@@ -1,0 +1,28 @@
+[Unit]
+Description=shopapi Spring Boot (SELinux PaC demo — no vendor policy)
+After=network.target auditd.service
+Wants=auditd.service
+
+[Service]
+Type=simple
+User=shopapi
+Group=shopapi
+EnvironmentFile=-/etc/shopapi.env
+WorkingDirectory=/opt/shopapi
+# /usr/bin/java is bin_t (or java_exec_t) and is shared by every JVM — it cannot
+# carry this app's entrypoint label. systemd sets the process domain directly.
+SELinuxContext=system_u:system_r:shopapi_t:s0
+ExecStart=/usr/bin/java -jar /opt/shopapi/shopapi.jar
+# Alternative (labelled wrapper, not used here):
+#   install a copy of the JRE launcher at ${install_root}/bin/java labeled
+#   shopapi_exec_t, then init_daemon_domain(shopapi_t, shopapi_exec_t) and omit
+#   SELinuxContext=. That is the classic type_transition path.
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=false
+StateDirectory=shopapi
+LogsDirectory=shopapi
+RuntimeDirectory=shopapi
+
+[Install]
+WantedBy=multi-user.target

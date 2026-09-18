@@ -192,7 +192,7 @@ init_daemon_domain(myapp_t, myapp_exec_t);
 - **`init_daemon_domain`** — standard pattern for systemd services.
 - **`require { type ... }`** — types defined in the **base** RHEL policy that you reference but do not create.
 
-Optional training labs use a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;`. The customer two-host talk does **not** overlay that folder — it runs the app unconfined first, then `write_domain_seed.sh` so the next curls produce `myapp_t` AVCs, then generates the first real `.te`.
+Optional training labs use a minimal [`selinux/stub/myapp.te`](../../selinux/stub/myapp.te) with `permissive myapp_t;`. The customer talk ([DEMO_GUIDE.md](../training/DEMO_GUIDE.md)) never overlays that folder. The two-host Flask pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)) runs the app unconfined first, then `write_domain_seed.sh` so the next curls produce `myapp_t` AVCs, then generates the first real `.te`.
 
 ### File contexts (`.fc`) — path → label mapping
 
@@ -584,7 +584,7 @@ The reference app exposes SELinux state so app teams can distinguish policy issu
 
 Full triage steps for app teams: [PRODUCTION_READINESS.md §12.5](../admin/PRODUCTION_READINESS.md).
 
-Presenter steps: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md). Admin gates: [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md). Principles and anti-patterns: [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md).
+Presenter steps: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`). Admin gates: [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md). Principles and anti-patterns: [SELINUX_BEST_PRACTICES.md](SELINUX_BEST_PRACTICES.md).
 
 ---
 
@@ -743,7 +743,7 @@ sudo semodule -i selinux/myapp.pp              # upgrades in place
 | [SELINUX_TRAINING_LAB.md](../training/SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
 | [CODE_WALKTHROUGH.md](../training/CODE_WALKTHROUGH.md) | Code tour — CLI, scripts, PR CI |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline policy generator from AVCs |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Optional paced walkthrough |
+| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) |
 | [TESTING.md](../developers/TESTING.md) | Endpoints, smoke tests, CI matrix |
 | [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) | RHEL admins — soak, canary, enforce gates |
 | [README.md](../../README.md) | Project overview and command index |

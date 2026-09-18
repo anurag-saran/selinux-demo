@@ -80,7 +80,7 @@ bash scripts/setup_rhel_hosts.sh ping
 - **Dev** inventory: git checkout on the box + `setup_staging_env.sh`; `selinux_ops_dir` / `app_manifest_path` are **on the box** (not `playbook_dir` on the laptop); `soak_min_days: 0` is lab-only.
 - **Prod** inventory: RPMs only; `soak_min_days: 7`. Same host is `canary` and `production` until you add a fleet.
 
-Paced talk: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) / [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`bash scripts/demo_e2e_mac.sh`). That talk shows a **clean** soak, then talk-only enforce, then `/feature-spool` outage and `emergency_rollback.yml`.
+Customer talk: [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`). Two-host generate/canary/soak: [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) (`bash scripts/demo_e2e_mac.sh`) — clean soak, talk-only enforce, then `/feature-spool` outage and `emergency_rollback.yml`.
 
 ## Production inventory
 

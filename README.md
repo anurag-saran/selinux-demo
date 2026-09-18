@@ -2,7 +2,7 @@
 
 **The RHEL admin tool for shipping SELinux policy as code.** Developers open a PR, CI rejects dangerous allows (`forbidden-patterns`), admins compile and publish a signed RPM, **Ansible Automation Platform (AAP)** canaries, soaks, and enforces. The host stays **Enforcing**. Policy is a versioned product — not a one-off `audit2allow` on a box.
 
-`myapp` is the **reference application**. In the two-host customer talk, Flask and policy live in **[anurag-saran/myapp](https://github.com/anurag-saran/myapp)** so the audience sees policy PRs on the app repo. This tool repo stays the generator, CI helpers, and AAP path. Optional labs: [docs/README.md](docs/README.md).
+The **customer talk** is three applications — vendor Tomcat already enforcing, inherited Tomcat you tune, Spring Boot you generate — see [docs/training/DEMO_GUIDE.md](docs/training/DEMO_GUIDE.md). Flask `myapp` stays the **offline test** reference (`make check`). The two-host generate/canary/soak pipeline still uses **[anurag-saran/myapp](https://github.com/anurag-saran/myapp)** so policy PRs land on the app repo. This tool repo stays the generator, CI helpers, and AAP path. Optional labs: [docs/README.md](docs/README.md).
 
 | You are | Start here |
 |---------|------------|
@@ -160,7 +160,18 @@ Those IPs are this Mac’s UTM shared network (`rhel-qa` = `192.168.64.6`, `rhel
 
 **You are not done.** `bootstrap` only printed the next commands. Run the paced lab from **[docs/admin/RHEL_TWO_HOST.md](docs/admin/RHEL_TWO_HOST.md)** (plain-language, one computer at a time), especially [Present this lab (three terminals)](docs/admin/RHEL_TWO_HOST.md#present-this-lab-three-terminals). Re-run on the same VMs: `bash scripts/reset_demo_vms.sh`, then Part 1.
 
-**End to end (customer talk):** three Terminal windows. The Mac script is the conductor; press Enter between steps.
+**Customer talk (three situations, then generate):**
+
+```bash
+bash scripts/demo_present.sh --dry-run --profile customer   # any laptop
+make demo-bootstrap                                        # RHEL VM, once
+bash scripts/demo_present.sh --preflight
+bash scripts/demo_present.sh --profile customer
+```
+
+See [docs/training/DEMO_GUIDE.md](docs/training/DEMO_GUIDE.md). Two-host generate/canary/soak remains `demo_e2e_*.sh` (technical profile Act 5).
+
+**End to end (two-host pipeline, technical):** three Terminal windows. The Mac script is the conductor; press Enter between steps.
 
 | Window | Start |
 |--------|--------|

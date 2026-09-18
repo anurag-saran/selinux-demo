@@ -1,6 +1,6 @@
 # SELinux PaC — optional hands-on labs
 
-Optional labs for teams adopting **SELinux PaC**. They are **not** the customer two-host talk ([DEMO_GUIDE.md](DEMO_GUIDE.md) / [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). Labs may still install [`selinux/stub/`](../../selinux/stub/); the customer talk uses a types-only domain seed and never overlays that folder.
+Optional labs for teams adopting **SELinux PaC**. They are **not** the customer talk ([DEMO_GUIDE.md](DEMO_GUIDE.md) — `demo_present.sh`) or the two-host pipeline ([RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md)). Labs may still install [`selinux/stub/`](../../selinux/stub/); the customer talk never overlays that folder.
 
 Each lab follows the same pattern:
 
@@ -13,7 +13,7 @@ Each lab follows the same pattern:
 |----------|------|
 | **[SELINUX_BASICS.md](../policy/SELINUX_BASICS.md)** | Concepts first — skim **§1–7** (~15 min) |
 | **This file** | Hands-on practice on a Linux host with SELinux |
-| **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Optional paced walkthrough |
+| **[DEMO_GUIDE.md](DEMO_GUIDE.md)** | Three-app customer talk (`demo_present.sh`) |
 | **[CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md)** | Where scripts and tools live |
 | **[README.md](../../README.md)** | SELinux PaC — start here |
 
@@ -683,7 +683,7 @@ wc -l policy_out/avc.log
 - [ ] I can tie an access pattern to **`selinux/myapp.te`** and **`myapp.fc`**.
 - [ ] I know **`selinux/`** is reviewed in Git; **`policy_out/`** is local output.
 
-**Next:** [DEMO_GUIDE.md](DEMO_GUIDE.md) / `bash scripts/demo_e2e_rhel_dev.sh`, or `dev_generate_policy.sh`.
+**Next:** [DEMO_GUIDE.md](DEMO_GUIDE.md) (`bash scripts/demo_present.sh --dry-run --profile customer`), or `dev_generate_policy.sh`.
 
 ---
 
@@ -711,5 +711,5 @@ wc -l policy_out/avc.log
 |-------|----------|
 | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | Concept reference |
 | **This file** | Guided labs with **why** + **what each command does** |
-| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Optional paced walkthrough |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) |
 | [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md) | Repository tour |

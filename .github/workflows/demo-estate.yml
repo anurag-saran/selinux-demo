@@ -1,0 +1,76 @@
+# Exercise the three-app demo scripts without a RHEL host.
+# Policy compile needs selinux-policy-devel (Fedora container).
+name: Demo estate
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "demo/**"
+      - "scripts/demo_present.sh"
+      - "scripts/demo_bootstrap.sh"
+      - "scripts/lib/demo_estate.sh"
+      - "selinux/shopapi/**"
+      - "config/shopapi.manifest.yml"
+      - ".github/workflows/demo-estate.yml"
+  pull_request:
+    paths:
+      - "demo/**"
+      - "scripts/demo_present.sh"
+      - "scripts/demo_bootstrap.sh"
+      - "scripts/lib/demo_estate.sh"
+      - "selinux/shopapi/**"
+      - "config/shopapi.manifest.yml"
+      - ".github/workflows/demo-estate.yml"
+
+jobs:
+  dry-run:
+    name: demo-present-dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python deps for manifest parse
+        run: pip3 install -q -r cli/requirements.txt
+      - name: Customer dry-run (no SELinux, no JVM)
+        run: bash scripts/demo_present.sh --dry-run --no-type --auto --profile customer
+      - name: Technical dry-run
+        run: bash scripts/demo_present.sh --dry-run --no-type --auto --profile technical
+      - name: Syntax-check bootstrap
+        run: bash -n scripts/demo_bootstrap.sh && bash -n scripts/demo_present.sh && bash -n scripts/lib/demo_estate.sh
+      - name: Types-only module has no JVM cookbook allows
+        run: |
+          if grep -E '^[[:space:]]*allow.*(execmem|execstack|dac_override)' selinux/shopapi/shopapi.te; then
+            echo "shopapi.te must not ship guessed JVM allows" >&2
+            exit 1
+          fi
+          test -f selinux/shopapi/policy_version.txt
+      - name: Version consistency includes shopapi
+        run: bash scripts/validate_version_consistency.sh
+
+  shopapi-build:
+    name: shopapi-maven
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Package Spring Boot JAR
+        run: mvn -q -DskipTests -f demo/shopapi/pom.xml package
+
+  shopapi-policy:
+    name: shopapi-policy-compile
+    runs-on: ubuntu-latest
+    container: fedora:41
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install selinux-policy-devel
+        run: dnf install -y selinux-policy-devel make python3
+      - name: Compile types-only shopapi seed
+        run: POLICY_MODULE=shopapi SELINUX_DOMAIN=shopapi_t bash scripts/compile_and_validate.sh selinux/shopapi

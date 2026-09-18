@@ -27,7 +27,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate forbidden SELinux patterns
-        run: bash scripts/validate_forbidden_patterns.sh selinux
+        run: |
+          bash scripts/validate_forbidden_patterns.sh selinux
+          POLICY_MODULE=shopapi SELINUX_DOMAIN=shopapi_t bash scripts/validate_forbidden_patterns.sh selinux/shopapi
 
   version-consistency:
     name: version-consistency

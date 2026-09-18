@@ -20,6 +20,8 @@ APPLY=0
 ENFORCE_CHECK=0
 SKIP_EXPORT=0
 OPEN_PR=0
+FORCE=0
+ALLOW_NEEDS_REVIEW=0
 STAGING_HOST="${STAGING_HOST:-rhel-qa}"
 TEST_SUITE="${TEST_SUITE:-Integration tests (curl endpoints)}"
 ASSEMBLE="${SCRIPT_DIR}/assemble_pr_body.sh"
@@ -29,6 +31,8 @@ source "${SCRIPT_DIR}/lib/version.sh"
 source "${SCRIPT_DIR}/lib/manifest_shell.sh"
 # shellcheck source=lib/policy_generation.sh
 source "${SCRIPT_DIR}/lib/policy_generation.sh"
+# shellcheck source=lib/vendor_policy_check.sh
+source "${SCRIPT_DIR}/lib/vendor_policy_check.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -52,6 +56,8 @@ Options:
   --enforce-check  Load candidate policy enforcing and run endpoint + domain checks
   --open-pr        Run gh pr create with assembled pr_body.md (requires gh CLI + git branch)
   --skip-export    Use existing policy_out/avc.log (must be non-empty)
+  --force          Bypass the vendor-policy pre-flight (app genuinely differs)
+  --allow-needs-review  Write domain-weakening allows (execmem, dac_override, …) after review
   --app-name NAME  Module name (default: myapp)
   --app-root DIR   Application tree (selinux/ + config/). Default: sibling/~/myapp
   --staging-host   Staging environment label for PR body
@@ -63,12 +69,14 @@ Environment:
   POLICY_ENGINE    Default: deterministic
   POLICY_SUMMARY_LLM  Set to 1 to run cli/summarize_pr.py after generation
   POLICY_ALLOW_DEGRADED  Pass --allow-degraded to deterministic_gen when sepolgen missing
+  POLICY_ALLOW_NEEDS_REVIEW  Pass --allow-needs-review (domain-weakening allows)
   OPENAI_BASE_URL  Optional LiteLLM endpoint
   OPENAI_API_MODEL Optional model override
 
 Example:
   sudo bash scripts/dev_generate_policy.sh --apply
   bash scripts/dev_generate_policy.sh --llm-summary --skip-export   # optional admin prose
+  bash scripts/dev_generate_policy.sh --force --apply              # app genuinely differs from vendor policy
   git checkout -b policy/update && git add selinux/ && gh pr create --body-file policy_out/pr_body.md
 EOF
 }
@@ -79,6 +87,8 @@ while [[ $# -gt 0 ]]; do
         --enforce-check) ENFORCE_CHECK=1; shift ;;
         --open-pr) OPEN_PR=1; APPLY=1; shift ;;
         --skip-export) SKIP_EXPORT=1; shift ;;
+        --force) FORCE=1; shift ;;
+        --allow-needs-review) ALLOW_NEEDS_REVIEW=1; shift ;;
         --engine) ENGINE="$2"; shift 2 ;;
         --llm-summary) LLM_SUMMARY=1; shift ;;
         --app-name) APP_NAME="$2"; DOMAIN="${APP_NAME}_t"; shift 2 ;;
@@ -112,6 +122,19 @@ sync_identity_from_manifest() {
     source_app_manifest_exports "${MANIFEST}"
     APP_NAME="${APP_NAME}"
     DOMAIN="${PRIMARY_DOMAIN}"
+}
+
+# Fail closed when vendor/base policy already covers this app (JWS, EAP, httpd, …).
+# Missing semodule+rpm: one skip line and continue (laptop / fixture hosts).
+check_vendor_policy() {
+    local args=(--app-name "${APP_NAME}")
+    if [[ "${FORCE}" -eq 1 ]]; then
+        args+=(--force)
+    fi
+    if [[ -n "${PRIMARY_SERVICE:-}" ]]; then
+        args+=(--unit "${PRIMARY_SERVICE}")
+    fi
+    vendor_policy_preflight "${args[@]}"
 }
 
 require_api_key() {
@@ -222,6 +245,9 @@ generate_policy() {
         LLM_SUMMARY=1
     fi
     log_info "Running cli/deterministic_gen.py (policy)..."
+    if [[ "${ALLOW_NEEDS_REVIEW}" -eq 1 ]]; then
+        export POLICY_ALLOW_NEEDS_REVIEW=1
+    fi
     run_deterministic_policy_gen \
         "${AVC_LOG}" \
         "${MANIFEST}" \
@@ -387,6 +413,7 @@ EOF
 main() {
     require_api_key
     sync_identity_from_manifest
+    check_vendor_policy
     require_existing_policy
 
     # shellcheck source=lib/compile_policy.sh

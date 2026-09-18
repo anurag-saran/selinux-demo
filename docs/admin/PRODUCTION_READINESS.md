@@ -9,7 +9,7 @@ Day-to-day runbook for **shipping SELinux policy** with application teams. Ansib
 | **New to SELinux** | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) sections 1–7.5 | This guide sections 1–4 |
 | **Running day-to-day deploys** | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) then [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | Phases 1–6 as your checklist |
 | **Reviewing policy PRs** | [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) §8 | PR template + CI mapping §15 |
-| **Optional training** | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (two-act talk) | This guide from section 4 onward |
+| **Optional training** | [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (three-app talk) | This guide from section 4 onward |
 
 **Learning path:** [RHEL_TWO_HOST.md](RHEL_TWO_HOST.md) → [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) → [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) → **this guide**. Concepts: [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). **Doc index:** [README.md](../README.md).
 
@@ -44,8 +44,37 @@ High-blast-radius SELinux changes need **per-domain permissive soak**, **path la
 | **Path labeling** | Files on disk must match `.fc` rules (`restorecon` + verify before restart) |
 | **Per-domain permissive** | Only `myapp_t` is permissive; the OS stays **Enforcing** globally |
 | **semanage** | Tool on the **server** that adds/removes domains from the permissive list (`-a` / `-d`) and manages ports/booleans in the live policy DB |
+| **Vendor policy** | Module Red Hat already ships (JWS/Tomcat, EAP, httpd, …). Generate a custom module only when none exists; see §2.5 |
 
 SELinux theory (labels, `.te`/`.fc`, `semanage` examples): [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md).
+
+---
+
+## 2.5 Do not duplicate vendor policy
+
+Before anyone runs `dev_generate_policy.sh` against JWS, EAP, httpd, named, or postgresql, confirm Red Hat does not already ship the domain. Generating a second module that half-duplicates `jws6_tomcat` or `jboss_t` is worse than no custom policy. The generator refuses that path unless you pass `--force`.
+
+JWS/EAP policy is a **separate package** (`jws6-tomcat-selinux`, `eap7-selinux` / `eap8-selinux`) and is **not** installed by default. Until it is, the JVM runs `unconfined_java_t` — that is not confinement, and the fix is install the vendor RPM, not generate `myapp_t`.
+
+```bash
+# 1. Is a vendor module already loaded?
+sudo semodule -l
+
+# 2. Is a vendor SELinux RPM installed, or sitting in the local dnf cache unused?
+rpm -qa '*selinux*'
+
+# 3. Is this Tomcat/EAP still unconfined because the vendor RPM was never enabled?
+ps -eZ | grep -E 'unconfined_java_t|unconfined_service_t'
+```
+
+| What you see | Action |
+|--------------|--------|
+| `jws6_tomcat` / `jboss` / `httpd` in `semodule -l` | Tune booleans and `fcontext`. Do not generate. |
+| `jws6-tomcat-selinux` or `eap*-selinux` in `rpm -qa` / `dnf --cacheonly list available` but no module loaded | Install or enable that RPM. Do not generate. |
+| `unconfined_java_t` on a Tomcat/EAP process | Same — vendor policy exists and is not enabled. |
+| Custom app (Node, Spring Boot, the demo `myapp`) with no vendor hit | Generate is appropriate. |
+
+`--force` on `dev_generate_policy.sh` is the escape hatch only when the app is **not** the vendor one. Details: [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md).
 
 ---
 
@@ -493,6 +522,7 @@ Before you enforce on production, confirm:
 | **`/probe-backend` fails post-enforce** | `Permission denied` on TCP connect | Check backend on `:8889`; look for `tcp_socket getopt` or `cert_t` AVCs on `myapp_t` |
 | **`/run-script` fails post-enforce** | `Permission denied` on `/usr/bin/*` | Do not add `bin_t:file execute` — fix `backup.sh` to use bash builtins |
 | **Wrong cron path** | cron job fails silently | Use AAP **Soak monitor** or `/usr/libexec/selinux-policy-ops/monitor_avc.sh` — do **not** clone this repo onto prod |
+| **Generator refuses (vendor policy)** | `vendor policy already loaded` or `available but not installed` | Install/enable the vendor RPM or tune booleans. `--force` only if the app is not the vendor one. See §2.5 |
 
 ---
 
@@ -525,7 +555,7 @@ Developer workflow and PR assembly: [README.md](../../README.md) and [DEMO_GUIDE
 |-------|------------------|----------|
 | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | §7 two-layer model; §7.5 soak timeline; §8 avc.log filter | New to SELinux |
 | [SELINUX_BEST_PRACTICES.md](../policy/SELINUX_BEST_PRACTICES.md) | §1–6 principles; §8 review checklist | Policy authors and security reviewers |
-| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-window typewriter demo (`demo_e2e_*.sh`) | Presenters |
+| [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`); two-host pipeline (`demo_e2e_*.sh`) | Presenters |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Default offline generator, sepolgen banners, fixtures | Policy authors without LLM |
 | [ANSIBLE_OPERATIONS.md](ANSIBLE_OPERATIONS.md) | AAP workflows in `ansible/aap/`, soak monitor, extra-vars | RHEL admins |
 | [DENIAL_RESPONSE.md](DENIAL_RESPONSE.md) | File/port AVC after ship → PR, not live patch | RHEL admins |

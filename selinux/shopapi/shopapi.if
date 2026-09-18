@@ -1,0 +1,17 @@
+## <desc>
+##	shopapi Spring Boot — public interfaces for dependent modules
+## </desc>
+## <summary>
+##	Read-only access to shopapi state (no domain transition).
+## </summary>
+## <param name="domain">
+##	<summary>Domain allowed to read shopapi public state.</summary>
+## </param>
+interface(`shopapi_read_public_state',`
+	gen_require(`
+		type shopapi_var_lib_t;
+	')
+
+	list_dirs_pattern($1, shopapi_var_lib_t)
+	read_files_pattern($1, shopapi_var_lib_t, shopapi_var_lib_t)
+')

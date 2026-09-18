@@ -1,0 +1,31 @@
+policy_module(shopapi, 1.0.0)
+
+#############################################
+# Types-only seed for the Spring Boot demo app.
+#
+# Scaffold entry point on RHEL: scripts/scaffold_sepolicy_module.sh shopapi shopapi_t
+# (sepolicy-generate). Do not copy myapp or payments allows into this file.
+# Allows come from observed AVCs via scripts/dev_generate_policy.sh after the
+# service runs permissive. If process execmem never appears in that log, do
+# not add it (needs_review if it does).
+#
+# Live start: systemd SELinuxContext=system_u:system_r:shopapi_t:s0
+# (java is a shared bin_t/java_exec_t binary). Alternative: labelled wrapper
+# at the app install_root labeled shopapi_exec_t + type_transition.
+#############################################
+
+type shopapi_t;
+type shopapi_exec_t;
+type shopapi_var_lib_t;
+type shopapi_var_run_t;
+type shopapi_log_t;
+type shopapi_port_t;
+
+files_type(shopapi_exec_t)
+files_type(shopapi_var_lib_t)
+files_pid_file(shopapi_var_run_t)
+logging_log_file(shopapi_log_t)
+corenet_port(shopapi_port_t)
+
+init_daemon_domain(shopapi_t, shopapi_exec_t)
+init_daemon_run_dir(shopapi_var_run_t, "shopapi")

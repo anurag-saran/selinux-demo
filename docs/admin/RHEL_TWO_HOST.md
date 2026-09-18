@@ -18,7 +18,7 @@ Those addresses are this Mac’s UTM network. If a VM was recreated and `ping` f
 
 **This lab** clones two GitHub repos: **[selinux-pac](https://github.com/anurag-saran/selinux-pac)** (generator, CI helpers, AAP) and **[myapp](https://github.com/anurag-saran/myapp)** (Flask + `selinux/` — policy PRs land here). The copy of `selinux/myapp.te` inside selinux-pac is a **fixture** for tests and training labs. See [ONBOARDING.md](../developers/ONBOARDING.md) and [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md).
 
-**This lab is two acts**
+**This lab is two acts** (the two-host generate/canary/soak pipeline — technical Act 5). For the customer session that starts with vendor Tomcat already enforcing, see [DEMO_GUIDE.md](../training/DEMO_GUIDE.md) (`demo_present.sh`).
 
 1. **From scratch:** run the app **unconfined** (empty AVC log) → create the confined domain live → second curls produce `myapp_t` AVCs → generate the first real `.te` → **GitHub PR** (CI `forbidden-patterns` should pass) → canary on prod → **soak with the app up and a clean AVC file** → treat soak as complete (`force_enforce` + a change ticket; inventory still says 7 days).
 2. **Outage, admin restore, then PaC:** `/feature-spool` returns **500** on **rhel-prod** → `emergency_rollback.yml` puts `myapp_t` permissive so the app is **200** again (host stays Enforcing; no `semodule -i` on prod) → copy the AVC log to rhel-qa → generate + **second PR** → recanary prod → the same curl succeeds under the new module.

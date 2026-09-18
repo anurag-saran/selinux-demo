@@ -7,7 +7,7 @@ Host stays **Enforcing**. Only the app domain may be permissive (canary soak). D
 `soak_monitor.yml` fails on **net-new**. Do **not** run Enforce.
 
 1. Copy `/var/lib/<app>/selinux_soak_last_fail.json` and `selinux_soak_last_fail.avc` off the host.
-2. On **rhel-qa**: `bash scripts/dev_generate_policy.sh` (deterministic generator). Customer: generate in the **app** repo checkout on QA, then PR that repo.
+2. On **rhel-qa**: `bash scripts/dev_generate_policy.sh` (deterministic generator). It refuses to run if vendor/base policy already covers the app (JWS, EAP, httpd, …); install that RPM or tune booleans instead of generating a duplicate. `--force` only if the app genuinely differs. Customer: generate in the **app** repo checkout on QA, then PR that repo.
 3. PR → CI (`forbidden-patterns`, `version-consistency`) → CODEOWNERS → signed RPM.
 4. AAP **SELinux – Release canary** (recanary). Soak clock resets.
 

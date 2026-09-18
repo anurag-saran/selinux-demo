@@ -45,7 +45,8 @@ run_deterministic_policy_gen() {
         --out-dir "${policy_out}" \
         --version-file "${policy_out}/policy_version.txt" \
         --bump-version \
-        $( [[ "${POLICY_ALLOW_DEGRADED:-0}" == "1" ]] && echo --allow-degraded )
+        $( [[ "${POLICY_ALLOW_DEGRADED:-0}" == "1" ]] && echo --allow-degraded ) \
+        $( [[ "${POLICY_ALLOW_NEEDS_REVIEW:-0}" == "1" ]] && echo --allow-needs-review )
     bash "${SCRIPT_DIR}/validate_forbidden_patterns.sh" "${policy_out}"
     bash "${SCRIPT_DIR}/compile_and_validate.sh" "${policy_out}"
     run_write_avc_summary "${avc_log}" "${policy_te}" "${policy_out}/avc_summary.txt"

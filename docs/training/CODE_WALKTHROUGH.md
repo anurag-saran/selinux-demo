@@ -10,7 +10,7 @@ You do **not** need to know every script on day one. Read this in order, pause w
 | **Practice commands on a SELinux host** | **[SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md)** (optional labs) |
 | See how this tool fits together | [What SELinux PaC does](#what-selinux-pac-does-in-plain-english) → [Story of one policy change](#story-of-one-policy-change) |
 | Find a folder or file | [Directory map](#directory-map-what-each-folder-is-for) |
-| Optional paced walkthrough | [DEMO_GUIDE.md](DEMO_GUIDE.md) |
+| Three-app customer talk | [DEMO_GUIDE.md](DEMO_GUIDE.md) (`demo_present.sh`) |
 | Deploy to real servers | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) then [PRODUCTION_READINESS.md](../admin/PRODUCTION_READINESS.md) |
 
 **Time:** about 30–45 minutes if you read the basics doc first; 60+ minutes if you read both cover to cover.
@@ -57,7 +57,7 @@ If any term is fuzzy, open [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md). Qui
 
 **SELinux PaC** is the admin + developer tool that ships SELinux policy the same way you ship the application:
 
-1. A **reference Flask app** (`app/`) runs on a Linux host with SELinux on (`myapp`; swap in your service).
+1. A **reference app** runs on a Linux host with SELinux on. Flask `app/` is the offline test fixture; the customer talk uses Tomcat App A/B plus Spring Boot `demo/shopapi/` (swap in your service).
 2. While the app domain is **permissive**, the kernel **logs** denials (AVCs) instead of blocking everything.
 3. Scripts **collect** those logs and **generate** updates to `.te` / `.fc` (deterministic engine; optional LLM summary).
 4. **CI** checks forbidden patterns and version consistency (generator already ran the same forbidden-pattern script). Compile and semantics run on **rhel-qa**.
@@ -207,7 +207,7 @@ Same AVC preprocessing, then sends a structured prompt (`prompt_templates.py`) t
 | Module | Role |
 |--------|------|
 | **`fc_labeling.py`** | Detect labeling drift vs new `.fc` lines. |
-| **`policy_rules.py`** | Shared “forbidden target” lists for deterministic mode. |
+| **`policy_rules.py`** | Shared forbidden-target lists, `NEEDS_REVIEW_RULES`, and verdict constants. |
 | **`verify_avc_coverage.py`** | Checks generated policy covers the exported AVC set (PR/candidate `.te`). |
 | **`soak_net_new.py`** | Soak: net-new needs vs **installed** policy (`sesearch`), JSON exceptions. |
 | **`boolean_hints.yml`** (in `config/`) | Curated hints when a **setsebool** is the right fix. |
@@ -222,10 +222,12 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 
 | Script | When you use it |
 |--------|------------------|
-| **`dev_generate_policy.sh`** | Main command: export AVCs → generate → diff → optional copy into `selinux/`. |
+| **`dev_generate_policy.sh`** | Main command: vendor-policy pre-flight → export AVCs → generate → diff → optional copy into `selinux/`. `--force` only if the app is not the vendor one. |
 | **`selinux_pac_adopt.sh`** | `doctor` + `init APP` — print manifest and **Ansible** next steps. |
 | **`setup_rhel_hosts.sh`** | Write `inventory.dev.yml` / `inventory.production.yml`; ping; doctor; bootstrap hints. |
-| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_qa.sh`** / **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) (unconfined app → live domain → AVCs → generate → PR → clean soak → enforce; `/feature-spool` fails on prod; admin rollback). |
+| **`demo_present.sh`** | Customer talk: Act 0 triage, App A (vendor, already enforcing), App B (tune, no `.te`), shopapi generate. `--profile customer\|technical`, `--preflight`, `--dry-run`. |
+| **`demo_bootstrap.sh`** / **`make demo-bootstrap`** | Idempotent three-app estate on RHEL. JWS if the repo is reachable, else distro Tomcat + `tomcat_t`. |
+| **`demo_e2e_mac.sh`** / **`demo_e2e_rhel_qa.sh`** / **`demo_e2e_rhel_prod.sh`** | Two-host pipeline (technical Act 5): generate → PR → clean soak → enforce; `/feature-spool` fails on prod; admin rollback. |
 | **`reset_demo_vms.sh`** | Between rehearsals: unload leftover `myapp` modules and prod RPMs. Flask stays. Then start Part 1. Not `reset_host_state.yml`. |
 | **`write_domain_seed.sh`** | Run **after** unconfined curls prove the AVC log is empty. Writes a types-only 1.0.0 seed and `--load` compiles it + `semanage permissive`. First real allows come from `dev_generate_policy.sh --apply`. |
 | **`demo_open_generated_pr.sh`** | Open a GitHub PR from live generated `selinux/` (Mac, after scp from rhel-qa). Not the frozen `open_demo_policy_pr.sh`. |
@@ -272,7 +274,9 @@ Most scripts expect your shell’s **current directory** to be the **repo root**
 | Script | Role |
 |--------|------|
 | **`run_training_lab.sh`** | Guided lab talk track on the QA/discovery VM (lab text may still say **rhel-dev**; Lab 7 uses staged probes). |
-| **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_qa.sh`**, **`demo_e2e_rhel_prod.sh`** | Three-window typewriter demo of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
+| **`demo_present.sh`** | Three-app customer talk (`--profile customer\|technical`, `--dry-run`, `--preflight`). |
+| **`demo_bootstrap.sh`** | Idempotent App A/B + shopapi estate (`make demo-bootstrap`). |
+| **`demo_e2e_mac.sh`**, **`demo_e2e_rhel_qa.sh`**, **`demo_e2e_rhel_prod.sh`** | Two-host pipeline of [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md). |
 | **`reset_demo_vms.sh`** | Wipe leftover demo policy on both VMs (Mac). Flask stays. |
 | **`write_domain_seed.sh`** | After unconfined curls: types-only 1.0.0 seed; `--load` compiles it. |
 | **`demo_open_generated_pr.sh`** | Live generate → GitHub PR (needs `gh`). |
@@ -360,7 +364,7 @@ PR checklist template: [`.github/PULL_REQUEST_TEMPLATE/selinux_policy_review.md`
 | [SELINUX_BASICS.md](../policy/SELINUX_BASICS.md) | First-time SELinux readers |
 | [SELINUX_TRAINING_LAB.md](SELINUX_TRAINING_LAB.md) | Optional hands-on labs |
 | [TESTING.md](../developers/TESTING.md) | PR CI (`forbidden-patterns`) and local `make check` |
-| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Optional paced walkthrough |
+| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Three-app customer talk (`demo_present.sh`) |
 | [DETERMINISTIC_POLICY.md](../developers/DETERMINISTIC_POLICY.md) | Offline generator and fixtures |
 | [RHEL_TWO_HOST.md](../admin/RHEL_TWO_HOST.md) | Two RHEL boxes |
 | [ANSIBLE_OPERATIONS.md](../admin/ANSIBLE_OPERATIONS.md) | AAP / playbooks — production control plane |

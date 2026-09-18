@@ -24,6 +24,7 @@ packaging/internal.env
 __pycache__/
 *.pyc
 .DS_Store
+demo/shopapi/target/
 policy_out/pr_body.md
 policy_out/pr_summary.md
 policy_out/findings.json

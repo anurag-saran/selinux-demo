@@ -40,7 +40,10 @@ from policy_rules import (  # noqa: E402
     VERDICT_PORT,
     VERDICT_BOOLEAN,
     VERDICT_TOOLCHAIN,
+    VERDICT_NEEDS_REVIEW,
     NEXT_ACTION,
+    format_needs_review_note,
+    needs_review_hits,
 )
 from selinux_gen import (  # noqa: E402
     domain_for_app,
@@ -301,6 +304,25 @@ def baseline_macro_covers(need: AccessNeed, te_text: str) -> bool:
     return False
 
 
+def finding_needs_review_allowed(finding: Finding, args: argparse.Namespace) -> bool:
+    if getattr(args, "allow_needs_review", False):
+        return True
+    allowed = {str(p).lower() for p in (getattr(args, "allow_needs_review_perm", None) or [])}
+    return any(perm.lower() in allowed for perm in finding.need.perms)
+
+
+def generation_blockers(findings: list[Finding], args: argparse.Namespace) -> list[Finding]:
+    blocked: list[Finding] = []
+    for finding in findings:
+        if finding.verdict in (VERDICT_FORBIDDEN, VERDICT_TOOLCHAIN):
+            blocked.append(finding)
+        elif finding.verdict == VERDICT_NEEDS_REVIEW and not finding_needs_review_allowed(
+            finding, args
+        ):
+            blocked.append(finding)
+    return blocked
+
+
 def classify(
     need: AccessNeed,
     manifest: dict,
@@ -388,6 +410,24 @@ def classify(
             VERDICT_BASELINE,
             "",
             "Already allowed in existing .te",
+            paths,
+        )
+
+    module_types = private_types(manifest) | domains_from_manifest(manifest)
+    review_hits = needs_review_hits(src, tgt, tclass, need.perms, module_types)
+    if review_hits:
+        tgt_render = "self" if src == tgt else tgt
+        perm_list = " ".join(sorted(need.perms))
+        rendered = (
+            f"allow {src} {tgt_render}:{tclass} {{ {perm_list} }};"
+            if len(need.perms) > 1
+            else f"allow {src} {tgt_render}:{tclass} {perm_list};"
+        )
+        return Finding(
+            need,
+            VERDICT_NEEDS_REVIEW,
+            rendered,
+            format_needs_review_note(review_hits),
             paths,
         )
 
@@ -505,6 +545,16 @@ def render_fragment(findings: list[Finding], meta: dict) -> str:
         "########################################",
         "",
     ]
+    review_rows = sorted(
+        (f for f in findings if f.verdict == VERDICT_NEEDS_REVIEW and f.rendered),
+        key=lambda f: (f.need.src_type, f.need.tgt_type, f.need.tclass, f.rendered),
+    )
+    if review_rows:
+        lines.append("# Needs review (domain-weakening permissions; --allow-needs-review)")
+        for f in review_rows:
+            lines.append(f"# {f.note}")
+            lines.append(f.rendered)
+        lines.append("")
     for verdict, heading in (
         (VERDICT_INTERFACE, "# Refpolicy interfaces"),
         (VERDICT_DIRECT, "# Module-private / direct access"),
@@ -546,10 +596,43 @@ def write_pr_summary(findings: list[Finding], app_name: str, meta: dict | None =
         in (VERDICT_DIRECT, VERDICT_FC, VERDICT_FC_DRIFT, VERDICT_INTERFACE, VERDICT_PORT)
     ]
     boolean_rows = [f for f in findings if f.verdict == VERDICT_BOOLEAN]
+    review_rows = sorted(
+        (f for f in findings if f.verdict == VERDICT_NEEDS_REVIEW),
+        key=lambda f: (
+            f.need.src_type,
+            f.need.tgt_type,
+            f.need.tclass,
+            " ".join(sorted(f.need.perms)),
+        ),
+    )
 
-    lines = [
-        "### Network Bindings",
-    ]
+    lines: list[str] = []
+    if review_rows:
+        lines.extend(
+            [
+                "### Needs review (domain-weakening permissions)",
+                "",
+                "These permissions were present in the AVC log. They are **security decisions**, "
+                "not labeling misses. Without `--allow-needs-review` they are **not** written to "
+                "the `.te`.",
+                "",
+            ]
+        )
+        for f in review_rows:
+            perms = " ".join(sorted(f.need.perms))
+            lines.append(
+                f"- `{f.need.src_type}` → `{f.need.tgt_type}:{f.need.tclass} {{ {perms} }}`"
+            )
+            if f.rendered:
+                lines.append(f"  - Proposed rule: `{f.rendered}`")
+            lines.append(f"  - {f.note}")
+        lines.append("")
+
+    lines.extend(
+        [
+            "### Network Bindings",
+        ]
+    )
     port_rows = [f for f in findings if f.verdict == VERDICT_PORT]
     if port_rows:
         for f in port_rows:
@@ -607,6 +690,11 @@ def write_pr_summary(findings: list[Finding], app_name: str, meta: dict | None =
                 lines.append(f"- `{f.next_action}` — {f.note}")
             elif f.verdict == VERDICT_BOOLEAN:
                 lines.append(f"- `{f.next_action}` — `{f.rendered}` (not shipped in the RPM)")
+            elif f.verdict == VERDICT_NEEDS_REVIEW:
+                lines.append(
+                    f"- `{f.next_action}` — pass `--allow-needs-review` only after confirming "
+                    f"this AVC ({f.need.tclass}:{' '.join(sorted(f.need.perms))})"
+                )
             else:
                 lines.append(f"- `{f.next_action}` — {f.note[:160]}")
 
@@ -796,11 +884,7 @@ def run(args: argparse.Namespace) -> int:
     if sepolgen_info.get("if_path"):
         meta["sepolgen_if_path"] = sepolgen_info["if_path"]
 
-    blockers = [
-        f
-        for f in findings
-        if f.verdict in (VERDICT_FORBIDDEN, VERDICT_TOOLCHAIN)
-    ]
+    blockers = generation_blockers(findings, args)
 
     artifact_ctx = {**sepolgen_info, **policy_id}
 
@@ -823,9 +907,22 @@ def run(args: argparse.Namespace) -> int:
         return 1 if blockers else 0
 
     if blockers:
-        print("\n*** GENERATION BLOCKED — fix sepolgen or remove base-type denials from AVC log ***\n", file=sys.stderr)
+        review = [f for f in blockers if f.verdict == VERDICT_NEEDS_REVIEW]
+        other = [f for f in blockers if f.verdict != VERDICT_NEEDS_REVIEW]
+        if other:
+            print(
+                "\n*** GENERATION BLOCKED — fix sepolgen or remove base-type denials from AVC log ***\n",
+                file=sys.stderr,
+            )
+        if review:
+            print(
+                "\n*** GENERATION BLOCKED — domain-weakening permission requires "
+                "--allow-needs-review (or --allow-needs-review-perm) ***\n",
+                file=sys.stderr,
+            )
         for f in blockers:
-            print(f"REFUSED: {f.note}", file=sys.stderr)
+            label = "NEEDS REVIEW" if f.verdict == VERDICT_NEEDS_REVIEW else "REFUSED"
+            print(f"{label}: {f.note}", file=sys.stderr)
         write_findings_artifact(
             args.out_dir, findings, artifact_ctx, generation_blocked=True
         )
@@ -916,6 +1013,18 @@ def main() -> int:
         "--allow-degraded",
         action="store_true",
         help="When sepolgen is missing, emit raw allows on base types (engine=degraded in findings)",
+    )
+    parser.add_argument(
+        "--allow-needs-review",
+        action="store_true",
+        help="Write needs_review allows into the .te (domain-weakening; confirm the AVC first)",
+    )
+    parser.add_argument(
+        "--allow-needs-review-perm",
+        action="append",
+        default=[],
+        metavar="PERM",
+        help="Opt in a single needs_review permission (repeatable), e.g. execmem",
     )
     parser.add_argument(
         "--policy-kern",

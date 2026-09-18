@@ -1,0 +1,43 @@
+# shopapi — Spring Boot demo reference (generation pipeline)
+#
+# Paths and port come from systemd EnvironmentFile written from
+# config/shopapi.manifest.yml. Do not add literals here for the demo host.
+
+app_name: shopapi
+domain: shopapi_t
+
+paths:
+  install_root: /opt/shopapi
+  var_dir: /var/lib/shopapi
+  log_dir: /var/log/shopapi
+  runtime_dir: /run/shopapi
+
+services:
+  primary:
+    unit: shopapi.service
+    domain: shopapi_t
+
+http:
+  host: 127.0.0.1
+  port: 8091
+  endpoints:
+    - /health
+    - /state
+    - /log
+
+selinux_ports:
+  - port: 8091
+    proto: tcp
+    type: shopapi_port_t
+
+integration_tests:
+  description: shopapi health + state + log probes
+  command: bash -lc 'curl -sf http://127.0.0.1:8091/health && curl -sf http://127.0.0.1:8091/state && curl -sf http://127.0.0.1:8091/log'
+
+policy:
+  module_dir: selinux/shopapi
+  service_name: shopapi.service
+
+deploy:
+  soak_marker_file: /var/lib/shopapi/selinux_canary_deployed_at
+  deploy_report_file: /var/lib/shopapi/selinux_deploy_report.json

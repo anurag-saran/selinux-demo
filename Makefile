@@ -8,7 +8,7 @@ export SMOKE_SKIP_FLASK ?= 1
 .PHONY: help deps test check lint fixtures test-smoke test-static test-manifest \
 	test-rpm test-forbidden test-version test-fixtures test-blast-radius \
 	lint-shell lint-yaml lint-ansible integration-compile integration-semantics \
-	training-lab
+	training-lab demo-bootstrap
 
 help: ## List targets (default)
 	@echo "SELinux demo — common targets:"
@@ -37,16 +37,18 @@ test-static: test-forbidden test-version test-rpm test-manifest ## Shell validat
 
 test-forbidden: ## Forbidden-pattern grep on selinux/
 	bash scripts/validate_forbidden_patterns.sh selinux
+	POLICY_MODULE=shopapi SELINUX_DOMAIN=shopapi_t bash scripts/validate_forbidden_patterns.sh selinux/shopapi
+
+test-manifest: deps ## App manifest YAML validation
+	bash scripts/validate_app_manifest.sh config/myapp.manifest.yml
+	bash scripts/validate_app_manifest.sh config/payments.manifest.example.yml
+	bash scripts/validate_app_manifest.sh config/shopapi.manifest.yml
 
 test-version: ## policy_version.txt vs policy_module() consistency
 	bash scripts/validate_version_consistency.sh
 
 test-rpm: ## Ops RPM packaging allowlist
 	bash scripts/validate_rpm_ops_parity.sh
-
-test-manifest: deps ## App manifest YAML validation
-	bash scripts/validate_app_manifest.sh config/myapp.manifest.yml
-	bash scripts/validate_app_manifest.sh config/payments.manifest.example.yml
 
 test-smoke: deps ## Python smoke_test.py (skips live Flask by default)
 	$(PYTHON) scripts/smoke_test.py --no-require-backend
@@ -79,6 +81,7 @@ integration-compile: ## Compile selinux/ modules (needs selinux-policy-devel)
 	fi
 	bash scripts/compile_and_validate.sh selinux
 	POLICY_MODULE=payments SELINUX_DOMAIN=payments_t bash scripts/compile_and_validate.sh selinux/payments
+	POLICY_MODULE=shopapi SELINUX_DOMAIN=shopapi_t bash scripts/compile_and_validate.sh selinux/shopapi
 
 integration-semantics: ## sesearch semantic assertions (needs selinux-policy-devel)
 	@if [ ! -f /usr/share/selinux/devel/Makefile ]; then \
@@ -94,3 +97,6 @@ integration-blast-radius: ## Blast-radius with live sesearch (CI / rhel-dev)
 
 training-lab: ## Guided lab walkthrough (run on rhel-dev)
 	bash scripts/run_training_lab.sh
+
+demo-bootstrap: ## Stand up App A/B + shopapi on RHEL (idempotent; not for macOS)
+	bash scripts/demo_bootstrap.sh
